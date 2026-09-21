@@ -176,7 +176,7 @@ tr.isdone input{opacity:.7}
 .people li:first-child{border-top:0}
 .people .nm{flex:1;min-width:120px}
 .people .nm small{display:block;color:var(--muted);font-size:13px}
-.field{flex:1;min-width:200px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
+.field{min-width:0;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
 .btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .btn.small{padding:6px 12px;font-size:14px}
 .msg{margin:10px 0 0;font-size:14px;font-weight:600}
@@ -191,13 +191,18 @@ tr.isdone input{opacity:.7}
 </style>
 
 <style>
-.tabs button{padding:8px 6px;font-size:15px}
+.row .field{flex:1 1 200px}
+.tabs{scrollbar-width:none;-webkit-overflow-scrolling:touch;gap:2px;justify-content:flex-start}
+.tabs::-webkit-scrollbar{display:none}
+.tabs.more{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent)}
+.tabs button{flex:1 0 auto;padding:8px 12px;font-size:15px}
+@media (max-width:400px){.tabs button{padding:8px 10px;font-size:14px}.brand{font-size:20px}}
 .planbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
 .planbar select{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-weight:600}
 .plans{list-style:none;margin:0;padding:0}
 .planrow{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
 .planrow:first-child{border-top:0}
-.planrow .nm{flex:1;min-width:180px}
+.planrow .nm{flex:1;min-width:0;flex-basis:180px}
 .planrow .nm b{font:700 19px/1.2 var(--display)}
 .planrow .nm small{display:block;color:var(--muted);font-size:13px}
 .planweek{display:grid;grid-template-columns:repeat(7,14px);gap:3px}
@@ -205,22 +210,30 @@ tr.isdone input{opacity:.7}
 .planweek span.off{background:transparent;box-shadow:inset 0 0 0 2px var(--line)}
 .tag{display:inline-block;font:600 12px var(--body);background:var(--good);color:#fff;border-radius:999px;padding:1px 8px;vertical-align:middle}
 .dayed .ex-head{align-items:center}
-.typesel{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-weight:600}
-.dayfields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
-.dayfields label,.stack{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+.dayed .ex-head h2{min-width:0}
+.typesel{flex:none;max-width:55%;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-weight:600}
+.dayfields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}
+.dayfields label,.stack{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:13px;color:var(--muted);font-weight:600}
 .dayfields .wide{grid-column:1/-1}
-.dayfields .field,.stack .field{min-width:0;color:var(--ink);font-weight:400;font-size:16px}
-.exrow{display:grid;grid-template-columns:1fr repeat(3,56px);grid-template-areas:"n s lo hi" "u u u b";gap:6px;padding:10px 0;border-top:1px solid var(--line)}
-.exrow .ename{grid-area:n;min-width:0}
-.mini-f{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--muted);font-weight:600}
-.mini-f input,.mini-f select{width:100%;min-width:0;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:16px;color:var(--ink)}
+.dayfields .field,.stack .field{width:100%;min-width:0;color:var(--ink);font-weight:400;font-size:16px}
+/* exercise row: name / sets-min-max / unit + buttons on phones, one line on wider screens */
+.exrow{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"n n" "nums nums" "u b";gap:8px;padding:12px 0;border-top:1px solid var(--line)}
+.exrow .ename{grid-area:n;width:100%;min-width:0}
+.nums{grid-area:nums;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.mini-f{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:11px;color:var(--muted);font-weight:600}
+.mini-f input,.mini-f select{width:100%;min-width:0;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:16px;color:var(--ink)}
 .mini-f.unit{grid-area:u;flex-direction:row;align-items:center;gap:8px}
-.mini-f.unit select{width:auto;flex:1;max-width:200px;font-size:15px}
-.exbtns{grid-area:b;display:flex;gap:4px;justify-content:flex-end;align-self:center}
-.icon{width:36px;height:36px;border:1px solid var(--line);background:var(--field);border-radius:8px;font-size:15px;line-height:1}
+.mini-f.unit span{flex:none}
+.mini-f.unit select{flex:1;font-size:15px}
+.exbtns{grid-area:b;display:flex;gap:4px;align-self:center}
+.icon{width:36px;height:36px;flex:none;border:1px solid var(--line);background:var(--field);border-radius:8px;font-size:15px;line-height:1;display:grid;place-items:center;padding:0}
 .icon:disabled{opacity:.35;cursor:default}
+@media (min-width:600px){
+  .exrow{grid-template-columns:minmax(0,1fr) 200px 150px auto;grid-template-areas:"n nums u b";align-items:end}
+  .mini-f.unit{flex-direction:column;align-items:stretch;gap:2px}
+  .exbtns{align-self:end}
+}
 .savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
-@media (min-width:560px){.exrow{grid-template-columns:1fr repeat(3,60px) 170px auto;grid-template-areas:"n s lo hi u b"}.mini-f.unit{flex-direction:column;align-items:stretch;gap:2px}.mini-f.unit select{width:100%}}
 </style>
 </head>
 <body>
@@ -250,7 +263,6 @@ const firebaseConfig = {
   appId: "1:1040678939146:web:ebbef891c33a659d770df3",
   measurementId: "G-VP8B61R4ZP"
 };
-
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -589,6 +601,10 @@ function render(){
   <div class="top"><span class="brand">${APP_NAME}</span>${uid?avatar(me):""}</div>
   ${S.view==="signin"?"":`<div class="tabs" role="group" aria-label="View">${tab("log","Workout")}${tab("plans","Plans")}${tab("dash","Dashboard")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</div>`}
   ${views[S.view]()}`;
+  const at=app.querySelector('.tabs [aria-pressed="true"]');
+  if(at&&at.scrollIntoView)at.scrollIntoView({block:"nearest",inline:"nearest"});
+  const tb=app.querySelector('.tabs');
+  if(tb){const f=()=>tb.classList.toggle("more",tb.scrollLeft+tb.clientWidth<tb.scrollWidth-4);f();tb.addEventListener("scroll",f,{passive:true})}
 }
 function renderSignIn(){
   return `<div class="hero"><h1 style="color:var(--ink)">Train.<br>Log.<br>Beat it.</h1>
@@ -697,9 +713,9 @@ function renderPlanEdit(){
     const exRows=d.ex.map((x,j)=>`
       <div class="exrow">
         <input class="field ename" list="exnames" data-di="${i}" data-xi="${j}" data-xf="n" value="${esc(x.n)}" placeholder="Exercise name" aria-label="Exercise name">
-        <label class="mini-f"><span>Sets</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="s" value="${x.s??""}"></label>
+        <div class="nums"><label class="mini-f"><span>Sets</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="s" value="${x.s??""}"></label>
         <label class="mini-f"><span>Min</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="lo" value="${x.lo??""}"></label>
-        <label class="mini-f"><span>Max</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="hi" value="${x.hi??""}"></label>
+        <label class="mini-f"><span>Max</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="hi" value="${x.hi??""}"></label></div>
         <label class="mini-f unit"><span>Counted in</span><select data-di="${i}" data-xi="${j}" data-xf="u">${unitOpts(x.u)}</select></label>
         <div class="exbtns">
           <button class="icon" data-mv="-1" data-di="${i}" data-xi="${j}" aria-label="Move up" ${j===0?"disabled":""}>&#8593;</button>
