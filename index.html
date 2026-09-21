@@ -15,7 +15,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <script>
 /* catch the install prompt early, before the app script loads */
 window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__bip=e;window.dispatchEvent(new Event("ppl-bip"));});
@@ -244,6 +244,29 @@ tr.isdone input{opacity:.7}
 .pv-t{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .pv-rest{display:flex;align-items:center;gap:10px;padding:12px 16px;margin-bottom:14px;border:1px dashed var(--line);border-radius:14px}
 .pv-dot{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--rest);flex:none}
+/* landing */
+body.landing-on .wrap{max-width:none;padding:0}
+body.landing-on .timer{display:none}
+.landing{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+  text-align:center;padding:clamp(40px,10vh,96px) 28px 28px;max-width:520px;margin:0 auto;gap:40px}
+.l-top{display:flex;flex-direction:column;align-items:center}
+.l-mark{width:132px;height:66px;overflow:visible}
+.l-mark path{stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.6s cubic-bezier(.6,.1,.3,1) .15s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.l-title{margin:22px 0 0;font:800 clamp(48px,14vw,68px)/.9 var(--display);letter-spacing:.02em;text-transform:uppercase}
+.l-sub{margin:10px 0 0;font-size:13px;font-weight:600;letter-spacing:.32em;text-transform:uppercase;color:var(--muted)}
+.l-quote{margin:0;max-width:24ch;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.l-quote blockquote{margin:0;font:italic 400 clamp(26px,7.2vw,34px)/1.22 "Instrument Serif",Georgia,"Times New Roman",serif;color:var(--ink);transition:opacity .22s ease,transform .22s ease}
+.l-quote blockquote::before{content:"";display:block;width:28px;height:2px;margin:0 auto 22px;background:var(--line)}
+.l-quote blockquote.fade{opacity:0;transform:translateY(6px)}
+.l-quote:focus-visible{outline-offset:8px;border-radius:8px}
+.l-actions{width:100%;max-width:340px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.l-btn{width:100%;border:0;border-radius:999px;padding:16px 24px;background:var(--ink);color:var(--bg);font-weight:600;font-size:17px;transition:transform .12s ease}
+.l-btn:active{transform:scale(.98)}
+.l-link{border:0;background:none;color:var(--muted);font-weight:500;font-size:15px;padding:6px;text-decoration:underline;text-underline-offset:3px}
+.l-actions .status{margin:0;min-height:1.2em}
+.l-foot{margin:0;font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.l-mark path{animation:none;stroke-dashoffset:0}}
 .savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
 </style>
 </head>
@@ -261,28 +284,19 @@ tr.isdone input{opacity:.7}
   <button id="tstop">Done</button>
 </div>
 <script type="module">
-/* =====================================================================
-   Paste your Firebase web app config here
-   (Firebase console > Project settings > Your apps > Web app)
-   ===================================================================== */
-const firebaseConfig = {
-  apiKey: "AIzaSyCNjOEst22aKQo9ROEIa438p3v5JS9M2Fo",
-  authDomain: "fitness-tracker-472ec.firebaseapp.com",
-  projectId: "fitness-tracker-472ec",
-  storageBucket: "fitness-tracker-472ec.firebasestorage.app",
-  messagingSenderId: "1040678939146",
-  appId: "1:1040678939146:web:ebbef891c33a659d770df3",
-  measurementId: "G-VP8B61R4ZP"
-};
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, query, where, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+/* Firebase settings live in firebase-config.js (not overwritten by app updates).
+   If that file is missing or still has placeholders, the app runs in guest mode. */
+let firebaseConfig=null;
+try{firebaseConfig=(await import("./firebase-config.js")).default}catch(e){console.info("No firebase-config.js found: running in guest mode.")}
+const CONFIGURED=!!(firebaseConfig&&firebaseConfig.apiKey&&!String(firebaseConfig.apiKey).startsWith("YOUR_"));
+const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
+const FB=CONFIGURED?Object.assign({},...await Promise.all(["firebase-app.js","firebase-auth.js","firebase-firestore.js"].map(f=>import(SDK+f)))):{};
+const {initializeApp,getAuth,onAuthStateChanged,GoogleAuthProvider,signInWithPopup,signInWithRedirect,signOut,
+  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp}=FB;
 
 (function(){
 "use strict";
 const APP_NAME="Infinity Fitness Tracker";
-const CONFIGURED=!firebaseConfig.apiKey.startsWith("YOUR_");
 let auth=null,fs=null,uid=null,me={name:"",photo:"",email:""};
 if(CONFIGURED){
   const app=initializeApp(firebaseConfig);
@@ -604,10 +618,12 @@ function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view)
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={signin:renderSignIn,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
   const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
+  document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot");
+  if(S.view==="signin"||S.view==="boot"){app.innerHTML=renderLanding(S.view==="boot");return}
   app.innerHTML=`
   <div class="top"><span class="brand">${APP_NAME}</span>${uid?avatar(me):""}</div>
   ${S.view==="signin"?"":`<div class="tabs" role="group" aria-label="View">${tab("log","Workout")}${tab("plans","Plans")}${tab("dash","Dashboard")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</div>`}
@@ -617,12 +633,53 @@ function render(){
   const tb=app.querySelector('.tabs');
   if(tb){const f=()=>tb.classList.toggle("more",tb.scrollLeft+tb.clientWidth<tb.scrollWidth-4);f();tb.addEventListener("scroll",f,{passive:true})}
 }
-function renderSignIn(){
-  return `<div class="hero"><h1 style="color:var(--ink)">Train.<br>Log.<br>Beat it.</h1>
-    <p class="focus">Your workout plans, every set logged, and buddies to keep you honest.</p></div>
-    <div class="row"><button class="btn primary" id="signin" style="padding:12px 20px">Sign in with Google</button>
-    <button class="btn" id="guest">Use without an account</button></div>
-    <p class="status" id="status"></p>`;
+/* ---------- landing ---------- */
+const QUOTES=[
+  "Show up on the days you don't feel like it. Those are the ones that count.",
+  "Small plates add up. So do small wins.",
+  "You don't have to be extreme. You have to be consistent.",
+  "One more rep is how every record starts.",
+  "You'll never regret the session you showed up for.",
+  "Strength is built on ordinary days.",
+  "Progress is quiet. Keep going anyway.",
+  "The hardest lift of the day is getting out the door.",
+  "Beat last week. That's the whole plan.",
+  "Today's heavy is next month's warm-up.",
+  "Rest is part of the program, not a break from it.",
+  "Every set you log is proof you showed up.",
+  "Slow progress is still progress. Stopping is the only way to lose.",
+  "Come for the numbers. Stay for who you become.",
+  "The bar doesn't care about excuses. Neither do results.",
+  "Earn it one rep at a time."
+];
+let quoteIdx=(()=>{const d=new Date();return Math.floor((d-new Date(d.getFullYear(),0,0))/86400000)%QUOTES.length})();
+const INFINITY_SVG=`<svg class="l-mark" viewBox="0 0 120 60" aria-hidden="true">
+  <defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="var(--push)"/><stop offset=".5" stop-color="var(--pull)"/><stop offset="1" stop-color="var(--legs)"/></linearGradient></defs>
+  <path pathLength="1" d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z"
+    fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+function renderLanding(booting){
+  return `<main class="landing">
+    <div class="l-top">
+      ${INFINITY_SVG}
+      <h1 class="l-title">Infinity</h1>
+      <p class="l-sub">Fitness tracker</p>
+    </div>
+    <figure class="l-quote" ${booting?"":'id="quote" role="button" tabindex="0" aria-label="Show another quote"'}>
+      <blockquote id="quote-text">${esc(QUOTES[quoteIdx])}</blockquote>
+    </figure>
+    <div class="l-actions" ${booting?'aria-hidden="true" style="visibility:hidden"':""}>
+      <button class="l-btn" id="signin">Continue with Google</button>
+      <button class="l-link" id="guest">Try it without an account</button>
+      <p class="status" id="status"></p>
+    </div>
+    <p class="l-foot">Plans, sets, streaks and buddies, synced on every device.</p>
+  </main>`;
+}
+function nextQuote(){
+  const el=$("#quote-text");if(!el)return;
+  quoteIdx=(quoteIdx+1)%QUOTES.length;
+  el.classList.add("fade");
+  setTimeout(()=>{el.textContent=QUOTES[quoteIdx];el.classList.remove("fade")},220);
 }
 function renderLog(){
   const p=viewPlan();const d=day();const s=cur();const wk=weekInfo();
@@ -1007,6 +1064,7 @@ function leaveEditor(){
   S.draft=null;S.draftId=null;return true;
 }
 document.addEventListener("click",async e=>{
+  if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
   if(ds.view){if(S.view==="planEdit"&&!leaveEditor())return;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
@@ -1065,7 +1123,7 @@ document.addEventListener("click",async e=>{
     if(e2.done)startTimer(REST_SECONDS);
   }
 });
-document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
+document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   /* plan editor fields: update the draft without re-rendering */
@@ -1153,7 +1211,7 @@ const params=new URLSearchParams(location.search);
 const addParam=params.get("add");
 function clearAddParam(){if(params.has("add")){params.delete("add");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 if(CONFIGURED){
-  render();
+  S.view="boot";render();
   onAuthStateChanged(auth,async user=>{
     stopSocial();
     uid=user?user.uid:null;
