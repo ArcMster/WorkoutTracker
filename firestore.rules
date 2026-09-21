@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+
+    // A buddy link is an accepted request in either direction.
+    function accepted(a, b) {
+      let p = /databases/$(database)/documents/requests/$(a + '_' + b);
+      return exists(p) && get(p).data.status == 'accepted';
+    }
+    function isBuddy(other) {
+      return signedIn() && (accepted(request.auth.uid, other) || accepted(other, request.auth.uid));
+    }
+
+    // Private workout log: only the owner, ever.
+    match /users/{uid}/log/{docId} {
+      allow read, write: if isMe(uid);
+    }
+
+    // Name and photo. Anyone signed in can look up one profile by id,
+    // but nobody can list or browse all profiles.
+    match /profiles/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow write: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['name', 'photo']);
+    }
+
+    // Email lookup for "add by email". Exact match only, no listing.
+    match /emails/{email} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.auth.token.email.lower() == email;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // Buddy requests. Id is "{from}_{to}".
+    match /requests/{id} {
+      allow read: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(['from', 'to', 'status', 'created']);
+      // Only the receiver can accept, and only the status can change.
+      allow update: if signedIn()
+        && resource.data.to == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      // Either side can cancel, decline or unfriend.
+      allow delete: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+    }
+
+    // Progress summary. The app only writes stats here while sharing is on;
+    // turning sharing off overwrites it with { sharing: false }.
+    match /shared/{uid} {
+      allow read: if isMe(uid) || isBuddy(uid);
+      allow write: if isMe(uid);
+    }
+  }
+}

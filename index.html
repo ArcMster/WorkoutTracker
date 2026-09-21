@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Infinity Fitness Tracker</title>
+<meta name="description" content="6-day push, pull, legs workout tracker with gym buddies">
+<meta name="theme-color" content="#18202C">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Infinity">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+/* catch the install prompt early, before the app script loads */
+window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__bip=e;window.dispatchEvent(new Event("ppl-bip"));});
+</script>
+<style>
+:root{
+  --bg:#ECEEF1;--surface:#FFFFFF;--field:#F3F5F7;--ink:#18202C;--muted:#5D6776;--line:#D6DBE2;
+  --push:#C8322B;--pull:#2458A6;--legs:#D9A413;--core:#2E8B57;--cardio:#16808F;--rest:#9AA3B0;--good:#23804D;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#11151B;--surface:#1A2029;--field:#222A35;--ink:#E7EBF0;--muted:#98A2B1;--line:#2D3542;
+    --push:#E3574F;--pull:#5B8CDD;--legs:#E9BE3C;--core:#4DB07A;--cardio:#38B2C2;--rest:#6C7684;--good:#4DB07A;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11151B;--surface:#1A2029;--field:#222A35;--ink:#E7EBF0;--muted:#98A2B1;--line:#2D3542;
+  --push:#E3574F;--pull:#5B8CDD;--legs:#E9BE3C;--core:#4DB07A;--cardio:#38B2C2;--rest:#6C7684;--good:#4DB07A;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--pull);outline-offset:2px}
+.wrap{max-width:640px;margin:0 auto;padding:16px 16px 120px}
+
+/* top bar */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.brand{font:800 22px/1 var(--display);letter-spacing:.01em}
+.tabs{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px}
+.tabs button{border:0;background:none;padding:7px 16px;border-radius:999px;font-weight:600;color:var(--muted)}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+/* the week of plates */
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+.plate{border:0;background:none;padding:0;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted);font-weight:600;font-size:13px}
+.disc{width:100%;max-width:52px;aspect-ratio:1;border-radius:50%;position:relative;
+  background:var(--c);box-shadow:inset 0 0 0 3px rgba(0,0,0,.14);transition:transform .18s ease}
+.disc::after{content:"";position:absolute;inset:39%;border-radius:50%;background:var(--bg);box-shadow:inset 0 0 0 2px rgba(0,0,0,.18)}
+.disc.split{background:conic-gradient(var(--legs) 0 50%,var(--core) 50% 100%)}
+.disc.rest{background:transparent;box-shadow:inset 0 0 0 3px var(--rest)}
+.plate[aria-pressed="true"]{color:var(--ink)}
+.plate[aria-pressed="true"] .disc{transform:scale(1.14)}
+.plate .logged{width:5px;height:5px;border-radius:50%;background:var(--ink);opacity:0}
+.plate .logged.on{opacity:1}
+
+.hero{padding:18px 0 14px}
+.hero h1{margin:0;font:800 clamp(64px,19vw,112px)/.86 var(--display);letter-spacing:-.01em;color:var(--dc)}
+.hero .focus{margin:10px 0 0;font-size:18px;font-weight:600}
+.hero .note{margin:4px 0 0;color:var(--muted);max-width:52ch}
+
+.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 22px}
+.meta input[type=date]{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:7px 10px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:14px;font-weight:600}
+.chip.warn{border-color:var(--legs)}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px}
+.switch input{accent-color:var(--pull);width:16px;height:16px;margin:0}
+
+/* exercise blocks */
+.ex{background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--dc);border-radius:6px 14px 14px 6px;padding:14px 14px 10px;margin-bottom:14px}
+.ex-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.ex h2{margin:0;font:700 21px/1.15 var(--display)}
+.target{font:700 18px/1 var(--display);white-space:nowrap;color:var(--muted)}
+.last{margin:6px 0 0;font-size:14px;color:var(--muted)}
+.hint{margin:6px 0 0;font-size:14px;font-weight:600}
+.hint.up{color:var(--good)}
+.sets{width:100%;border-collapse:collapse;margin-top:10px}
+.sets th{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:0 4px 4px}
+.sets td{padding:4px}
+.sets td:first-child{width:34px;font:700 18px var(--display);color:var(--muted);text-align:center}
+.sets input{width:100%;min-width:0;background:var(--field);border:1px solid transparent;border-radius:10px;padding:10px;font-size:17px;font-variant-numeric:tabular-nums}
+.sets input:focus{border-color:var(--dc);outline:none}
+.sets input::placeholder{color:var(--muted);opacity:.55}
+.sets td.ok{width:52px}
+.done{width:44px;height:44px;border-radius:50%;border:2px solid var(--line);background:none;display:grid;place-items:center}
+.done svg{width:20px;height:20px;stroke:var(--muted);opacity:.5}
+.done[aria-pressed="true"]{background:var(--dc);border-color:var(--dc)}
+.done[aria-pressed="true"] svg{stroke:#fff;opacity:1}
+.beat{font-size:12px;font-weight:700;color:var(--good);white-space:nowrap}
+tr.isdone input{opacity:.7}
+
+.restday{background:var(--surface);border:1px dashed var(--rest);border-radius:14px;padding:20px;color:var(--muted)}
+.status{font-size:13px;color:var(--muted);text-align:center;margin-top:8px;min-height:1.4em}
+
+/* history */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+.panel h2{margin:0 0 10px;font:700 24px/1.1 var(--display)}
+.panel select{width:100%;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
+.chart{margin-top:12px;overflow-x:auto}
+.chart svg{display:block;width:100%;height:auto}
+.hlist{list-style:none;margin:10px 0 0;padding:0}
+.hlist li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.hlist li span:last-child{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.sess{width:100%;display:flex;align-items:center;gap:12px;border:0;border-top:1px solid var(--line);background:none;padding:10px 0;text-align:left}
+.sess .dot{width:14px;height:14px;border-radius:50%;flex:none;background:var(--c)}
+.sess .dot.split{background:conic-gradient(var(--legs) 0 50%,var(--core) 50% 100%)}
+.sess b{font-weight:600}
+.sess small{margin-left:auto;color:var(--muted);font-size:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--field);border-radius:10px;padding:9px 14px;font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:var(--field);padding:9px 16px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.muted{color:var(--muted)}
+.rules{margin:0;padding-left:20px;color:var(--muted);font-size:15px}
+.rules li{margin:4px 0}
+
+/* rest timer */
+.timer{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);display:flex;align-items:center;gap:12px;transform:translateY(110%);transition:transform .22s ease}
+.timer.on{transform:none}
+.timer .t{font:800 30px/1 var(--display);font-variant-numeric:tabular-nums;min-width:74px}
+.timer .bar{flex:1;height:6px;background:rgba(127,127,127,.35);border-radius:3px;overflow:hidden}
+.timer .bar i{display:block;height:100%;background:var(--legs);width:100%}
+.timer button{border:1px solid rgba(127,127,127,.5);background:none;color:inherit;border-radius:8px;padding:6px 10px;font-weight:600}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<style>
+.tabs{width:100%;justify-content:space-between;margin-bottom:18px;overflow-x:auto}
+.tabs button{flex:1;padding:8px 10px;white-space:nowrap}
+.top{margin-bottom:12px}
+.av{width:36px;height:36px;border-radius:50%;object-fit:cover;flex:none;background:var(--field);display:inline-grid;place-items:center;font:700 15px var(--display);color:var(--muted);border:2px solid var(--line)}
+.av.lg{width:52px;height:52px;font-size:20px}
+.cards{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card.me{border-color:var(--ink)}
+.card-h{display:flex;align-items:center;gap:12px}
+.card-h b{font:700 22px/1.1 var(--display)}
+.card-h small{display:block;color:var(--muted);font-size:13px}
+.mini{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.mini span{aspect-ratio:1;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 2px rgba(0,0,0,.12);position:relative}
+.mini span::after{content:"";position:absolute;inset:38%;border-radius:50%;background:var(--surface)}
+.mini span.off{background:transparent;box-shadow:inset 0 0 0 2px var(--line)}
+.mini span.split{background:conic-gradient(var(--legs) 0 50%,var(--core) 50% 100%)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stats div{background:var(--field);border-radius:10px;padding:8px}
+.stats b{display:block;font:800 26px/1 var(--display);font-variant-numeric:tabular-nums}
+.stats span{font-size:12px;color:var(--muted)}
+.prs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:13px}
+.prs div{border-top:3px solid var(--c);padding-top:4px}
+.prs b{display:block;font:700 17px var(--display)}
+.prs span{color:var(--muted)}
+.board{list-style:none;margin:0;padding:0}
+.board li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.board li:first-child{border-top:0}
+.board .rk{font:800 24px/1 var(--display);width:24px;color:var(--muted)}
+.board .nm{flex:1;font-weight:600}
+.board .v{text-align:right;font-variant-numeric:tabular-nums}
+.board .v small{display:block;color:var(--muted);font-size:12px}
+.people{list-style:none;margin:0;padding:0}
+.people li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.people li:first-child{border-top:0}
+.people .nm{flex:1;min-width:120px}
+.people .nm small{display:block;color:var(--muted);font-size:13px}
+.field{flex:1;min-width:200px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.small{padding:6px 12px;font-size:14px}
+.msg{margin:10px 0 0;font-size:14px;font-weight:600}
+.link{border:0;background:none;padding:0;color:var(--pull);font-weight:600}
+.bigswitch{display:flex;align-items:flex-start;gap:12px}
+.bigswitch input{width:22px;height:22px;accent-color:var(--good);margin:2px 0 0;flex:none}
+.install{position:sticky;top:0;z-index:5;background:var(--ink);color:var(--bg);padding:12px 16px;display:none;align-items:center;gap:12px;flex-wrap:wrap}
+.install.on{display:flex}
+.install p{margin:0;flex:1;min-width:200px;font-size:15px}
+.install button{border:1px solid rgba(127,127,127,.5);background:none;color:inherit;border-radius:8px;padding:7px 12px;font-weight:600}
+.install button.go{background:var(--bg);color:var(--ink);border-color:var(--bg)}
+</style>
+
+<style>
+.tabs button{padding:8px 6px;font-size:15px}
+.planbar{display:flex;gap:8px;align-items:center;margin-bottom:16px}
+.planbar select{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-weight:600}
+.plans{list-style:none;margin:0;padding:0}
+.planrow{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.planrow:first-child{border-top:0}
+.planrow .nm{flex:1;min-width:180px}
+.planrow .nm b{font:700 19px/1.2 var(--display)}
+.planrow .nm small{display:block;color:var(--muted);font-size:13px}
+.planweek{display:grid;grid-template-columns:repeat(7,14px);gap:3px}
+.planweek span{width:14px;height:14px;border-radius:50%;background:var(--c)}
+.planweek span.off{background:transparent;box-shadow:inset 0 0 0 2px var(--line)}
+.tag{display:inline-block;font:600 12px var(--body);background:var(--good);color:#fff;border-radius:999px;padding:1px 8px;vertical-align:middle}
+.dayed .ex-head{align-items:center}
+.typesel{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:7px 10px;font-weight:600}
+.dayfields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.dayfields label,.stack{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+.dayfields .wide{grid-column:1/-1}
+.dayfields .field,.stack .field{min-width:0;color:var(--ink);font-weight:400;font-size:16px}
+.exrow{display:grid;grid-template-columns:1fr repeat(3,56px);grid-template-areas:"n s lo hi" "u u u b";gap:6px;padding:10px 0;border-top:1px solid var(--line)}
+.exrow .ename{grid-area:n;min-width:0}
+.mini-f{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--muted);font-weight:600}
+.mini-f input,.mini-f select{width:100%;min-width:0;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:16px;color:var(--ink)}
+.mini-f.unit{grid-area:u;flex-direction:row;align-items:center;gap:8px}
+.mini-f.unit select{width:auto;flex:1;max-width:200px;font-size:15px}
+.exbtns{grid-area:b;display:flex;gap:4px;justify-content:flex-end;align-self:center}
+.icon{width:36px;height:36px;border:1px solid var(--line);background:var(--field);border-radius:8px;font-size:15px;line-height:1}
+.icon:disabled{opacity:.35;cursor:default}
+.savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
+@media (min-width:560px){.exrow{grid-template-columns:1fr repeat(3,60px) 170px auto;grid-template-areas:"n s lo hi u b"}.mini-f.unit{flex-direction:column;align-items:stretch;gap:2px}.mini-f.unit select{width:100%}}
+</style>
+</head>
+<body>
+<div class="install" id="install" role="region" aria-label="Install app">
+  <p id="install-text">Install Infinity Fitness Tracker on this device for one-tap access at the gym.</p>
+  <button class="go" id="install-go">Install</button>
+  <button id="install-later">Not now</button>
+</div>
+<div class="wrap" id="app"><p class="muted">Loading your log...</p></div>
+<div class="timer" id="timer" role="status" aria-live="polite">
+  <span class="t" id="tt">1:30</span>
+  <span class="bar"><i id="tb"></i></span>
+  <button id="tplus">+30s</button>
+  <button id="tstop">Done</button>
+</div>
+<script type="module">
+/* =====================================================================
+   Paste your Firebase web app config here
+   (Firebase console > Project settings > Your apps > Web app)
+   ===================================================================== */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, getDoc, getDocs, setDoc, deleteDoc, updateDoc, query, where, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+(function(){
+"use strict";
+const APP_NAME="Infinity Fitness Tracker";
+const CONFIGURED=!firebaseConfig.apiKey.startsWith("YOUR_");
+let auth=null,fs=null,uid=null,me={name:"",photo:"",email:""};
+if(CONFIGURED){
+  const app=initializeApp(firebaseConfig);
+  auth=getAuth(app);
+  fs=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
+}
+
+/* ---------- day types and colors ---------- */
+const TYPES={
+  push:{label:"Push",bg:"var(--push)",solid:"var(--push)"},
+  pull:{label:"Pull",bg:"var(--pull)",solid:"var(--pull)"},
+  legs:{label:"Legs",bg:"var(--legs)",solid:"var(--legs)"},
+  upper:{label:"Upper",bg:"conic-gradient(var(--push) 0 50%,var(--pull) 50% 100%)",solid:"var(--push)"},
+  lower:{label:"Lower",bg:"conic-gradient(var(--legs) 0 50%,var(--core) 50% 100%)",solid:"var(--legs)"},
+  full:{label:"Full body",bg:"conic-gradient(var(--push) 0 33.3%,var(--pull) 33.3% 66.6%,var(--legs) 66.6% 100%)",solid:"var(--pull)"},
+  legscore:{label:"Legs + Core",bg:"conic-gradient(var(--legs) 0 50%,var(--core) 50% 100%)",solid:"var(--legs)"},
+  core:{label:"Core",bg:"var(--core)",solid:"var(--core)"},
+  cardio:{label:"Cardio",bg:"var(--cardio)",solid:"var(--cardio)"},
+  other:{label:"Other",bg:"var(--muted)",solid:"var(--muted)"},
+  rest:{label:"Rest",bg:"transparent",solid:"var(--rest)"}
+};
+const tinfo=t=>TYPES[t]||TYPES.other;
+const UNITS=[["","reps"],["sec","seconds"],["min","minutes"],["per leg","reps per leg"],["per side","reps per side"]];
+const WD=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const WD_LONG=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+/* ---------- built-in plans ---------- */
+const X=(n,s,lo,hi,u)=>({n,s,lo,hi,u:u||""});
+const REST=(focus)=>({t:"rest",title:"Rest",focus:focus||"Recovery, light walking, mobility work",note:"",ex:[]});
+const BUILTIN=[
+ {id:"ppl",builtin:true,name:"Push / Pull / Legs, 6 days",days:[
+  {t:"push",title:"Push",focus:"Chest, shoulders, triceps",note:"",ex:[X("Bench Press",4,6,8),X("Overhead Press",3,8,10),X("Incline Dumbbell Press",3,8,10),X("Lateral Raises",3,12,15),X("Triceps Dips or Pushdowns",3,10,12)]},
+  {t:"pull",title:"Pull",focus:"Back, biceps",note:"Heavier, lower-rep pull session with a deadlift focus.",ex:[X("Deadlift or Rack Pull",3,5,6),X("Pull-ups / Lat Pulldown",4,6,10),X("Barbell or Dumbbell Row",3,8,10),X("Face Pulls",3,12,15),X("Barbell or Dumbbell Curl",3,10,12)]},
+  {t:"legs",title:"Legs",focus:"Main lower body day",note:"",ex:[X("Squat",4,6,8),X("Romanian Deadlift",3,8,10),X("Leg Press or Walking Lunges",3,10,12),X("Leg Curl",3,10,12),X("Calf Raises",4,12,15)]},
+  {t:"push",title:"Push",focus:"Volume and progression",note:"Aim to beat Monday's numbers: one more rep or a small jump in weight.",ex:[X("Overhead Press",4,6,8),X("Flat or Incline Bench Press",3,8,10),X("Cable Flyes",3,10,12),X("Rear Delt Flyes",3,12,15),X("Close-Grip Bench or Overhead Extension",3,10,12)]},
+  {t:"pull",title:"Pull",focus:"Higher-rep volume",note:"Slightly higher reps to build volume without taxing the lower back.",ex:[X("Weighted Pull-ups / Lat Pulldown",4,6,8),X("Seated Cable Row",3,10,12),X("Single-Arm Dumbbell Row",3,10,12),X("Shrugs",3,12,15),X("Hammer Curl",3,10,12)]},
+  {t:"legscore",title:"Legs + Core",focus:"Lighter legs, then the abs finisher",note:"Go lighter on legs than Wednesday, then finish with the full core block.",ex:[X("Front Squat or Leg Press",3,8,10),X("Walking Lunges",3,10,12,"per leg"),X("Leg Extension",3,12,15),X("Hanging Leg Raises",3,10,15),X("Cable Crunch",3,12,15),X("Plank",3,45,60,"sec"),X("Russian Twists",3,15,15,"per side"),X("Ab Wheel Rollout",3,8,10)]},
+  REST()]},
+ {id:"ul4",builtin:true,name:"Upper / Lower, 4 days",days:[
+  {t:"upper",title:"Upper",focus:"Heavy upper body",note:"",ex:[X("Bench Press",4,6,8),X("Barbell or Dumbbell Row",4,6,8),X("Overhead Press",3,8,10),X("Pull-ups / Lat Pulldown",3,8,10),X("Barbell or Dumbbell Curl",2,10,12),X("Triceps Dips or Pushdowns",2,10,12)]},
+  {t:"lower",title:"Lower",focus:"Heavy lower body",note:"",ex:[X("Squat",4,6,8),X("Romanian Deadlift",3,8,10),X("Leg Press or Walking Lunges",3,10,12),X("Leg Curl",3,10,12),X("Calf Raises",4,12,15)]},
+  REST(),
+  {t:"upper",title:"Upper",focus:"Upper body volume",note:"",ex:[X("Incline Dumbbell Press",4,8,10),X("Seated Cable Row",4,10,12),X("Lateral Raises",3,12,15),X("Face Pulls",3,12,15),X("Hammer Curl",3,10,12),X("Close-Grip Bench or Overhead Extension",3,10,12)]},
+  {t:"lower",title:"Lower",focus:"Deadlift and core",note:"",ex:[X("Deadlift or Rack Pull",3,5,6),X("Front Squat or Leg Press",3,8,10),X("Walking Lunges",3,10,12,"per leg"),X("Leg Extension",3,12,15),X("Plank",3,45,60,"sec")]},
+  REST(),REST()]},
+ {id:"fb3",builtin:true,name:"Full body, 3 days",days:[
+  {t:"full",title:"Full body A",focus:"Squat and bench",note:"",ex:[X("Squat",3,5,8),X("Bench Press",3,5,8),X("Barbell or Dumbbell Row",3,8,10),X("Plank",3,45,60,"sec")]},
+  REST(),
+  {t:"full",title:"Full body B",focus:"Deadlift and press",note:"",ex:[X("Deadlift or Rack Pull",3,5,6),X("Overhead Press",3,6,8),X("Pull-ups / Lat Pulldown",3,6,10),X("Walking Lunges",3,10,12,"per leg")]},
+  REST(),
+  {t:"full",title:"Full body C",focus:"Volume day",note:"",ex:[X("Front Squat or Leg Press",3,8,10),X("Incline Dumbbell Press",3,8,10),X("Seated Cable Row",3,10,12),X("Face Pulls",3,12,15),X("Hanging Leg Raises",3,10,15)]},
+  REST(),REST()]}
+];
+const KEY_LIFTS=[["Bench Press","Bench","var(--push)"],["Squat","Squat","var(--legs)"],["Deadlift or Rack Pull","Deadlift","var(--pull)"],["Overhead Press","OHP","var(--core)"]];
+const REST_SECONDS=90;
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o));
+function iso(d){const z=new Date(d.getTime()-d.getTimezoneOffset()*60000);return z.toISOString().slice(0,10)}
+function today(){return iso(new Date())}
+function parseISO(s){const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)}
+function dayOf(s){const g=parseISO(s).getDay();return g===0?7:g}
+function fmtDate(s){return s?parseISO(s).toLocaleDateString(undefined,{day:"numeric",month:"short"}):""}
+function mondayOf(s){const d=parseISO(s);const g=d.getDay();d.setDate(d.getDate()-(g===0?6:g-1));return iso(d)}
+function addDays(s,n){const d=parseISO(s);d.setDate(d.getDate()+n);return iso(d)}
+function num(v){if(v===""||v==null)return null;const n=Number(v);return isFinite(n)?n:null}
+function conv(w,from,to){if(w==null||from===to)return w;const k=from==="lb"?w*0.45359:w/0.45359;return Math.round(k*2)/2}
+function toKg(w,u){return w==null?null:(u==="lb"?w*0.45359:w)}
+function fromKg(w){return w==null?null:(S.settings.unit==="lb"?Math.round(w/0.45359*2)/2:Math.round(w*2)/2)}
+function step(){return S.settings.unit==="kg"?2.5:5}
+function roundTo(x,s){return Math.round(x/s)*s}
+function setsFor(ex,deload){return deload?Math.max(1,Math.round(ex.s*0.6)):ex.s}
+function reps(ex){return !ex.lo?"":ex.lo===ex.hi?String(ex.lo):ex.lo+"-"+ex.hi}
+function target(ex,n){const r=reps(ex);return (n??ex.s)+(r?" x "+r:" sets")+(r&&ex.u?" "+ex.u:"")}
+function repLabel(ex){return ex.u==="sec"?"Sec":ex.u==="min"?"Min":"Reps"}
+function fmtNum(n){return Math.round(n).toLocaleString()}
+function newId(){return "p"+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function avatar(p,lg){
+  const cls="av"+(lg?" lg":"");
+  if(p&&p.photo)return `<img class="${cls}" src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">`;
+  const i=((p&&p.name)||"?").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
+  return `<span class="${cls}" aria-hidden="true">${esc(i||"?")}</span>`;
+}
+
+/* ---------- state ---------- */
+const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},mode:"local",
+  histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
+const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{}};
+
+/* ---------- plans ---------- */
+function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
+function getPlan(id){return BUILTIN.find(p=>p.id===id)||(S.plans[id]?{id,...S.plans[id]}:null)}
+function activePlan(){return getPlan(S.settings.activePlan)||BUILTIN[0]}
+function sid(date,day,planId){return planId==="ppl"?date+"_d"+day:date+"_d"+day+"_"+planId}
+function curId(){return sid(S.date,S.day,S.planId)}
+function cur(){return S.sessions[curId()]}
+function viewPlan(){return getPlan(S.planId)}
+/* the day being shown: from its plan, or rebuilt from the session if that plan was deleted */
+function day(){
+  const p=viewPlan();
+  if(p)return p.days[S.day-1];
+  const s=cur();
+  if(s)return {t:s.t||"other",title:s.title||"Workout",focus:"",note:"This plan was deleted. Showing what you logged.",
+    ex:Object.keys(s.entries||{}).map(n=>X(n,Math.max(1,(s.entries[n]||[]).length),0,0))};
+  return REST();
+}
+function sessionMeta(s){
+  const p=getPlan(s.planId||"ppl");const d=p&&p.days[s.day-1];
+  return {t:s.t||(d&&d.t)||"other",title:s.title||(d&&d.title)||"Workout"};
+}
+function planSummary(p){
+  const w=p.days.filter(d=>d.t!=="rest");
+  return w.length+" workout"+(w.length===1?"":"s")+" a week"+(w.length?": "+[...new Set(w.map(d=>d.title))].join(", "):"");
+}
+function knownNames(){
+  const set=new Set();
+  allPlans().forEach(p=>p.days.forEach(d=>d.ex.forEach(x=>x.n&&set.add(x.n))));
+  Object.values(S.sessions).forEach(s=>Object.keys(s.entries||{}).forEach(n=>set.add(n)));
+  return [...set];
+}
+
+/* ---------- private storage ---------- */
+const LS="ppl-log-v1";
+const chains={};
+async function initStore(){
+  S.sessions={};S.plans={};S.settings={unit:"kg",start:null,sharing:false,activePlan:"ppl"};
+  if(CONFIGURED&&uid){
+    const snap=await getDocs(collection(fs,"users",uid,"log"));
+    snap.forEach(d=>{
+      const v=d.data();
+      if(d.id==="settings")Object.assign(S.settings,v);
+      else if(d.id.startsWith("plan_"))S.plans[d.id.slice(5)]=v;
+      else S.sessions[d.id]=v;
+    });
+    S.mode="db";
+  }else{
+    try{const raw=localStorage.getItem(LS);if(raw){const v=JSON.parse(raw);S.sessions=v.sessions||{};S.plans=v.plans||{};Object.assign(S.settings,v.settings||{})}}catch(e){}
+    S.mode="local";
+  }
+  if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
+  S.planId=S.settings.activePlan;
+}
+function writeDoc(id,data){
+  if(S.mode==="db"){
+    const ref=doc(fs,"users",uid,"log",id);
+    const run=()=>(data===null?deleteDoc(ref):setDoc(ref,data));
+    chains[id]=(chains[id]||Promise.resolve()).then(run,run);
+    return chains[id];
+  }
+  try{localStorage.setItem(LS,JSON.stringify({sessions:S.sessions,settings:S.settings,plans:S.plans}))}catch(e){}
+  return Promise.resolve();
+}
+const timers={};
+function scheduleSave(id){
+  setStatus("Saving...");
+  clearTimeout(timers[id]);
+  timers[id]=setTimeout(()=>{
+    const s=S.sessions[id];
+    writeDoc(id,s?clone(s):null)
+      .then(()=>{setStatus(S.mode==="db"?"Saved to your account":"Saved on this device");schedulePublish()})
+      .catch(()=>setStatus("Couldn't save. Check your connection and edit a set to try again."));
+  },600);
+}
+function saveSettings(){return writeDoc("settings",{...S.settings})}
+function setStatus(t){const el=$("#status");if(el)el.textContent=t}
+
+/* ---------- shared progress summary ---------- */
+function filled(sets){return (sets||[]).filter(x=>x&&x.r!=null)}
+function hasSets(s){return Object.values(s.entries||{}).some(a=>filled(a).length)}
+function computeSummary(){
+  const list=Object.values(S.sessions).filter(s=>s.date&&hasSets(s)).sort((a,b)=>a.date<b.date?-1:1);
+  const wk=mondayOf(today());
+  const weekTypes={};
+  list.filter(s=>mondayOf(s.date)===wk).forEach(s=>{weekTypes[String(s.day)]=sessionMeta(s).t});
+  const weeks=new Set(list.map(s=>mondayOf(s.date)));
+  let streak=0,w=weeks.has(wk)?wk:addDays(wk,-7);
+  while(weeks.has(w)){streak++;w=addDays(w,-7)}
+  let volumeWeek=0;const lifts={};
+  list.forEach(s=>{
+    const u=s.unit||"kg";
+    Object.entries(s.entries||{}).forEach(([name,arr])=>{
+      const f=filled(arr);if(!f.length)return;
+      let top=null;
+      f.forEach(x=>{
+        const kg=toKg(x.w,u)||0;
+        if(mondayOf(s.date)===wk)volumeWeek+=kg*(x.r||0);
+        if(!top||kg>top.w||(kg===top.w&&x.r>top.r))top={d:s.date,w:Math.round(kg*10)/10,r:x.r};
+      });
+      (lifts[name]||(lifts[name]=[])).push(top);
+    });
+  });
+  const liftArr=Object.entries(lifts).map(([n,h])=>{
+    let pr=h[0];h.forEach(x=>{if(x.w>pr.w||(x.w===pr.w&&x.r>pr.r))pr=x});
+    return {n,pr,h:h.slice(-24)};
+  });
+  const recent=list.slice(-6).reverse().map(s=>{let c=0;Object.values(s.entries||{}).forEach(a=>c+=filled(a).length);const m=sessionMeta(s);return {d:s.date,day:s.day,t:m.t,title:m.title,sets:c}});
+  return {sharing:true,name:me.name,photo:me.photo,planName:activePlan().name,weekStart:wk,weekDays:Object.keys(weekTypes).map(Number),weekTypes,streak,
+    volumeWeek:Math.round(volumeWeek),total:list.length,lastDate:list.length?list[list.length-1].date:null,lifts:liftArr,recent,updated:Date.now()};
+}
+let pubTimer=null;
+function schedulePublish(){
+  if(S.mode!=="db"||!S.settings.sharing)return;
+  clearTimeout(pubTimer);pubTimer=setTimeout(publishNow,1500);
+}
+function publishNow(){
+  if(S.mode!=="db")return Promise.resolve();
+  const data=S.settings.sharing?computeSummary():{sharing:false,name:me.name,photo:me.photo,updated:Date.now()};
+  return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
+}
+function live(sum){
+  if(!sum)return null;
+  const wk=mondayOf(today());
+  if(sum.weekStart===wk)return sum;
+  return {...sum,weekDays:[],weekTypes:{},volumeWeek:0,streak:sum.weekStart===addDays(wk,-7)?sum.streak:0};
+}
+
+/* ---------- buddies ---------- */
+function stopSocial(){
+  SOC.unsubs.forEach(u=>u());SOC.unsubs=[];
+  Object.values(SOC.buddyUnsubs).forEach(u=>u());
+  Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{}});
+}
+function loadProfile(u){
+  if(SOC.profiles[u])return;
+  SOC.profiles[u]={name:"",photo:""};
+  getDoc(doc(fs,"profiles",u)).then(d=>{SOC.profiles[u]=d.exists()?d.data():{name:"Unknown user",photo:""};softRender()})
+    .catch(()=>{SOC.profiles[u]={name:"Unknown user",photo:""}});
+}
+function startSocial(){
+  const rq=collection(fs,"requests");
+  let fromMe=[],toMe=[];
+  const recompute=()=>{
+    SOC.outgoing=fromMe.filter(r=>r.status==="pending");
+    SOC.incoming=toMe.filter(r=>r.status==="pending");
+    SOC.accepted=[...fromMe,...toMe].filter(r=>r.status==="accepted").map(r=>({id:r.id,uid:r.from===uid?r.to:r.from}));
+    [...SOC.accepted.map(a=>a.uid),...SOC.incoming.map(r=>r.from),...SOC.outgoing.map(r=>r.to)].forEach(loadProfile);
+    const bset=new Set(SOC.accepted.map(a=>a.uid));
+    bset.forEach(b=>{if(!SOC.buddyUnsubs[b])watchBuddy(b,recompute)});
+    Object.keys(SOC.buddyUnsubs).forEach(b=>{if(!bset.has(b)){SOC.buddyUnsubs[b]();delete SOC.buddyUnsubs[b];delete SOC.shared[b]}});
+    softRender();
+  };
+  SOC.unsubs.push(onSnapshot(query(rq,where("from","==",uid)),s=>{fromMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
+  SOC.unsubs.push(onSnapshot(query(rq,where("to","==",uid)),s=>{toMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
+}
+function watchBuddy(b,recompute){
+  SOC.buddyUnsubs[b]=onSnapshot(doc(fs,"shared",b),snap=>{
+    SOC.shared[b]=snap.exists()?snap.data():{sharing:false};SOC.retries[b]=0;softRender();
+  },()=>{
+    delete SOC.buddyUnsubs[b];
+    SOC.retries[b]=(SOC.retries[b]||0)+1;
+    if(SOC.retries[b]<=4)setTimeout(recompute,3000*SOC.retries[b]);
+  });
+}
+function say(t,ok){S.msg=t;S.msgOk=!!ok;softRender(true)}
+async function sendRequest(to){
+  if(to===uid)return say("That's your own account.");
+  if(SOC.accepted.some(a=>a.uid===to))return say("You're already buddies.");
+  if(SOC.outgoing.some(r=>r.to===to))return say("Request already sent. Waiting for them to accept.");
+  const inc=SOC.incoming.find(r=>r.from===to);
+  if(inc)return accept(inc.id);
+  try{await setDoc(doc(fs,"requests",uid+"_"+to),{from:uid,to,status:"pending",created:serverTimestamp()});say("Buddy request sent.",true)}
+  catch(e){say("Couldn't send the request. Try again.")}
+}
+async function addByEmail(email){
+  const e=email.trim().toLowerCase();
+  if(!e)return say("Enter your buddy's Google email.");
+  try{
+    const d=await getDoc(doc(fs,"emails",e));
+    if(!d.exists())return say("No one with that email has signed in yet. Send them your invite link instead.");
+    await sendRequest(d.data().uid);
+  }catch(err){say("Couldn't look up that email. Check your connection.")}
+}
+function accept(id){return updateDoc(doc(fs,"requests",id),{status:"accepted"}).then(()=>say("You're now buddies.",true)).catch(()=>say("Couldn't accept. Try again."))}
+function removeReq(id,okMsg){return deleteDoc(doc(fs,"requests",id)).then(()=>okMsg&&say(okMsg,true)).catch(()=>say("That didn't go through. Try again."))}
+function inviteLink(){return location.origin+location.pathname+"?add="+uid}
+
+/* ---------- workout logic ---------- */
+function ensure(){
+  const id=curId();
+  if(!S.sessions[id]){const d=day();S.sessions[id]={date:S.date,day:S.day,planId:S.planId,t:d.t,title:d.title,unit:S.settings.unit,deload:false,entries:{},updated:Date.now()}}
+  if(!S.settings.start){S.settings.start=mondayOf(S.date);saveSettings()}
+  return S.sessions[id];
+}
+function sorted(){return Object.entries(S.sessions).sort((a,b)=>a[1].date<b[1].date?1:a[1].date>b[1].date?-1:b[1].day-a[1].day)}
+function lastFor(name){
+  const mine=curId();
+  for(const [id,s] of sorted()){
+    if(id===mine||s.date>S.date)continue;
+    const f=filled(s.entries&&s.entries[name]);
+    if(f.length)return {date:s.date,unit:s.unit||"kg",sets:f};
+  }
+  return null;
+}
+function fmtSet(x,from){const w=conv(x.w,from,S.settings.unit);return (w!=null&&w>0?w+"x":"")+x.r}
+function weekInfo(){
+  if(!S.settings.start)return null;
+  const days=Math.floor((parseISO(mondayOf(S.date))-parseISO(S.settings.start))/86400000);
+  if(days<0)return null;
+  const w=Math.floor(days/7)+1;
+  return {week:w,cycle:((w-1)%6)+1};
+}
+function hintFor(ex,last){
+  if(!last||!ex.lo)return null;
+  const u=S.settings.unit;
+  const ws=last.sets.map(x=>conv(x.w,last.unit,u)).filter(w=>w!=null&&w>0);
+  const allTop=last.sets.length>=ex.s&&last.sets.slice(0,ex.s).every(x=>x.r>=ex.hi);
+  if(ex.u==="sec"||ex.u==="min")return allTop?{up:true,t:"You hit "+ex.hi+" "+(ex.u==="sec"?"sec":"min")+" on every set. Add a set or a harder variation."}:{t:"Beat it: go a little longer than last time."};
+  if(allTop&&ex.lo<ex.hi&&ws.length){const top=Math.max(...ws);const nx=Math.max(top+step(),roundTo(top*1.05,step()));
+    return {up:true,t:"Top of the range on every set. Go up to "+nx+" "+u+" and aim for "+ex.lo+" reps."}}
+  if(allTop&&ex.lo<ex.hi)return {up:true,t:"Top of the range on every set. Time to add weight or a harder variation."};
+  return {t:"Beat it: one more rep, or +"+step()+" "+u+"."};
+}
+
+/* ---------- render ---------- */
+const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view))render()}
+function render(){
+  const app=$("#app");
+  document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
+  const views={signin:renderSignIn,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit};
+  const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&S.view==="planEdit");
+  const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
+  app.innerHTML=`
+  <div class="top"><span class="brand">${APP_NAME}</span>${uid?avatar(me):""}</div>
+  ${S.view==="signin"?"":`<div class="tabs" role="group" aria-label="View">${tab("log","Workout")}${tab("plans","Plans")}${tab("dash","Dashboard")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</div>`}
+  ${views[S.view]()}`;
+}
+function renderSignIn(){
+  return `<div class="hero"><h1 style="color:var(--ink)">Train.<br>Log.<br>Beat it.</h1>
+    <p class="focus">Your workout plans, every set logged, and buddies to keep you honest.</p></div>
+    <div class="row"><button class="btn primary" id="signin" style="padding:12px 20px">Sign in with Google</button>
+    <button class="btn" id="guest">Use without an account</button></div>
+    <p class="status" id="status"></p>`;
+}
+function renderLog(){
+  const p=viewPlan();const d=day();const s=cur();const wk=weekInfo();
+  const weekStart=mondayOf(S.date);
+  const days=p?p.days:Array.from({length:7},(_,i)=>i===S.day-1?d:REST());
+  const plates=days.map((dd,i)=>{
+    const logged=!!S.sessions[sid(addDays(weekStart,i),i+1,S.planId)];
+    return `<button class="plate" data-day="${i+1}" aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}">
+      <span class="disc ${dd.t==="rest"?"rest":""}" style="--c:${tinfo(dd.t).bg}"></span>${WD[i]}<span class="logged ${logged?"on":""}"></span></button>`;
+  }).join("");
+  const deload=s?!!s.deload:!!(wk&&wk.cycle===6);
+  let body="";
+  if(d.t==="rest"){
+    body=`<div class="restday">No lifting today. ${esc(d.focus||"Walk, stretch, and sleep well.")} This is when the week's work turns into progress.</div>`;
+  }else if(!d.ex.length){
+    body=`<div class="restday">This day has no exercises yet. <button class="link" data-edit="${S.planId}">Add some in the plan editor</button>.</div>`;
+  }else{
+    body=d.ex.map((ex,i)=>{
+      const last=lastFor(ex.n);const h=hintFor(ex,last);
+      const n=setsFor(ex,deload);const entry=(s&&s.entries[ex.n])||[];const u=S.settings.unit;
+      const rows=Array.from({length:n},(_,k)=>{
+        const e=entry[k]||{};const l=last&&last.sets[k];
+        const w=e.w!=null?conv(e.w,s.unit||u,u):"";
+        const pw=l&&l.w!=null?conv(l.w,last.unit,u):"";
+        return `<tr data-ex="${i}" data-k="${k}" class="${e.done?"isdone":""}">
+          <td>${k+1}</td>
+          <td><input inputmode="decimal" data-f="w" aria-label="Set ${k+1} weight" value="${w??""}" placeholder="${pw??""}"></td>
+          <td><input inputmode="numeric" data-f="r" aria-label="Set ${k+1} ${repLabel(ex).toLowerCase()}" value="${e.r??""}" placeholder="${l?l.r:""}"></td>
+          <td class="ok"><button class="done" data-done aria-pressed="${!!e.done}" aria-label="Mark set ${k+1} done">${CHECK}</button></td>
+          <td><span class="beat">${beatText(e,l,last)}</span></td>
+        </tr>`;
+      }).join("");
+      return `<section class="ex">
+        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="target">${esc(target(ex,n))}</span></div>
+        ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
+        ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
+        <table class="sets"><thead><tr><th></th><th>Weight (${u})</th><th>${repLabel(ex)}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      </section>`;
+    }).join("");
+  }
+  const note=S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
+  const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
+    +(p?"":`<option selected>Deleted plan</option>`);
+  return `
+  <div class="planbar"><select id="planSel" aria-label="Workout plan">${planOpts}</select><button class="btn small" data-view="plans">Manage plans</button></div>
+  <div class="week">${plates}</div>
+  <div class="hero"><h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}</div>
+  <div class="meta">
+    <input type="date" id="date" value="${S.date}" aria-label="Workout date">
+    ${wk?`<span class="chip ${wk.cycle===6?"warn":""}">Week ${wk.week}, cycle week ${wk.cycle} of 6${wk.cycle===6?": deload":""}</span>`:""}
+    ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""}> Deload (about 40% fewer sets)</label>`:""}
+  </div>
+  ${body}
+  <p class="status" id="status">${note}</p>`;
+}
+function beatText(e,l,last){
+  if(!l||e.r==null)return "";
+  const u=S.settings.unit;
+  const ew=e.w!=null?conv(e.w,(cur()&&cur().unit)||u,u):0;
+  const lw=l.w!=null?conv(l.w,last.unit,u):0;
+  return (ew>lw||(ew===lw&&e.r>l.r))?"Beat it":"";
+}
+
+/* plans list */
+function renderPlans(){
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  const row=p=>{
+    const active=p.id===S.settings.activePlan;
+    return `<li class="planrow ${active?"active":""}">
+      <div class="planweek">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
+      <div class="nm"><b>${esc(p.name)}</b>${active?` <span class="tag">In use</span>`:""}<small>${esc(planSummary(p))}</small></div>
+      <div class="row">
+        ${active?"":`<button class="btn small primary" data-use="${p.id}">Use this plan</button>`}
+        ${p.builtin?"":`<button class="btn small" data-edit="${p.id}">Edit</button>`}
+        <button class="btn small" data-dup="${p.id}">Duplicate</button>
+        ${p.builtin?"":`<button class="btn small" data-del="${p.id}">Delete</button>`}
+      </div></li>`;
+  };
+  const mine=allPlans().filter(p=>!p.builtin);
+  return `
+  <div class="panel"><h2>Build your own plan</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:15px">Set up each day of the week with its own exercises, sets and rep ranges. Or duplicate a ready-made plan and change what you need.</p>
+    <button class="btn primary" id="newPlan">Create a new plan</button>${msg}</div>
+  <div class="panel"><h2>Your plans</h2>
+    ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0">No plans of your own yet. Create one above, or duplicate a ready-made plan below.</p>`}</div>
+  <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
+  <p class="muted" style="font-size:14px">Exercises with the same name share their history across plans, so switching plans keeps your progress and "last time" numbers.</p>`;
+}
+
+/* plan editor */
+function blankPlan(){return {name:"",days:WD.map(()=>REST())}}
+function openEditor(plan,id){S.draft=clone({name:plan.name,days:plan.days});S.draftId=id||null;S.draftErr="";S.view="planEdit";render();window.scrollTo(0,0)}
+function renderPlanEdit(){
+  const D=S.draft;if(!D){S.view="plans";return renderPlans()}
+  const typeOpts=t=>Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${k===t?"selected":""}>${v.label}</option>`).join("");
+  const unitOpts=u=>UNITS.map(([k,l])=>`<option value="${k}" ${k===(u||"")?"selected":""}>${l}</option>`).join("");
+  const days=D.days.map((d,i)=>{
+    const rest=d.t==="rest";
+    const exRows=d.ex.map((x,j)=>`
+      <div class="exrow">
+        <input class="field ename" list="exnames" data-di="${i}" data-xi="${j}" data-xf="n" value="${esc(x.n)}" placeholder="Exercise name" aria-label="Exercise name">
+        <label class="mini-f"><span>Sets</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="s" value="${x.s??""}"></label>
+        <label class="mini-f"><span>Min</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="lo" value="${x.lo??""}"></label>
+        <label class="mini-f"><span>Max</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="hi" value="${x.hi??""}"></label>
+        <label class="mini-f unit"><span>Counted in</span><select data-di="${i}" data-xi="${j}" data-xf="u">${unitOpts(x.u)}</select></label>
+        <div class="exbtns">
+          <button class="icon" data-mv="-1" data-di="${i}" data-xi="${j}" aria-label="Move up" ${j===0?"disabled":""}>&#8593;</button>
+          <button class="icon" data-mv="1" data-di="${i}" data-xi="${j}" aria-label="Move down" ${j===d.ex.length-1?"disabled":""}>&#8595;</button>
+          <button class="icon" data-rmex data-di="${i}" data-xi="${j}" aria-label="Remove exercise">&#10005;</button>
+        </div>
+      </div>`).join("");
+    const copyOpts=D.days.map((o,k)=>k!==i&&o.t!=="rest"&&o.ex.length?`<option value="${k}">${WD_LONG[k]}: ${esc(o.title||tinfo(o.t).label)}</option>`:"").join("");
+    return `<section class="ex dayed" style="--dc:${tinfo(d.t).solid}">
+      <div class="ex-head"><h2>${WD_LONG[i]}</h2>
+        <select class="typesel" data-dt="${i}" aria-label="${WD_LONG[i]} type">${typeOpts(d.t)}</select></div>
+      ${rest?`<p class="last">Rest day.</p>`:`
+      <div class="dayfields">
+        <label><span>Title</span><input class="field" data-di="${i}" data-dfield="title" value="${esc(d.title)}" placeholder="${tinfo(d.t).label}"></label>
+        <label><span>Focus</span><input class="field" data-di="${i}" data-dfield="focus" value="${esc(d.focus)}" placeholder="e.g. Chest, shoulders, triceps"></label>
+        <label class="wide"><span>Note (optional)</span><input class="field" data-di="${i}" data-dfield="note" value="${esc(d.note)}" placeholder="A reminder for this day"></label>
+      </div>
+      ${exRows||`<p class="last">No exercises yet.</p>`}
+      <div class="row" style="margin-top:10px">
+        <button class="btn small" data-addex="${i}">Add exercise</button>
+        ${copyOpts?`<select class="btn small" data-copyfrom="${i}" aria-label="Copy exercises from another day"><option value="">Copy exercises from...</option>${copyOpts}</select>`:""}
+      </div>`}
+    </section>`;
+  }).join("");
+  return `
+  <p><button class="link" id="cancelPlan">Back to plans without saving</button></p>
+  <div class="panel"><h2>${S.draftId?"Edit plan":"New plan"}</h2>
+    <label class="stack"><span>Plan name</span><input class="field" data-pf="name" value="${esc(D.name)}" placeholder="e.g. Summer cut, 5 days"></label></div>
+  <datalist id="exnames">${knownNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  ${days}
+  <div class="savebar">
+    ${S.draftErr?`<p class="msg" style="color:var(--push);margin:0 0 8px">${esc(S.draftErr)}</p>`:""}
+    <div class="row"><button class="btn primary" id="savePlan">Save plan</button><button class="btn" id="cancelPlan2">Cancel</button></div>
+  </div>`;
+}
+function savePlan(){
+  const D=S.draft;
+  const name=(D.name||"").trim();
+  if(!name)return failDraft("Give your plan a name.");
+  const days=[];
+  for(let i=0;i<7;i++){
+    const d=D.days[i];
+    if(d.t==="rest"){days.push({t:"rest",title:"Rest",focus:(d.focus||"").trim(),note:"",ex:[]});continue}
+    const ex=[];
+    for(const x of d.ex){
+      const n=(x.n||"").trim();
+      if(!n)continue;
+      const s=num(x.s),lo=num(x.lo),hi=num(x.hi)??lo;
+      if(!s||s<1||s>20)return failDraft(WD_LONG[i]+": "+n+" needs between 1 and 20 sets.");
+      if(lo==null||lo<1)return failDraft(WD_LONG[i]+": "+n+" needs a minimum of at least 1.");
+      if(hi<lo)return failDraft(WD_LONG[i]+": for "+n+", the max can't be lower than the min.");
+      if(ex.some(e=>e.n.toLowerCase()===n.toLowerCase()))return failDraft(WD_LONG[i]+": "+n+" is listed twice. Use one entry with more sets.");
+      ex.push({n,s:Math.round(s),lo:Math.round(lo),hi:Math.round(hi),u:x.u||""});
+    }
+    if(!ex.length)return failDraft(WD_LONG[i]+" has no exercises. Add at least one, or set the day to Rest.");
+    days.push({t:d.t,title:(d.title||"").trim()||tinfo(d.t).label,focus:(d.focus||"").trim(),note:(d.note||"").trim(),ex});
+  }
+  if(!days.some(d=>d.t!=="rest"))return failDraft("Add at least one workout day.");
+  const isNew=!S.draftId;
+  const id=S.draftId||newId();
+  const plan={name,days,updated:Date.now()};
+  S.plans[id]=plan;
+  writeDoc("plan_"+id,clone(plan)).catch(()=>say("Couldn't save the plan. Check your connection and try again."));
+  if(isNew){S.settings.activePlan=id;S.planId=id;saveSettings();schedulePublish()}
+  S.draft=null;S.draftId=null;S.view="plans";
+  S.msg=isNew?"Plan saved and set as your current plan.":"Plan saved.";S.msgOk=true;
+  render();window.scrollTo(0,0);
+}
+function failDraft(t){S.draftErr=t;render();const b=$(".savebar");if(b)b.scrollIntoView({block:"nearest"})}
+function usePlan(id){
+  S.settings.activePlan=id;S.planId=id;saveSettings();schedulePublish();
+}
+
+/* dashboard */
+function miniWeek(sum){
+  const types=sum.weekTypes||{};
+  const legacy=!sum.weekTypes;
+  return `<div class="mini" aria-label="${Object.keys(types).length||(sum.weekDays||[]).length} workouts this week">${WD.map((w,i)=>{
+    const t=legacy?((sum.weekDays||[]).includes(i+1)?BUILTIN[0].days[i].t:null):types[String(i+1)];
+    return `<span class="${t?"":"off"}" style="--c:${t?tinfo(t).bg:"transparent"}" title="${w}"></span>`}).join("")}</div>`;
+}
+function personCard(p,sum,isMe,buddyUid){
+  const u=S.settings.unit;
+  if(!sum||!sum.sharing)return `<div class="card"><div class="card-h">${avatar(p,true)}<div><b>${esc(p.name||"Buddy")}</b><small>Not sharing progress right now</small></div></div></div>`;
+  const L=live(sum);
+  const prs=KEY_LIFTS.map(([n,l,c])=>{
+    const lf=(L.lifts||[]).find(x=>x.n===n);
+    return `<div style="--c:${c}"><span>${l}</span><b>${lf&&lf.pr.w>0?fromKg(lf.pr.w)+"<small> "+u+"</small>":"-"}</b></div>`;
+  }).join("");
+  const count=(L.weekDays||[]).length;
+  return `<div class="card ${isMe?"me":""}">
+    <div class="card-h">${avatar(p,true)}<div style="flex:1"><b>${isMe?"You":esc(p.name)}</b>
+      <small>${L.planName?esc(L.planName):""}${L.planName?"<br>":""}${L.lastDate?"Last workout "+fmtDate(L.lastDate):"No workouts yet"}</small></div>
+      ${buddyUid?`<button class="btn small" data-buddy="${buddyUid}">View</button>`:""}</div>
+    ${miniWeek(L)}
+    <div class="stats">
+      <div><b>${count}</b><span>this week</span></div>
+      <div><b>${L.streak||0}</b><span>week streak</span></div>
+      <div><b>${L.total||0}</b><span>workouts</span></div>
+    </div>
+    <div class="prs">${prs}</div>
+  </div>`;
+}
+function renderDash(){
+  const mine=computeSummary();
+  const people=[{uid:"me",p:me.name?me:{name:"You"},sum:mine,isMe:true}];
+  SOC.accepted.forEach(a=>people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},sum:SOC.shared[a.uid],isMe:false}));
+  const ranked=people.filter(x=>x.sum&&x.sum.sharing).map(x=>({...x,L:live(x.sum)}))
+    .sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
+  const u=S.settings.unit;
+  const share=S.mode==="db"?`
+    <div class="panel"><label class="bigswitch"><input type="checkbox" id="sharing" ${S.settings.sharing?"checked":""}>
+      <span><b>Share my progress with buddies</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
+        ?"Buddies see your current plan name, weekly workouts, streak, and top sets per lift. Turn this off and they see nothing."
+        :"Off: buddies can't see any of your workouts. Your own dashboard still works."}</span></span></label></div>`
+    :`<div class="panel"><p class="muted" style="margin:0">${CONFIGURED?"Sign in with Google to add buddies and share progress.":"Set up Firebase to add buddies and share progress."}</p>${CONFIGURED?`<p><button class="btn primary" id="signin">Sign in with Google</button></p>`:""}</div>`;
+  return `
+  ${share}
+  ${ranked.length>1?`<div class="panel"><h2>This week</h2><ol class="board">${ranked.map((x,i)=>`
+    <li><span class="rk">${i+1}</span>${avatar(x.p)}<span class="nm">${x.isMe?"You":esc(x.p.name)}</span>
+    <span class="v">${x.L.weekDays.length} workout${x.L.weekDays.length===1?"":"s"}<small>${fmtNum(fromKg(x.L.volumeWeek))} ${u} lifted</small></span></li>`).join("")}</ol></div>`:""}
+  <div class="cards">${people.map(x=>personCard(x.p,x.sum,x.isMe,x.isMe?null:(x.sum&&x.sum.sharing?x.uid:null))).join("")}</div>
+  ${S.mode==="db"&&!SOC.accepted.length?`<p class="muted" style="margin-top:16px">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button> to see their progress here.</p>`:""}`;
+}
+function renderBuddy(){
+  const b=S.buddyId;const p=SOC.profiles[b]||{};const sum=SOC.shared[b];
+  const back=`<p><button class="link" data-view="dash">Back to dashboard</button></p>`;
+  if(!sum||!sum.sharing)return back+`<div class="panel"><p class="muted" style="margin:0">${esc(p.name||"This buddy")} isn't sharing progress right now.</p></div>`;
+  const L=live(sum);const u=S.settings.unit;
+  const lifts=L.lifts||[];
+  if(!lifts.some(x=>x.n===S.buddyEx)&&lifts.length)S.buddyEx=lifts[0].n;
+  const lf=lifts.find(x=>x.n===S.buddyEx);
+  const pts=lf?lf.h.map(x=>({date:x.d,w:fromKg(x.w),r:x.r})):[];
+  const useW=pts.some(x=>x.w>0);
+  const rec=(L.recent||[]).map(r=>{const t=r.t||BUILTIN[0].days[r.day-1].t;const title=r.title||BUILTIN[0].days[r.day-1].title;
+    return `<div class="sess" style="cursor:default"><span class="dot" style="--c:${tinfo(t).bg}"></span><b>${fmtDate(r.d)}</b> ${esc(title)}<small>${r.sets} sets</small></div>`}).join("");
+  return back+`
+  ${personCard(p,sum,false,null)}
+  <div class="panel" style="margin-top:16px"><h2>${esc(p.name)}'s lifts</h2>
+    ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option ${x.n===S.buddyEx?"selected":""}>${esc(x.n)}</option>`).join("")}</select>
+    <div class="chart">${chart(pts,useW,S.buddyEx)}</div>
+    <ul class="hlist">${pts.slice().reverse().slice(0,8).map(x=>`<li><span>${fmtDate(x.date)}</span><span>Top set ${x.w>0?x.w+" "+u+" x ":""}${x.r}</span></li>`).join("")}</ul>
+    ${lf?`<p class="muted" style="font-size:14px">Best: ${lf.pr.w>0?fromKg(lf.pr.w)+" "+u+" x ":""}${lf.pr.r}, ${fmtDate(lf.pr.d)}</p>`:""}`
+    :`<p class="muted">No lifts logged yet.</p>`}
+  </div>
+  ${rec?`<div class="panel"><h2>Recent workouts</h2>${rec}</div>`:""}`;
+}
+
+/* buddies */
+function renderBuddies(){
+  if(S.mode!=="db")return `<div class="panel"><h2>Buddies</h2><p class="muted">${CONFIGURED?"Sign in with Google to add buddies and see each other's progress.":"Set up Firebase to use buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  const pa=S.pendingAdd&&S.pendingAdd!==uid&&!SOC.accepted.some(a=>a.uid===S.pendingAdd)?SOC.profiles[S.pendingAdd]:null;
+  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm">${esc(p.name||"Loading...")}<small>${sub}</small></span>${btns}</li>`};
+  return `
+  ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pa.name||"this person")}</b> as a buddy?</span>
+    <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
+  <div class="panel"><h2>Add a buddy</h2>
+    <div class="row"><input class="field" id="email" type="email" placeholder="Their Google email" autocomplete="off"><button class="btn primary" id="addEmail">Send request</button></div>
+    <p class="muted" style="font-size:14px;margin:12px 0 8px">Or send your invite link. When they open it and sign in, they can add you in one tap.</p>
+    <div class="row"><button class="btn" id="copyLink">Copy invite link</button>${navigator.share?`<button class="btn" id="shareLink">Share invite link</button>`:""}</div>
+    ${msg}
+  </div>
+  ${SOC.incoming.length||SOC.outgoing.length?`<div class="panel"><h2>Requests</h2><ul class="people">
+    ${SOC.incoming.map(r=>person(r.from,"Wants to be your buddy",`<button class="btn primary small" data-accept="${r.id}">Accept</button><button class="btn small" data-decline="${r.id}">Decline</button>`)).join("")}
+    ${SOC.outgoing.map(r=>person(r.to,"Waiting for them to accept",`<button class="btn small" data-cancel="${r.id}">Cancel</button>`)).join("")}
+  </ul></div>`:""}
+  <div class="panel"><h2>Your buddies</h2>
+    ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;
+      return person(a.uid,on?"Sharing progress":"Not sharing progress",`${on?`<button class="btn small" data-buddy="${a.uid}">View</button>`:""}<button class="btn small" data-remove="${a.id}">Remove</button>`)}).join("")}</ul>`
+      :`<p class="muted" style="margin:0">No buddies yet. Add someone above and their progress shows up on your dashboard.</p>`}
+  </div>`;
+}
+
+/* my progress */
+function renderHistory(){
+  const all=sorted();const names=knownNames();
+  if(!names.includes(S.histEx))S.histEx=names[0];
+  const u=S.settings.unit;const pts=[];
+  all.slice().reverse().forEach(([,s])=>{
+    const f=filled(s.entries&&s.entries[S.histEx]);if(!f.length)return;
+    const ws=f.map(x=>conv(x.w,s.unit||"kg",u)||0);const top=Math.max(...ws);
+    const bestR=Math.max(...f.filter((x,i)=>ws[i]===top).map(x=>x.r));
+    pts.push({date:s.date,w:top,r:bestR,sets:f,unit:s.unit||"kg"});
+  });
+  const useW=pts.some(p=>p.w>0);
+  const sessions=all.slice(0,30).map(([id,s])=>{
+    const m=sessionMeta(s);let n=0;Object.values(s.entries||{}).forEach(a=>n+=filled(a).length);
+    return `<button class="sess" data-open="${id}"><span class="dot" style="--c:${tinfo(m.t).bg}"></span>
+      <b>${fmtDate(s.date)}</b> ${esc(m.title)}${s.deload?" (deload)":""}<small>${n} set${n===1?"":"s"}</small></button>`;
+  }).join("");
+  return `
+  <div class="panel"><h2>Lift progress</h2>
+    <select id="histEx" aria-label="Exercise">${names.map(n=>`<option ${n===S.histEx?"selected":""}>${esc(n)}</option>`).join("")}</select>
+    ${pts.length?`<div class="chart">${chart(pts,useW,S.histEx)}</div>
+      <ul class="hlist">${pts.slice().reverse().slice(0,8).map(p=>`<li><span>${fmtDate(p.date)}</span><span>${p.sets.map(x=>fmtSet(x,p.unit)).join(", ")}</span></li>`).join("")}</ul>`
+      :`<p class="muted">No sets logged for ${esc(S.histEx)} yet. Log a workout and it will chart here.</p>`}
+  </div>
+  <div class="panel"><h2>Sessions</h2>${sessions||`<p class="muted">Nothing logged yet. Open the Workout tab and fill in your first set.</p>`}</div>
+  <div class="panel"><h2>Settings</h2>
+    <div class="row" style="margin-bottom:12px"><span>Units</span>
+      <span class="seg" role="group" aria-label="Units"><button data-unit="kg" aria-pressed="${u==="kg"}">kg</button><button data-unit="lb" aria-pressed="${u==="lb"}">lb</button></span></div>
+    <div class="row"><button class="btn" id="restart">Start a new 6-week cycle this week</button>
+      <span class="muted" style="font-size:14px">${S.settings.start?"Current cycle began "+fmtDate(S.settings.start):""}</span></div>
+  </div>
+  <div class="panel"><h2>Account</h2>
+    ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
+      :uid?`<div class="row">${avatar(me)}<span style="flex:1">${esc(me.name)}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span></span><button class="btn" id="signout">Sign out</button></div>`
+      :`<button class="btn primary" id="signin">Sign in with Google</button>`}
+  </div>
+  <div class="panel"><h2>How to progress</h2><ul class="rules">
+    <li>Log every weight and rep you hit.</li><li>Next time, beat it: one more rep, or a small jump in weight.</li>
+    <li>Hit the top of the rep range on every set? Add 5-10% and drop to the bottom of the range.</li><li>Every 5-6 weeks, deload by cutting volume about 40%.</li></ul></div>`;
+}
+function chart(pts,useW,label){
+  const W=340,H=150,pl=34,pr=10,pt=12,pb=24;
+  const vals=pts.map(p=>useW?p.w:p.r);
+  let mn=Math.min(...vals),mx=Math.max(...vals);if(mn===mx){mn-=1;mx+=1}
+  const x=i=>pts.length===1?(pl+W-pr)/2:pl+(W-pl-pr)*i/(pts.length-1);
+  const y=v=>pt+(H-pt-pb)*(1-(v-mn)/(mx-mn));
+  const path=pts.map((p,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(vals[i]).toFixed(1)).join(" ");
+  const lab=useW?S.settings.unit:"reps";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)} top set over time">
+    <line x1="${pl}" x2="${W-pr}" y1="${H-pb}" y2="${H-pb}" stroke="var(--line)"/>
+    <text x="${pl-6}" y="${y(mx)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${+mx.toFixed(1)}</text>
+    <text x="${pl-6}" y="${y(mn)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${+mn.toFixed(1)}</text>
+    <text x="${pl}" y="${H-6}" font-size="11" fill="var(--muted)">${fmtDate(pts[0].date)}</text>
+    <text x="${W-pr}" y="${H-6}" text-anchor="end" font-size="11" fill="var(--muted)">${fmtDate(pts[pts.length-1].date)} (top set, ${lab})</text>
+    <path d="${path}" fill="none" stroke="var(--pull)" stroke-width="2.5" stroke-linejoin="round"/>
+    ${pts.map((p,i)=>`<circle cx="${x(i)}" cy="${y(vals[i])}" r="4" fill="var(--surface)" stroke="var(--pull)" stroke-width="2"/>`).join("")}
+  </svg>`;
+}
+
+/* ---------- events ---------- */
+function doSignIn(){
+  const pr=new GoogleAuthProvider();
+  signInWithPopup(auth,pr).catch(err=>{
+    const c=err&&err.code;
+    if(c==="auth/popup-blocked"||c==="auth/operation-not-supported-in-this-environment")signInWithRedirect(auth,pr);
+    else if(c!=="auth/popup-closed-by-user"&&c!=="auth/cancelled-popup-request")setStatus("Sign-in didn't finish. Try again.");
+  });
+}
+function leaveEditor(){
+  if(S.draft&&!confirm("Leave without saving your changes to this plan?"))return false;
+  S.draft=null;S.draftId=null;return true;
+}
+document.addEventListener("click",async e=>{
+  const t=e.target.closest("button");if(!t||t.disabled)return;
+  const ds=t.dataset;
+  if(ds.view){if(S.view==="planEdit"&&!leaveEditor())return;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
+  if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);render();return}
+  if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
+  if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
+  if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
+  if(ds.accept){accept(ds.accept);return}
+  if(ds.decline){removeReq(ds.decline,"Request declined.");return}
+  if(ds.cancel){removeReq(ds.cancel,"Request cancelled.");return}
+  if(ds.remove){const a=SOC.accepted.find(x=>x.id===ds.remove);const nm=a&&SOC.profiles[a.uid]?SOC.profiles[a.uid].name:"this buddy";
+    if(confirm("Remove "+nm+" as a buddy? You'll stop seeing each other's progress."))removeReq(ds.remove,"Buddy removed.");return}
+  /* plans */
+  if(ds.use){usePlan(ds.use);S.msg="Now using "+getPlan(ds.use).name+".";S.msgOk=true;render();return}
+  if(ds.edit){const p=getPlan(ds.edit);if(p)openEditor(p,p.builtin?null:p.id);return}
+  if(ds.dup){const p=getPlan(ds.dup);if(p)openEditor({name:p.name+" (my version)",days:p.days});return}
+  if(ds.del){const p=getPlan(ds.del);if(!p||!confirm("Delete the plan \""+p.name+"\"? Workouts you logged with it stay in your history."))return;
+    delete S.plans[ds.del];writeDoc("plan_"+ds.del,null);
+    if(S.settings.activePlan===ds.del){S.settings.activePlan="ppl";saveSettings()}
+    if(S.planId===ds.del)S.planId=S.settings.activePlan;
+    schedulePublish();S.msg="Plan deleted.";S.msgOk=true;render();return}
+  if(ds.addex!=null){const d=S.draft.days[+ds.addex];d.ex.push(X("",3,8,12));render();
+    const ins=document.querySelectorAll(`[data-di="${ds.addex}"][data-xf="n"]`);if(ins.length)ins[ins.length-1].focus();return}
+  if(ds.rmex!=null){S.draft.days[+ds.di].ex.splice(+ds.xi,1);render();return}
+  if(ds.mv){const a=S.draft.days[+ds.di].ex,i=+ds.xi,j=i+ +ds.mv;if(j>=0&&j<a.length){[a[i],a[j]]=[a[j],a[i]];render()}return}
+  switch(t.id){
+    case "signin":doSignIn();return;
+    case "guest":S.view="log";render();return;
+    case "signout":signOut(auth);return;
+    case "restart":S.settings.start=mondayOf(today());saveSettings();render();return;
+    case "addEmail":addByEmail($("#email").value);return;
+    case "pa-yes":{const to=S.pendingAdd;S.pendingAdd=null;clearAddParam();sendRequest(to);return}
+    case "pa-no":S.pendingAdd=null;clearAddParam();render();return;
+    case "copyLink":
+      try{await navigator.clipboard.writeText(inviteLink());say("Invite link copied.",true)}
+      catch(err){prompt("Copy your invite link:",inviteLink())}
+      return;
+    case "shareLink":navigator.share({title:APP_NAME,text:"Be my gym buddy on "+APP_NAME,url:inviteLink()}).catch(()=>{});return;
+    case "newPlan":S.msg="";openEditor(blankPlan());return;
+    case "savePlan":savePlan();return;
+    case "cancelPlan":case "cancelPlan2":if(leaveEditor()){S.view="plans";render();window.scrollTo(0,0)}return;
+  }
+  if(t.hasAttribute("data-done")){
+    const tr=t.closest("tr");const ex=day().ex[+tr.dataset.ex];const k=+tr.dataset.k;
+    const s=ensure();const arr=s.entries[ex.n]||(s.entries[ex.n]=[]);
+    const e2=arr[k]||(arr[k]={w:null,r:null,done:false});
+    if(!e2.done&&e2.r==null){
+      const ri=tr.querySelector('[data-f="r"]'),wi=tr.querySelector('[data-f="w"]');
+      if(ri.placeholder){e2.r=num(ri.placeholder);ri.value=ri.placeholder}
+      if(wi.placeholder&&e2.w==null){e2.w=num(wi.placeholder);wi.value=wi.placeholder}
+    }
+    e2.done=!e2.done;s.updated=Date.now();
+    t.setAttribute("aria-pressed",e2.done);tr.classList.toggle("isdone",e2.done);
+    updateBeat(tr);markLogged();scheduleSave(curId());
+    if(e2.done)startTimer(REST_SECONDS);
+  }
+});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
+document.addEventListener("input",e=>{
+  const el=e.target,ds=el.dataset;
+  /* plan editor fields: update the draft without re-rendering */
+  if(S.view==="planEdit"&&S.draft){
+    if(ds.pf){S.draft[ds.pf]=el.value;return}
+    if(ds.dfield){S.draft.days[+ds.di][ds.dfield]=el.value;return}
+    if(ds.xf&&ds.xf!=="u"){S.draft.days[+ds.di].ex[+ds.xi][ds.xf]=ds.xf==="n"?el.value:num(el.value);return}
+    return;
+  }
+  if(!ds.f)return;
+  const tr=el.closest("tr");const ex=day().ex[+tr.dataset.ex];const k=+tr.dataset.k;
+  const s=ensure();
+  if(s.unit!==S.settings.unit){
+    Object.values(s.entries).forEach(a=>a.forEach(x=>{if(x&&x.w!=null)x.w=conv(x.w,s.unit,S.settings.unit)}));
+    s.unit=S.settings.unit;
+  }
+  const arr=s.entries[ex.n]||(s.entries[ex.n]=[]);
+  const e2=arr[k]||(arr[k]={w:null,r:null,done:false});
+  e2[ds.f]=num(el.value);s.updated=Date.now();
+  updateBeat(tr);markLogged();scheduleSave(curId());
+});
+document.addEventListener("change",async e=>{
+  const el=e.target,ds=el.dataset;
+  if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
+  else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
+  else if(el.id==="histEx"){S.histEx=el.value;render()}
+  else if(el.id==="buddyEx"){S.buddyEx=el.value;render()}
+  else if(el.id==="planSel"){if(getPlan(el.value)){usePlan(el.value);render()}}
+  else if(el.id==="sharing"){S.settings.sharing=el.checked;await saveSettings();await publishNow();render()}
+  else if(ds.dt!=null&&S.draft){
+    const d=S.draft.days[+ds.dt];const old=tinfo(d.t).label;
+    if(!d.title||d.title===old||d.title==="Rest")d.title=el.value==="rest"?"Rest":tinfo(el.value).label;
+    if(d.t==="rest"&&el.value!=="rest"){if(d.focus===REST().focus)d.focus="";if(!d.ex.length)d.ex.push(X("",3,8,12))}
+    d.t=el.value;render();
+  }
+  else if(ds.xf==="u"&&S.draft){S.draft.days[+ds.di].ex[+ds.xi].u=el.value}
+  else if(ds.copyfrom!=null&&S.draft&&el.value!==""){
+    const to=S.draft.days[+ds.copyfrom];to.ex=clone(S.draft.days[+el.value].ex);render();
+  }
+});
+function updateBeat(tr){
+  const ex=day().ex[+tr.dataset.ex];const k=+tr.dataset.k;
+  const last=lastFor(ex.n);const s=cur();
+  const e=(s&&s.entries[ex.n]&&s.entries[ex.n][k])||{};
+  tr.querySelector(".beat").textContent=beatText(e,last&&last.sets[k],last);
+}
+function markLogged(){const dot=document.querySelector(`.plate[data-day="${S.day}"] .logged`);if(dot)dot.classList.add("on")}
+window.addEventListener("beforeunload",e=>{if(S.view==="planEdit"&&S.draft){e.preventDefault();e.returnValue=""}});
+
+/* ---------- rest timer ---------- */
+let tEnd=0,tLen=0,tInt=null;
+function startTimer(sec){tLen=sec;tEnd=Date.now()+sec*1000;$("#timer").classList.add("on");clearInterval(tInt);tick();tInt=setInterval(tick,250)}
+function tick(){
+  const left=Math.max(0,Math.round((tEnd-Date.now())/1000));
+  $("#tt").textContent=Math.floor(left/60)+":"+String(left%60).padStart(2,"0");
+  $("#tb").style.width=(tLen?100*left/tLen:0)+"%";
+  if(left<=0){clearInterval(tInt);$("#tt").textContent="Go";if(navigator.vibrate)try{navigator.vibrate(200)}catch(err){}}
+}
+$("#tplus").onclick=()=>{tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
+$("#tstop").onclick=()=>{clearInterval(tInt);$("#timer").classList.remove("on")};
+
+/* ---------- install as an app ---------- */
+const standalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const bar=$("#install");
+function showInstall(kind){
+  if(standalone()||sessionStorage.getItem("ppl-install-later"))return;
+  $("#install-text").textContent=kind==="ios"
+    ?"Install "+APP_NAME+": tap the Share button, then Add to Home Screen."
+    :"Install "+APP_NAME+" on this device for one-tap access at the gym.";
+  $("#install-go").hidden=kind==="ios";
+  bar.classList.add("on");
+}
+function hideInstall(){bar.classList.remove("on")}
+$("#install-go").onclick=async()=>{const ev=window.__bip;if(!ev)return;hideInstall();ev.prompt();try{await ev.userChoice}catch(e){}window.__bip=null};
+$("#install-later").onclick=()=>{sessionStorage.setItem("ppl-install-later","1");hideInstall()};
+window.addEventListener("ppl-bip",()=>showInstall("prompt"));
+window.addEventListener("appinstalled",hideInstall);
+if(window.__bip)showInstall("prompt");
+else if(isIOS&&!standalone())showInstall("ios");
+if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
+
+/* ---------- boot ---------- */
+const params=new URLSearchParams(location.search);
+const addParam=params.get("add");
+function clearAddParam(){if(params.has("add")){params.delete("add");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
+if(CONFIGURED){
+  render();
+  onAuthStateChanged(auth,async user=>{
+    stopSocial();
+    uid=user?user.uid:null;
+    me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
+    if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
+    try{await initStore()}catch(e){S.mode="local"}
+    if(S.mode==="db"){
+      setDoc(doc(fs,"profiles",uid),{name:me.name,photo:me.photo},{merge:true}).catch(()=>{});
+      if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
+      startSocial();publishNow();
+      if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.view="buddies"}
+      else S.view="log";
+    }else S.view="log";
+    render();
+  });
+}else{
+  initStore().then(render);
+}
+})();
+
+</script>
+</body>
+</html>
