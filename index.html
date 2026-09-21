@@ -269,6 +269,84 @@ body.landing-on .timer{display:none}
 @media (prefers-reduced-motion:reduce){.l-mark path{animation:none;stroke-dashoffset:0}}
 .savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
 </style>
+<style>
+/* ===== minimal pass ===== */
+.wrap{padding:12px 20px 120px}
+.top{margin:6px 0 10px}
+.brand{display:inline-flex;align-items:center;gap:8px;font:700 18px/1 var(--display);letter-spacing:.14em;text-transform:uppercase}
+.mini-mark{width:30px;height:15px;overflow:visible}
+.av{width:32px;height:32px;border-width:0}
+.av.lg{width:44px;height:44px}
+/* nav: plain text with a small dot under the active item */
+.tabs{background:none;border:0;border-radius:0;padding:0 0 2px;margin:0 -20px 22px;padding-left:20px;padding-right:20px;gap:20px;border-bottom:1px solid var(--line)}
+.tabs button{flex:none;background:none!important;color:var(--muted)!important;padding:10px 0 12px;border-radius:0;font-size:15px;font-weight:500;position:relative}
+.tabs button[aria-pressed="true"]{color:var(--ink)!important;font-weight:600}
+.tabs button[aria-pressed="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:2px;border-radius:2px;background:var(--ink)}
+@media (max-width:400px){.tabs{gap:16px}.tabs button{font-size:14.5px;padding:10px 0 12px}}
+/* quieter surfaces */
+.panel{border:0;border-radius:18px;padding:18px}
+.panel h2{font:600 12px/1.2 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+.panel h2.pv-title{font:700 26px/1.1 var(--display);letter-spacing:0;text-transform:none;color:var(--ink)}
+.ex{border:0;border-left:3px solid var(--dc);border-radius:4px 16px 16px 4px}
+.card{border:0}.card.me{box-shadow:inset 0 0 0 1px var(--line)}
+.btn{border-color:transparent}
+.btn.primary{border-color:var(--ink)}
+.chip,.switch,.meta input[type=date],.planbar select,.panel select{border-color:transparent}
+.restday{border-style:solid;border-color:transparent;background:var(--surface)}
+.hero{padding:10px 0 12px}
+.hero h1{font-size:clamp(52px,15vw,88px)}
+.plate .disc{max-width:44px}
+.people li,.planrow,.hlist li,.sess,.board li{border-top-color:color-mix(in srgb,var(--line) 60%,transparent)}
+.planbar{margin-bottom:18px}
+/* home */
+.kicker{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.small{font-size:13px}
+.greet{margin:8px 0 22px}
+.greet h1{margin:0;font:700 clamp(30px,8.5vw,40px)/1.05 var(--display)}
+.greet p{margin:6px 0 0;color:var(--muted);font-size:15px}
+.today{position:relative;background:var(--surface);border-radius:22px;padding:22px;margin-bottom:26px;overflow:hidden}
+.today::before{content:"";position:absolute;right:-60px;top:-60px;width:180px;height:180px;border-radius:50%;background:var(--dc);opacity:.13}
+.today h2{margin:8px 0 6px;font:800 clamp(46px,13vw,64px)/.9 var(--display);color:var(--dc)}
+.today.rest h2{color:var(--ink)}
+.today p{margin:0 0 2px;color:var(--muted)}
+.today .bar{height:6px;border-radius:3px;background:var(--field);margin:16px 0 6px;overflow:hidden}
+.today .bar i{display:block;height:100%;background:var(--dc);border-radius:3px}
+.today .go{margin-top:18px}
+.sec{margin-bottom:28px}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+.weekrow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:18px}
+.wd{display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--muted)}
+.wd .dot{width:100%;max-width:34px;aspect-ratio:1;border-radius:50%;background:var(--c);opacity:.28;position:relative}
+.wd .dot::after{content:"";position:absolute;inset:36%;border-radius:50%;background:var(--bg)}
+.wd.done .dot{opacity:1}
+.wd.rest .dot{background:transparent;opacity:1;box-shadow:inset 0 0 0 2px var(--line)}
+.wd.missed .dot{opacity:.14}
+.wd.now small{color:var(--ink);font-weight:700}
+.wd.now .dot{outline:2px solid var(--ink);outline-offset:3px}
+.nums3,.lifts4{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.lifts4{grid-template-columns:repeat(4,1fr)}
+.nums3 b,.lifts4 b{display:block;font:800 30px/1 var(--display);font-variant-numeric:tabular-nums}
+.lifts4 b{font-size:26px}
+.nums3 span,.lifts4 span{font-size:13px;color:var(--muted)}
+.lifts4 span{display:block;margin-bottom:4px}
+.blist{list-style:none;margin:0;padding:0}
+.blist li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.blist li:first-child{border-top:0}
+.blist li[data-buddy]{cursor:pointer}
+.blist .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blist .mini{width:112px;gap:3px}
+.blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
+/* landing: tap to enter */
+.landing.tappable{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.l-hello{margin:0;font-weight:600;font-size:17px}
+.l-tap{margin:0;font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);animation:breathe 2.4s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
+.enter-anim{animation:enterIn .5s ease both}
+@keyframes enterIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.l-tap,.enter-anim{animation:none}}
+.planrow{display:grid;gap:8px}
+.planrow .nm{flex-basis:auto}
+</style>
 </head>
 <body>
 <div class="install" id="install" role="region" aria-label="Install app">
@@ -622,11 +700,11 @@ function render(){
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
   const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
-  document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot");
-  if(S.view==="signin"||S.view==="boot"){app.innerHTML=renderLanding(S.view==="boot");return}
+  document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
+  if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
   app.innerHTML=`
-  <div class="top"><span class="brand">${APP_NAME}</span>${uid?avatar(me):""}</div>
-  ${S.view==="signin"?"":`<div class="tabs" role="group" aria-label="View">${tab("log","Workout")}${tab("plans","Plans")}${tab("dash","Dashboard")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</div>`}
+  <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?avatar(me):""}</div>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   if(at&&at.scrollIntoView)at.scrollIntoView({block:"nearest",inline:"nearest"});
@@ -657,23 +735,33 @@ const INFINITY_SVG=`<svg class="l-mark" viewBox="0 0 120 60" aria-hidden="true">
   <defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="var(--push)"/><stop offset=".5" stop-color="var(--pull)"/><stop offset="1" stop-color="var(--legs)"/></linearGradient></defs>
   <path pathLength="1" d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z"
     fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-function renderLanding(booting){
-  return `<main class="landing">
+const MINI_MARK=`<svg class="mini-mark" viewBox="0 0 120 60" aria-hidden="true"><path d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z" fill="none" stroke="url(#lgm)" stroke-width="9" stroke-linecap="round"/><defs><linearGradient id="lgm" x1="0" x2="1"><stop offset="0" stop-color="var(--push)"/><stop offset=".5" stop-color="var(--pull)"/><stop offset="1" stop-color="var(--legs)"/></linearGradient></defs></svg>`;
+function firstName(){return (me.name||"").trim().split(/\s+/)[0]||""}
+function renderLanding(mode){
+  const booting=mode==="boot",enter=mode==="enter";
+  const actions=enter
+    ?`<div class="l-actions"><p class="l-hello">${firstName()?"Welcome back, "+esc(firstName()):"Welcome back"}</p><p class="l-tap">Tap anywhere to begin</p></div>`
+    :`<div class="l-actions" ${booting?'aria-hidden="true" style="visibility:hidden"':""}>
+      <button class="l-btn" id="signin">Continue with Google</button>
+      <button class="l-link" id="guest">Try it without an account</button>
+      <p class="status" id="status"></p>
+    </div>`;
+  return `<main class="landing ${enter?"tappable":""}" ${enter?'role="button" tabindex="0" aria-label="Enter the app"':""}>
     <div class="l-top">
       ${INFINITY_SVG}
       <h1 class="l-title">Infinity</h1>
       <p class="l-sub">Fitness tracker</p>
     </div>
-    <figure class="l-quote" ${booting?"":'id="quote" role="button" tabindex="0" aria-label="Show another quote"'}>
+    <figure class="l-quote" ${booting||enter?"":'id="quote" role="button" tabindex="0" aria-label="Show another quote"'}>
       <blockquote id="quote-text">${esc(QUOTES[quoteIdx])}</blockquote>
     </figure>
-    <div class="l-actions" ${booting?'aria-hidden="true" style="visibility:hidden"':""}>
-      <button class="l-btn" id="signin">Continue with Google</button>
-      <button class="l-link" id="guest">Try it without an account</button>
-      <p class="status" id="status"></p>
-    </div>
-    <p class="l-foot">Plans, sets, streaks and buddies, synced on every device.</p>
+    ${actions}
+    <p class="l-foot">${enter?"":"Plans, sets, streaks and buddies, synced on every device."}</p>
   </main>`;
+}
+function enterApp(){
+  S.view=S.afterEnter||"dash";S.afterEnter=null;render();window.scrollTo(0,0);
+  const a=$("#app");if(a){a.classList.add("enter-anim");setTimeout(()=>a.classList.remove("enter-anim"),600)}
 }
 function nextQuote(){
   const el=$("#quote-text");if(!el)return;
@@ -790,7 +878,7 @@ function renderPlanView(){
   return back+`
   <div class="panel">
     <div class="planweek" style="margin-bottom:10px">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
-    <h2 style="margin-bottom:4px">${esc(p.name)}${active?` <span class="tag">In use</span>`:""}</h2>
+    <h2 class="pv-title" style="margin-bottom:4px">${esc(p.name)}${active?` <span class="tag">In use</span>`:""}</h2>
     <p class="muted" style="margin:0 0 14px;font-size:15px">${esc(planSummary(p))}${p.builtin?". Ready-made plan.":""}</p>
     <div class="row">
       ${active?"":`<button class="btn primary" data-use="${p.id}">Use this plan</button>`}
@@ -920,30 +1008,76 @@ function personCard(p,sum,isMe,buddyUid){
     <div class="prs">${prs}</div>
   </div>`;
 }
+function greeting(){const hr=new Date().getHours();return hr<5?"Late night":hr<12?"Good morning":hr<17?"Good afternoon":"Good evening"}
 function renderDash(){
-  const mine=computeSummary();
-  const people=[{uid:"me",p:me.name?me:{name:"You"},sum:mine,isMe:true}];
-  SOC.accepted.forEach(a=>people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},sum:SOC.shared[a.uid],isMe:false}));
-  const ranked=people.filter(x=>x.sum&&x.sum.sharing).map(x=>({...x,L:live(x.sum)}))
-    .sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
   const u=S.settings.unit;
-  const share=S.mode==="db"?`
-    <div class="panel"><label class="bigswitch"><input type="checkbox" id="sharing" ${S.settings.sharing?"checked":""}>
-      <span><b>Share my progress with buddies</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
-        ?"Buddies see your current plan name, weekly workouts, streak, and top sets per lift. Turn this off and they see nothing."
-        :"Off: buddies can't see any of your workouts. Your own dashboard still works."}</span></span></label></div>`
-    :`<div class="panel"><p class="muted" style="margin:0">${CONFIGURED?"Sign in with Google to add buddies and share progress.":"Set up Firebase to add buddies and share progress."}</p>${CONFIGURED?`<p><button class="btn primary" id="signin">Sign in with Google</button></p>`:""}</div>`;
+  const plan=activePlan();const td=today();const di=dayOf(td);const d=plan.days[di-1];
+  const s=S.sessions[sid(td,di,plan.id)];
+  const planned=d.ex.reduce((a,x)=>a+x.s,0);
+  let doneSets=0;if(s)Object.values(s.entries||{}).forEach(a=>doneSets+=filled(a).length);
+  const mine=computeSummary();
+  const L=live(mine);
+  const wk=mondayOf(td);
+  const nm=firstName();
+  /* today */
+  let todayHtml;
+  if(d.t==="rest"){
+    todayHtml=`<section class="today rest"><span class="kicker">Today</span><h2>Rest day</h2>
+      <p>${esc(d.focus&&d.focus!==REST().focus?d.focus:"Recover, walk, stretch. Tomorrow you go again.")}</p></section>`;
+  }else{
+    const pct=planned?Math.min(100,Math.round(100*doneSets/planned)):0;
+    const btn=doneSets===0?"Start workout":doneSets>=planned?"View workout":"Continue workout";
+    todayHtml=`<section class="today" style="--dc:${tinfo(d.t).solid}">
+      <span class="kicker">Today</span>
+      <h2>${esc(d.title)}</h2>
+      ${d.focus?`<p>${esc(d.focus)}</p>`:""}<p class="small">${d.ex.length} exercises, ${planned} sets</p>
+      ${doneSets?`<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
+        <p class="small">${doneSets} of ${planned} sets done</p>`:""}
+      <button class="l-btn go" data-go-today>${btn}</button>
+    </section>`;
+  }
+  /* week */
+  const week=plan.days.map((dd,i)=>{
+    const date=addDays(wk,i);const logged=Object.values(S.sessions).some(x=>x.date===date&&hasSets(x));
+    const isToday=date===td;const past=date<td;
+    const cls=[dd.t==="rest"?"rest":"",logged?"done":"",isToday?"now":"",!logged&&past&&dd.t!=="rest"?"missed":""].join(" ");
+    return `<div class="wd ${cls}"><span class="dot" style="--c:${tinfo(dd.t).bg}"></span><small>${WD[i][0]}</small></div>`;
+  }).join("");
+  /* lifts */
+  const lifts=KEY_LIFTS.map(([n,l])=>{
+    const lf=(mine.lifts||[]).find(x=>x.n===n);
+    return `<div><span>${l}</span><b>${lf&&lf.pr.w>0?fromKg(lf.pr.w):"-"}</b></div>`;
+  }).join("");
+  /* buddies */
+  let buddiesHtml="";
+  if(S.mode==="db"){
+    const people=[{uid:"me",p:me,isMe:true,L}];
+    SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing)people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},isMe:false,L:live(sh)})});
+    people.sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
+    const hidden=SOC.accepted.length-(people.length-1);
+    buddiesHtml=SOC.accepted.length?`<section class="sec"><div class="sec-h"><span class="kicker">Buddies this week</span><button class="link" data-view="buddies">Manage</button></div>
+      <ul class="blist">${people.map(x=>`<li ${x.isMe?"":`data-buddy="${x.uid}" role="button" tabindex="0"`}>${avatar(x.p)}
+        <span class="nm">${x.isMe?"You":esc(x.p.name||"Buddy")}</span>
+        ${miniWeek(x.L)}
+        <span class="ct">${x.L.weekDays.length}</span></li>`).join("")}</ul>
+      ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing right now.</p>`:""}
+      ${!S.settings.sharing?`<p class="small muted">Your buddies can't see your progress. <button class="link" data-view="buddies">Turn on sharing</button></p>`:""}</section>`
+      :`<section class="sec"><p class="small muted" style="margin:0">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button></p></section>`;
+  }
   return `
-  ${share}
-  ${ranked.length>1?`<div class="panel"><h2>This week</h2><ol class="board">${ranked.map((x,i)=>`
-    <li><span class="rk">${i+1}</span>${avatar(x.p)}<span class="nm">${x.isMe?"You":esc(x.p.name)}</span>
-    <span class="v">${x.L.weekDays.length} workout${x.L.weekDays.length===1?"":"s"}<small>${fmtNum(fromKg(x.L.volumeWeek))} ${u} lifted</small></span></li>`).join("")}</ol></div>`:""}
-  <div class="cards">${people.map(x=>personCard(x.p,x.sum,x.isMe,x.isMe?null:(x.sum&&x.sum.sharing?x.uid:null))).join("")}</div>
-  ${S.mode==="db"&&!SOC.accepted.length?`<p class="muted" style="margin-top:16px">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button> to see their progress here.</p>`:""}`;
+  <header class="greet"><h1>${greeting()}${nm?", "+esc(nm):""}</h1><p>${new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</p></header>
+  ${todayHtml}
+  <section class="sec"><div class="sec-h"><span class="kicker">This week</span><span class="small muted">${esc(plan.name)}</span></div>
+    <div class="weekrow">${week}</div>
+    <div class="nums3"><div><b>${L.weekDays.length}</b><span>workouts</span></div><div><b>${L.streak||0}</b><span>week streak</span></div><div><b>${L.total||0}</b><span>all time</span></div></div>
+  </section>
+  <section class="sec"><div class="sec-h"><span class="kicker">Best lifts</span><span class="small muted">${u}</span></div>
+    <div class="lifts4">${lifts}</div></section>
+  ${buddiesHtml}`;
 }
 function renderBuddy(){
   const b=S.buddyId;const p=SOC.profiles[b]||{};const sum=SOC.shared[b];
-  const back=`<p><button class="link" data-view="dash">Back to dashboard</button></p>`;
+  const back=`<p><button class="link" data-view="dash">Back to home</button></p>`;
   if(!sum||!sum.sharing)return back+`<div class="panel"><p class="muted" style="margin:0">${esc(p.name||"This buddy")} isn't sharing progress right now.</p></div>`;
   const L=live(sum);const u=S.settings.unit;
   const lifts=L.lifts||[];
@@ -974,6 +1108,10 @@ function renderBuddies(){
   return `
   ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pa.name||"this person")}</b> as a buddy?</span>
     <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
+  <div class="panel"><label class="bigswitch"><input type="checkbox" id="sharing" ${S.settings.sharing?"checked":""}>
+      <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
+        ?"Buddies see your plan name, weekly workouts, streak and top sets. Turn off and they see nothing."
+        :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
   <div class="panel"><h2>Add a buddy</h2>
     <div class="row"><input class="field" id="email" type="email" placeholder="Their Google email" autocomplete="off"><button class="btn primary" id="addEmail">Send request</button></div>
     <p class="muted" style="font-size:14px;margin:12px 0 8px">Or send your invite link. When they open it and sign in, they can add you in one tap.</p>
@@ -1052,6 +1190,7 @@ function chart(pts,useW,label){
 
 /* ---------- events ---------- */
 function doSignIn(){
+  S.justSignedIn=true;
   const pr=new GoogleAuthProvider();
   signInWithPopup(auth,pr).catch(err=>{
     const c=err&&err.code;
@@ -1064,6 +1203,8 @@ function leaveEditor(){
   S.draft=null;S.draftId=null;return true;
 }
 document.addEventListener("click",async e=>{
+  if(S.view==="enter"&&e.target.closest(".landing")){enterApp();return}
+  {const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}}
   if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
@@ -1071,6 +1212,8 @@ document.addEventListener("click",async e=>{
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);render();return}
   if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
   if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
+  if(e.target.closest("[data-go-today]")){const p=activePlan();S.planId=p.id;S.date=today();S.day=dayOf(S.date);S.view="log";render();window.scrollTo(0,0);return}
+  const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.accept){accept(ds.accept);return}
   if(ds.decline){removeReq(ds.decline,"Request declined.");return}
@@ -1093,7 +1236,7 @@ document.addEventListener("click",async e=>{
   if(ds.mv){const a=S.draft.days[+ds.di].ex,i=+ds.xi,j=i+ +ds.mv;if(j>=0&&j<a.length){[a[i],a[j]]=[a[j],a[i]];render()}return}
   switch(t.id){
     case "signin":doSignIn();return;
-    case "guest":S.view="log";render();return;
+    case "guest":S.view="dash";render();return;
     case "signout":signOut(auth);return;
     case "restart":S.settings.start=mondayOf(today());saveSettings();render();return;
     case "addEmail":addByEmail($("#email").value);return;
@@ -1123,7 +1266,7 @@ document.addEventListener("click",async e=>{
     if(e2.done)startTimer(REST_SECONDS);
   }
 });
-document.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
+document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   /* plan editor fields: update the draft without re-rendering */
@@ -1222,13 +1365,14 @@ if(CONFIGURED){
       setDoc(doc(fs,"profiles",uid),{name:me.name,photo:me.photo},{merge:true}).catch(()=>{});
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
       startSocial();publishNow();
-      if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.view="buddies"}
-      else S.view="log";
-    }else S.view="log";
+      if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
+    }
+    if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
+    else S.view="enter";
     render();
   });
 }else{
-  initStore().then(render);
+  initStore().then(()=>{S.view="enter";render()});
 }
 })();
 
