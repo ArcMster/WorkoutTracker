@@ -233,6 +233,17 @@ tr.isdone input{opacity:.7}
   .mini-f.unit{flex-direction:column;align-items:stretch;gap:2px}
   .exbtns{align-self:end}
 }
+.pname{border:0;background:none;padding:0;color:inherit;text-align:left;font:700 19px/1.2 var(--display);cursor:pointer}
+.pname:hover{text-decoration:underline}
+.pv-day .ex-head{align-items:flex-start}
+.pv-wd{display:block;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.pv-count{font-size:13px;color:var(--muted);white-space:nowrap;padding-top:4px}
+.pv-list{list-style:none;counter-reset:ex;margin:10px 0 2px;padding:0}
+.pv-list li{counter-increment:ex;display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.pv-list li span:first-child::before{content:counter(ex)". ";color:var(--muted);font-variant-numeric:tabular-nums}
+.pv-t{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pv-rest{display:flex;align-items:center;gap:10px;padding:12px 16px;margin-bottom:14px;border:1px dashed var(--line);border-radius:14px}
+.pv-dot{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--rest);flex:none}
 .savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
 </style>
 </head>
@@ -593,9 +604,9 @@ function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view)
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={signin:renderSignIn,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit};
+  const views={signin:renderSignIn,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&S.view==="planEdit");
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   app.innerHTML=`
   <div class="top"><span class="brand">${APP_NAME}</span>${uid?avatar(me):""}</div>
@@ -682,8 +693,9 @@ function renderPlans(){
     const active=p.id===S.settings.activePlan;
     return `<li class="planrow ${active?"active":""}">
       <div class="planweek">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
-      <div class="nm"><b>${esc(p.name)}</b>${active?` <span class="tag">In use</span>`:""}<small>${esc(planSummary(p))}</small></div>
+      <div class="nm"><button class="pname" data-viewplan="${p.id}">${esc(p.name)}</button>${active?` <span class="tag">In use</span>`:""}<small>${esc(planSummary(p))}</small></div>
       <div class="row">
+        <button class="btn small" data-viewplan="${p.id}">View</button>
         ${active?"":`<button class="btn small primary" data-use="${p.id}">Use this plan</button>`}
         ${p.builtin?"":`<button class="btn small" data-edit="${p.id}">Edit</button>`}
         <button class="btn small" data-dup="${p.id}">Duplicate</button>
@@ -699,6 +711,38 @@ function renderPlans(){
     ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0">No plans of your own yet. Create one above, or duplicate a ready-made plan below.</p>`}</div>
   <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
   <p class="muted" style="font-size:14px">Exercises with the same name share their history across plans, so switching plans keeps your progress and "last time" numbers.</p>`;
+}
+
+/* plan view (read-only) */
+function renderPlanView(){
+  const p=getPlan(S.viewPlanId);
+  const back=`<p><button class="link" data-view="plans">Back to plans</button></p>`;
+  if(!p)return back+`<div class="panel"><p class="muted" style="margin:0">This plan no longer exists.</p></div>`;
+  const active=p.id===S.settings.activePlan;
+  const days=p.days.map((d,i)=>{
+    if(d.t==="rest")return `<div class="pv-rest"><span class="pv-dot off"></span><b>${WD_LONG[i]}</b><span class="muted">Rest${d.focus&&d.focus!==REST().focus?": "+esc(d.focus):""}</span></div>`;
+    const sets=d.ex.reduce((a,x)=>a+x.s,0);
+    return `<section class="ex pv-day" style="--dc:${tinfo(d.t).solid}">
+      <div class="ex-head"><div><span class="pv-wd">${WD_LONG[i]}</span><h2>${esc(d.title)}</h2></div>
+        <span class="pv-count">${d.ex.length} exercise${d.ex.length===1?"":"s"}, ${sets} sets</span></div>
+      ${d.focus?`<p class="last">${esc(d.focus)}</p>`:""}
+      ${d.note?`<p class="hint">${esc(d.note)}</p>`:""}
+      <ol class="pv-list">${d.ex.map(x=>`<li><span>${esc(x.n)}</span><span class="pv-t">${esc(target(x))}</span></li>`).join("")}</ol>
+    </section>`;
+  }).join("");
+  return back+`
+  <div class="panel">
+    <div class="planweek" style="margin-bottom:10px">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
+    <h2 style="margin-bottom:4px">${esc(p.name)}${active?` <span class="tag">In use</span>`:""}</h2>
+    <p class="muted" style="margin:0 0 14px;font-size:15px">${esc(planSummary(p))}${p.builtin?". Ready-made plan.":""}</p>
+    <div class="row">
+      ${active?"":`<button class="btn primary" data-use="${p.id}">Use this plan</button>`}
+      ${p.builtin?"":`<button class="btn" data-edit="${p.id}">Edit</button>`}
+      <button class="btn" data-dup="${p.id}">${p.builtin?"Duplicate to customize":"Duplicate"}</button>
+    </div>
+    ${S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:""}
+  </div>
+  ${days}`;
 }
 
 /* plan editor */
@@ -976,6 +1020,7 @@ document.addEventListener("click",async e=>{
   if(ds.remove){const a=SOC.accepted.find(x=>x.id===ds.remove);const nm=a&&SOC.profiles[a.uid]?SOC.profiles[a.uid].name:"this buddy";
     if(confirm("Remove "+nm+" as a buddy? You'll stop seeing each other's progress."))removeReq(ds.remove,"Buddy removed.");return}
   /* plans */
+  if(ds.viewplan){S.viewPlanId=ds.viewplan;S.msg="";S.view="planView";render();window.scrollTo(0,0);return}
   if(ds.use){usePlan(ds.use);S.msg="Now using "+getPlan(ds.use).name+".";S.msgOk=true;render();return}
   if(ds.edit){const p=getPlan(ds.edit);if(p)openEditor(p,p.builtin?null:p.id);return}
   if(ds.dup){const p=getPlan(ds.dup);if(p)openEditor({name:p.name+" (my version)",days:p.days});return}
