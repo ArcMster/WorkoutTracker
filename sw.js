@@ -1,12 +1,16 @@
+
 /* Service worker: makes Infinity Fitness Tracker installable and able to open offline.
    Bump CACHE when you change index.html so users get the new version. */
-const CACHE = "infinity-v9";
+const CACHE = "infinity-v11";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png"];
 const CDN = ["www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // Cache each file on its own, so one missing file can't stop the app from installing.
+  e.waitUntil(caches.open(CACHE)
+    .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => console.warn("Not cached:", u)))))
+    .then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
