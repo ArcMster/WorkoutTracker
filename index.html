@@ -336,6 +336,9 @@ body.landing-on .timer{display:none}
 .blist .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .blist .mini{width:112px;gap:3px}
 .blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
+.shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
+.shift .link{font-size:14px}
+.plate.missed .disc{opacity:.35}
 /* landing: tap to enter */
 .landing.tappable{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .l-hello{margin:0;font-weight:600;font-size:17px}
@@ -474,17 +477,65 @@ function sid(date,day,planId){return planId==="ppl"?date+"_d"+day:date+"_d"+day+
 function curId(){return sid(S.date,S.day,S.planId)}
 function cur(){return S.sessions[curId()]}
 function viewPlan(){return getPlan(S.planId)}
+/* ---------- rolling schedule ----------
+   Workouts run in plan order. A workout day that passes with nothing logged keeps its
+   workout for the next training day, and everything after it shifts along. Rest days
+   never move and never receive a workout. Only the active plan rolls. */
+function wslots(plan){return plan.days.map((d,i)=>d.t==="rest"?0:i+1).filter(Boolean)}
+function alignedP(plan,date){const W=wslots(plan);const wd=dayOf(date);const k=W.findIndex(x=>x>=wd);return k<0?0:k}
+function ensureAnchor(){
+  const a=S.settings.sched;
+  if(!a||a.planId!==S.settings.activePlan){
+    S.settings.sched={planId:S.settings.activePlan,date:mondayOf(today()),p:0};
+    saveSettings();
+  }
+}
+function resetSchedule(){
+  const plan=activePlan();
+  S.settings.sched={planId:plan.id,date:today(),p:alignedP(plan,today())};
+  saveSettings();
+}
+function sessSrc(s){return s.src||s.day}
+function schedule(plan,until){
+  const W=wslots(plan);const res={};
+  const a=S.settings.sched;
+  if(!W.length||!a||a.planId!==plan.id||until<a.date)return res;
+  let p=(a.p||0)%W.length;const td=today();
+  for(let d=a.date;d<=until;d=addDays(d,1)){
+    const wd=dayOf(d);const tpl=plan.days[wd-1];const s=S.sessions[sid(d,wd,plan.id)];
+    if(s&&hasSets(s)){
+      const src=sessSrc(s);res[d]={src,st:"done"};
+      const k=W.indexOf(src);p=((k<0?p:k)+1)%W.length;continue;
+    }
+    if(tpl.t==="rest"){res[d]={src:wd,st:"rest"};continue}
+    const src=W[p];
+    if(d<td)res[d]={src,st:"missed"};
+    else{res[d]={src,st:d===td?"due":"planned"};p=(p+1)%W.length}
+  }
+  return res;
+}
+/* which template day (1-7) a date shows for a plan */
+function srcFor(plan,date){
+  const s=S.sessions[sid(date,dayOf(date),plan.id)];
+  if(s&&hasSets(s))return sessSrc(s);
+  if(plan.id===S.settings.activePlan){const r=schedule(plan,date)[date];if(r)return r.src}
+  return dayOf(date);
+}
+function statusFor(plan,date){
+  if(plan.id!==S.settings.activePlan)return null;
+  return schedule(plan,date)[date]||null;
+}
 /* the day being shown: from its plan, or rebuilt from the session if that plan was deleted */
 function day(){
   const p=viewPlan();
-  if(p)return p.days[S.day-1];
+  if(p)return p.days[srcFor(p,S.date)-1];
   const s=cur();
   if(s)return {t:s.t||"other",title:s.title||"Workout",focus:"",note:"This plan was deleted. Showing what you logged.",
     ex:Object.keys(s.entries||{}).map(n=>X(n,Math.max(1,(s.entries[n]||[]).length),0,0))};
   return REST();
 }
 function sessionMeta(s){
-  const p=getPlan(s.planId||"ppl");const d=p&&p.days[s.day-1];
+  const p=getPlan(s.planId||"ppl");const d=p&&p.days[sessSrc(s)-1];
   return {t:s.t||(d&&d.t)||"other",title:s.title||(d&&d.title)||"Workout"};
 }
 function planSummary(p){
@@ -518,6 +569,7 @@ async function initStore(){
   }
   if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
   S.planId=S.settings.activePlan;
+  ensureAnchor();
 }
 function writeDoc(id,data){
   if(S.mode==="db"){
@@ -656,7 +708,9 @@ function inviteLink(){return location.origin+location.pathname+"?add="+uid}
 /* ---------- workout logic ---------- */
 function ensure(){
   const id=curId();
-  if(!S.sessions[id]){const d=day();S.sessions[id]={date:S.date,day:S.day,planId:S.planId,t:d.t,title:d.title,unit:S.settings.unit,deload:false,entries:{},updated:Date.now()}}
+  const p=viewPlan();
+  if(!S.sessions[id]){const d=day();S.sessions[id]={date:S.date,day:S.day,src:p?srcFor(p,S.date):S.day,planId:S.planId,t:d.t,title:d.title,unit:S.settings.unit,deload:false,entries:{},updated:Date.now()}}
+  else if(p&&!hasSets(S.sessions[id])){const s=S.sessions[id];s.src=srcFor(p,S.date);const d=p.days[s.src-1];s.t=d.t;s.title=d.title}
   if(!S.settings.start){S.settings.start=mondayOf(S.date);saveSettings()}
   return S.sessions[id];
 }
@@ -773,11 +827,19 @@ function renderLog(){
   const p=viewPlan();const d=day();const s=cur();const wk=weekInfo();
   const weekStart=mondayOf(S.date);
   const days=p?p.days:Array.from({length:7},(_,i)=>i===S.day-1?d:REST());
-  const plates=days.map((dd,i)=>{
-    const logged=!!S.sessions[sid(addDays(weekStart,i),i+1,S.planId)];
-    return `<button class="plate" data-day="${i+1}" aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}">
+  const plates=days.map((tp,i)=>{
+    const date=addDays(weekStart,i);
+    const logged=!!S.sessions[sid(date,i+1,S.planId)];
+    const st=p?statusFor(p,date):null;
+    const dd=p?p.days[srcFor(p,date)-1]:tp;
+    return `<button class="plate ${st&&st.st==="missed"?"missed":""}" data-day="${i+1}" aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}${st&&st.st==="missed"?", missed":""}">
       <span class="disc ${dd.t==="rest"?"rest":""}" style="--c:${tinfo(dd.t).bg}"></span>${WD[i]}<span class="logged ${logged?"on":""}"></span></button>`;
   }).join("");
+  const stNow=p?statusFor(p,S.date):null;
+  let shift="";
+  if(stNow&&stNow.st==="missed")shift=`<p class="shift">Not logged, so ${esc(d.title)} moved to the next training day. You can still log it here.</p>`;
+  else if(stNow&&(stNow.st==="due"||stNow.st==="planned")&&stNow.src!==S.day)
+    shift=`<p class="shift">Moved here from ${WD_LONG[stNow.src-1]}. Rest days stay put. <button class="link" id="resetSched">Reset to plan days</button></p>`;
   const deload=s?!!s.deload:!!(wk&&wk.cycle===6);
   let body="";
   if(d.t==="rest"){
@@ -814,7 +876,7 @@ function renderLog(){
   return `
   <div class="planbar"><select id="planSel" aria-label="Workout plan">${planOpts}</select><button class="btn small" data-view="plans">Manage plans</button></div>
   <div class="week">${plates}</div>
-  <div class="hero"><h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}</div>
+  <div class="hero">${shift}<h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}</div>
   <div class="meta">
     <input type="date" id="date" value="${S.date}" aria-label="Workout date">
     ${wk?`<span class="chip ${wk.cycle===6?"warn":""}">Week ${wk.week}, cycle week ${wk.cycle} of 6${wk.cycle===6?": deload":""}</span>`:""}
@@ -968,14 +1030,16 @@ function savePlan(){
   const plan={name,days,updated:Date.now()};
   S.plans[id]=plan;
   writeDoc("plan_"+id,clone(plan)).catch(()=>say("Couldn't save the plan. Check your connection and try again."));
-  if(isNew){S.settings.activePlan=id;S.planId=id;saveSettings();schedulePublish()}
+  if(isNew)usePlan(id);
   S.draft=null;S.draftId=null;S.view="plans";
   S.msg=isNew?"Plan saved and set as your current plan.":"Plan saved.";S.msgOk=true;
   render();window.scrollTo(0,0);
 }
 function failDraft(t){S.draftErr=t;render();const b=$(".savebar");if(b)b.scrollIntoView({block:"nearest"})}
 function usePlan(id){
-  S.settings.activePlan=id;S.planId=id;saveSettings();schedulePublish();
+  S.settings.activePlan=id;S.planId=id;
+  const plan=getPlan(id);S.settings.sched={planId:id,date:today(),p:alignedP(plan,today())};
+  saveSettings();schedulePublish();
 }
 
 /* dashboard */
@@ -1011,7 +1075,8 @@ function personCard(p,sum,isMe,buddyUid){
 function greeting(){const hr=new Date().getHours();return hr<5?"Late night":hr<12?"Good morning":hr<17?"Good afternoon":"Good evening"}
 function renderDash(){
   const u=S.settings.unit;
-  const plan=activePlan();const td=today();const di=dayOf(td);const d=plan.days[di-1];
+  const plan=activePlan();const td=today();const di=dayOf(td);const d=plan.days[srcFor(plan,td)-1];
+  const stToday=statusFor(plan,td);const moved=stToday&&stToday.st==="due"&&stToday.src!==di;
   const s=S.sessions[sid(td,di,plan.id)];
   const planned=d.ex.reduce((a,x)=>a+x.s,0);
   let doneSets=0;if(s)Object.values(s.entries||{}).forEach(a=>doneSets+=filled(a).length);
@@ -1030,6 +1095,7 @@ function renderDash(){
     todayHtml=`<section class="today" style="--dc:${tinfo(d.t).solid}">
       <span class="kicker">Today</span>
       <h2>${esc(d.title)}</h2>
+      ${moved?`<p class="small">Moved from ${WD_LONG[stToday.src-1]}, since it wasn't logged</p>`:""}
       ${d.focus?`<p>${esc(d.focus)}</p>`:""}<p class="small">${d.ex.length} exercises, ${planned} sets</p>
       ${doneSets?`<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>
         <p class="small">${doneSets} of ${planned} sets done</p>`:""}
@@ -1037,10 +1103,12 @@ function renderDash(){
     </section>`;
   }
   /* week */
-  const week=plan.days.map((dd,i)=>{
+  const week=plan.days.map((tp,i)=>{
     const date=addDays(wk,i);const logged=Object.values(S.sessions).some(x=>x.date===date&&hasSets(x));
+    const st=statusFor(plan,date);const dd=plan.days[srcFor(plan,date)-1];
     const isToday=date===td;const past=date<td;
-    const cls=[dd.t==="rest"?"rest":"",logged?"done":"",isToday?"now":"",!logged&&past&&dd.t!=="rest"?"missed":""].join(" ");
+    const missed=st?st.st==="missed":(!logged&&past&&dd.t!=="rest");
+    const cls=[dd.t==="rest"?"rest":"",logged?"done":"",isToday?"now":"",missed?"missed":""].join(" ");
     return `<div class="wd ${cls}"><span class="dot" style="--c:${tinfo(dd.t).bg}"></span><small>${WD[i][0]}</small></div>`;
   }).join("");
   /* lifts */
@@ -1227,7 +1295,7 @@ document.addEventListener("click",async e=>{
   if(ds.dup){const p=getPlan(ds.dup);if(p)openEditor({name:p.name+" (my version)",days:p.days});return}
   if(ds.del){const p=getPlan(ds.del);if(!p||!confirm("Delete the plan \""+p.name+"\"? Workouts you logged with it stay in your history."))return;
     delete S.plans[ds.del];writeDoc("plan_"+ds.del,null);
-    if(S.settings.activePlan===ds.del){S.settings.activePlan="ppl";saveSettings()}
+    if(S.settings.activePlan===ds.del)usePlan("ppl");
     if(S.planId===ds.del)S.planId=S.settings.activePlan;
     schedulePublish();S.msg="Plan deleted.";S.msgOk=true;render();return}
   if(ds.addex!=null){const d=S.draft.days[+ds.addex];d.ex.push(X("",3,8,12));render();
@@ -1247,6 +1315,7 @@ document.addEventListener("click",async e=>{
       catch(err){prompt("Copy your invite link:",inviteLink())}
       return;
     case "shareLink":navigator.share({title:APP_NAME,text:"Be my gym buddy on "+APP_NAME,url:inviteLink()}).catch(()=>{});return;
+    case "resetSched":resetSchedule();render();return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
     case "savePlan":savePlan();return;
     case "cancelPlan":case "cancelPlan2":if(leaveEditor()){S.view="plans";render();window.scrollTo(0,0)}return;
