@@ -734,21 +734,32 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
 }
+/* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
+const ME_KEY="infinity-me-";
+function blankMe(){Object.assign(ME,{nick:"",photo:"",ig:"",bio:"",custom:false})}
+function restoreMe(){
+  blankMe();if(!uid)return false;
+  try{const v=JSON.parse(localStorage.getItem(ME_KEY+uid)||"null");if(v){Object.assign(ME,v);return true}}catch(e){}
+  return false;
+}
+function cacheMe(){try{localStorage.setItem(ME_KEY+uid,JSON.stringify(ME))}catch(e){}}
 async function loadMyProfile(){
   try{
     const d=await getDoc(doc(fs,"profiles",uid));
     const v=d.exists()?d.data():{};
     ME.nick=v.nick||"";ME.ig=v.ig||"";ME.bio=v.bio||"";ME.custom=!!v.custom;ME.photo=v.custom?(v.photo||""):"";
+    cacheMe();
+    if(S.view!=="boot")render();
     const patch={name:me.name};
     if(!v.custom&&me.photo&&v.photo!==me.photo)patch.photo=me.photo;
     await setDoc(doc(fs,"profiles",uid),patch,{merge:true});
-    render();
   }catch(e){console.warn("profile",e)}
 }
 function saveMyProfile(){
   const d=S.profileDraft||{};
   ME.nick=(d.nick||"").trim().slice(0,40);ME.ig=igHandle(d.ig);ME.bio=(d.bio||"").trim().slice(0,160);
   ME.custom=!!d.photo;ME.photo=d.photo||"";
+  cacheMe();
   const data={name:me.name,nick:ME.nick,ig:ME.ig,bio:ME.bio,custom:ME.custom,photo:ME.photo||me.photo,updated:Date.now()};
   return setDoc(doc(fs,"profiles",uid),data,{merge:true})
     .then(()=>{S.profileDraft=null;S.view="history";S.msg="";say("Profile saved.",true);schedulePublish();publishNow();render()})
@@ -864,7 +875,7 @@ async function openTrainee(tid){
 function traineePlans(){return [...BUILTIN,...Object.entries(TR.plans).map(([id,p])=>({id,...p}))]}
 function assignPlan(id){
   const pl=BUILTIN.find(b=>b.id===id)||(TR.plans[id]?{id,...TR.plans[id]}:null);
-  return setDoc(doc(fs,"users",TR.uid,"log","coach"),{activePlan:id,by:me.name,at:Date.now()})
+  return setDoc(doc(fs,"users",TR.uid,"log","coach"),{activePlan:id,by:myName(),at:Date.now()})
     .then(()=>{TR.active=id;say(esc(TR.name)+" now follows "+(pl?pl.name:"that plan")+".",true);render()})
     .catch(e=>say(fbError(e,"assign that plan")));
 }
@@ -1776,7 +1787,7 @@ function renderDash(){
   /* buddies */
   let buddiesHtml="";
   if(S.mode==="db"){
-    const people=[{uid:"me",p:me,isMe:true,L}];
+    const people=[{uid:"me",p:{name:myName(),photo:myPhoto()},isMe:true,L}];
     SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing)people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},isMe:false,L:live(sh)})});
     people.sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
     const hidden=SOC.accepted.length-(people.length-1);
@@ -2209,12 +2220,15 @@ if(CONFIGURED){
     stopSocial();
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
+    const hadMe=restoreMe();
     if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
     try{await initStore()}catch(e){S.mode="local"}
     if(S.mode==="db"){
-      loadMyProfile();
+      /* First sign-in on this device: wait briefly for the nickname rather than flash the Google name. */
+      const prof=loadMyProfile();
+      if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();publishNow();
+      startSocial();prof.then(publishNow);
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
