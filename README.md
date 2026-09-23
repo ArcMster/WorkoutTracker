@@ -7,9 +7,13 @@ A workout tracker with ready-made and custom weekly plans. Sign in with Google, 
 | File | What it is |
 | --- | --- |
 | `index.html` | The whole app |
+| `firebase-config.js` | Your Firebase settings (you create this once, see below) |
+| `firebase-config.example.js` | Template for the file above |
 | `sw.js` | Service worker (install + offline) |
 | `manifest.webmanifest` | App name, icons, colors for install |
 | `icons/` | App icons |
+| `lib/` | Bundled readers for Excel and PDF import |
+| `check.html` | Opens in a browser and checks that the app can be installed |
 | `firestore.rules` | Firestore security rules |
 
 ## Firebase setup
@@ -18,7 +22,8 @@ A workout tracker with ready-made and custom weekly plans. Sign in with Google, 
 2. **Authentication** > Get started > enable the **Google** provider.
 3. **Firestore Database** > Create database (production mode).
 4. Firestore > **Rules**: paste `firestore.rules` and publish.
-5. **Project settings** > Your apps > add a **Web app**. Copy the `firebaseConfig` object into the top of the script in `index.html`.
+5. **Project settings** > Your apps > add a **Web app** and copy its config values.
+   Copy `firebase-config.example.js` to a new file named `firebase-config.js`, paste your values in, and commit it. You only do this once: app updates never include `firebase-config.js`, so replacing the other files keeps your settings.
 6. Authentication > Settings > **Authorized domains**: add `<your-username>.github.io`.
 
 ## Deploy to GitHub Pages
@@ -27,7 +32,7 @@ A workout tracker with ready-made and custom weekly plans. Sign in with Google, 
 2. Settings > Pages > Deploy from branch > `main`, root folder.
 3. Open `https://<your-username>.github.io/<repo>/`.
 
-When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v6`) so installed apps pick up the update.
+When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13`) so installed apps pick up the update.
 
 ## Workout plans
 
@@ -36,6 +41,26 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v6`
 - Ready-made plans can't be edited directly. Tap **Duplicate** to make your own copy.
 - Exercises with the same name share their history across plans, so "last time" numbers and progress charts carry over when you switch.
 - Deleting a plan keeps the workouts you logged with it.
+- **Missed workouts move forward.** If a training day passes with nothing logged, that workout moves to the next training day and the rest of the plan shifts along. Rest days never move. Logging a missed day later puts the schedule back. **Reset to plan days** on the Workout tab snaps back to the original weekdays, and switching plans starts aligned to the plan's weekdays.
+
+## Trainers
+
+- On the **Buddies** tab, tap **Make trainer** on any buddy to let them coach you.
+- A trainer can open you from their Buddies tab, create and edit plans for you, assign which plan you follow, and see your logged workouts.
+- A trainer can never change sets you've already logged. The Firestore rules only let them write documents named `plan_*` and `coach`.
+- Tap **Remove trainer** to revoke access immediately.
+- When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
+
+## Importing a plan
+
+**Plans > Import from PDF or Excel** reads `.pdf`, `.xlsx`, `.xls` and `.csv` files, then opens the result in the plan editor for you to check before saving.
+
+What reads best:
+- Day headings such as `Monday: Push`, `Day 1 - Upper` or just `Legs`.
+- One exercise per line, like `Bench Press 4 x 6-8`, `Plank 3 x 45-60 sec` or `Walking Lunges 3 x 10-12 per leg`.
+- Spreadsheets with `Day`, `Exercise`, `Sets` and `Reps` columns.
+
+The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline and needs no third-party CDN.
 
 ## How sharing works
 
