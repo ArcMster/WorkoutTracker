@@ -51,6 +51,13 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Tap **Remove trainer** to revoke access immediately.
 - When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
 
+## Finding buddies
+
+- **Buddies > Find New Buddies** lists members, most recently active first, 50 at a time. Search filters by name, tap **Add** to send a request, or tap a person to see their profile first.
+- Each member has a small public card in `directory/{uid}`: name, nickname, a small photo, the start of their bio and the date they were last active. Full profiles still can't be browsed.
+- Everyone is listed by default. Turning off **Show me in Find Buddies** on the Buddies tab deletes your card.
+- Existing users appear once they open the updated app.
+
 ## Importing a plan
 
 **Plans > Import from PDF or Excel** reads `.pdf`, `.xlsx`, `.xls` and `.csv` files, then opens the result in the plan editor for you to check before saving.
@@ -75,7 +82,8 @@ The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline 
 users/{uid}/log/settings           units, cycle start, sharing on/off, current plan
 users/{uid}/log/plan_{id}          a custom workout plan
 users/{uid}/log/{date}_d{day}...   one workout session
-profiles/{uid}                     name, photo
+profiles/{uid}                     name, nickname, photo, Instagram, bio
+directory/{uid}                    public card for Find New Buddies
 emails/{email}                     uid, for add-by-email
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
 shared/{uid}                       progress summary buddies can see

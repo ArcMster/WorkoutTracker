@@ -45,6 +45,21 @@ service cloud.firestore {
         && (!('bio' in request.resource.data) || (request.resource.data.bio is string && request.resource.data.bio.size() <= 160));
     }
 
+    // Member list for "Find New Buddies": a small card per user. Everyone is listed
+    // unless they turn it off, which deletes their card. Only the owner can write it.
+    match /directory/{uid} {
+      allow get: if signedIn();
+      allow list: if signedIn() && request.query.limit <= 50;
+      allow create, update: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['name', 'nick', 'bio', 'photo', 'seen'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.nick is string && request.resource.data.nick.size() <= 40
+        && request.resource.data.bio is string && request.resource.data.bio.size() <= 80
+        && request.resource.data.photo is string && request.resource.data.photo.size() <= 20000
+        && request.resource.data.seen is string && request.resource.data.seen.size() == 10;
+      allow delete: if isMe(uid);
+    }
+
     // Email lookup for "add by email". Exact match only, no listing.
     match /emails/{email} {
       allow get: if signedIn();

@@ -181,6 +181,9 @@ tr.isdone input{opacity:.7}
 .iconbtn{width:38px;height:36px;display:grid;place-items:center;border:1px solid var(--line);background:var(--field);border-radius:10px;padding:0;font-size:22px;line-height:1;color:var(--muted)}
 .iconbtn[aria-expanded="true"]{color:var(--ink);border-color:var(--ink)}
 .btn.danger{color:var(--push)}
+.people .nm small.one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.findbar{display:flex;gap:8px;margin:0 0 6px}
+.findbar .field{flex:1}
 .people .nm small{display:block;color:var(--muted);font-size:13px}
 .field{min-width:0;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
 .btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -431,7 +434,7 @@ const CONFIGURED=!!(firebaseConfig&&firebaseConfig.apiKey&&!String(firebaseConfi
 const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
 const FB=CONFIGURED?Object.assign({},...await Promise.all(["firebase-app.js","firebase-auth.js","firebase-firestore.js"].map(f=>import(SDK+f)))):{};
 const {initializeApp,getAuth,onAuthStateChanged,GoogleAuthProvider,signInWithPopup,signInWithRedirect,signOut,
-  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp}=FB;
+  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp,orderBy,limit,startAfter}=FB;
 
 (function(){
 "use strict";
@@ -534,6 +537,7 @@ const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},pla
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
 const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[]};
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false};
+const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
 
 /* ---------- plans ---------- */
@@ -762,7 +766,7 @@ function saveMyProfile(){
   cacheMe();
   const data={name:me.name,nick:ME.nick,ig:ME.ig,bio:ME.bio,custom:ME.custom,photo:ME.photo||me.photo,updated:Date.now()};
   return setDoc(doc(fs,"profiles",uid),data,{merge:true})
-    .then(()=>{S.profileDraft=null;S.view="history";S.msg="";say("Profile saved.",true);schedulePublish();publishNow();render()})
+    .then(()=>{S.profileDraft=null;S.view="history";S.msg="";say("Profile saved.",true);schedulePublish();publishNow();syncDirectory();render()})
     .catch(e=>say(fbError(e,"save your profile")));
 }
 /* shrink a picked photo so it fits in the profile document */
@@ -918,6 +922,79 @@ function hintFor(ex,last){
     return {up:true,t:"Top of the range on every set. Go up to "+nx+" "+u+" and aim for "+ex.lo+" reps."}}
   if(allTop&&ex.lo<ex.hi)return {up:true,t:"Top of the range on every set. Time to add weight or a harder variation."};
   return {t:"Beat it: one more rep, or +"+step()+" "+u+"."};
+}
+
+/* ---------- find new buddies ---------- */
+/* directory/{uid} is a small public card (name, nickname, thumbnail, short bio) so people can find each other.
+   Everyone is listed unless they turn it off, which deletes their card. */
+const DIR_KEY="infinity-dir-";
+function thumbOf(src){
+  if(!src||!src.startsWith("data:"))return Promise.resolve(src||"");
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{const n=96,c=document.createElement("canvas");c.width=c.height=n;
+      const sd=Math.min(img.width,img.height);c.getContext("2d").drawImage(img,(img.width-sd)/2,(img.height-sd)/2,sd,sd,0,0,n,n);
+      res(c.toDataURL("image/jpeg",0.7))};
+    img.onerror=()=>res("");img.src=src;
+  });
+}
+async function syncDirectory(force){
+  if(S.mode!=="db"||!uid)return;
+  const ref=doc(fs,"directory",uid);
+  if(S.settings.findable===false){
+    try{localStorage.removeItem(DIR_KEY+uid)}catch(e){}
+    return deleteDoc(ref).catch(e=>console.warn("directory",e));
+  }
+  const data={name:(me.name||"").slice(0,80),nick:ME.nick||"",bio:(ME.bio||"").slice(0,80),photo:await thumbOf(myPhoto()),seen:today()};
+  const key=JSON.stringify(data);
+  let prev=null;try{prev=localStorage.getItem(DIR_KEY+uid)}catch(e){}
+  if(!force&&prev===key)return;
+  return setDoc(ref,data).then(()=>{try{localStorage.setItem(DIR_KEY+uid,key)}catch(e){}}).catch(e=>console.warn("directory",e));
+}
+async function loadFind(){
+  if(FIND.loading||FIND.done)return;
+  FIND.loading=true;FIND.err="";softRender();
+  try{
+    const parts=[collection(fs,"directory"),orderBy("seen","desc"),limit(50)];
+    if(FIND.last)parts.splice(2,0,startAfter(FIND.last));
+    const snap=await getDocs(query(...parts));
+    snap.forEach(d=>{if(d.id!==uid)FIND.list.push({uid:d.id,...d.data()})});
+    FIND.last=snap.docs[snap.docs.length-1]||FIND.last;
+    if(snap.size<50)FIND.done=true;
+  }catch(e){console.warn("find",e);FIND.err=fbError(e,"load people")}
+  FIND.loading=false;softRender();
+}
+function findStatus(u){
+  if(SOC.accepted.some(a=>a.uid===u))return `<span class="small muted">Buddies</span>`;
+  const inc=SOC.incoming.find(r=>r.from===u);
+  if(inc)return `<button class="btn small primary" data-accept="${inc.id}">Accept</button>`;
+  if(SOC.outgoing.some(r=>r.to===u))return `<span class="small muted">Requested</span>`;
+  return `<button class="btn small primary" data-add="${u}">Add</button>`;
+}
+function findRows(){
+  const q=FIND.q.trim().toLowerCase();
+  const list=q?FIND.list.filter(x=>(x.nick+" "+x.name).toLowerCase().includes(q)):FIND.list;
+  if(!list.length)return FIND.loading?"":`<p class="muted" style="margin:8px 0 0">${q?"Nobody here matches that name"+(FIND.done?".":" yet. Load more to search further."):"Nobody else is listed yet."}</p>`;
+  return `<ul class="people">${list.map(x=>{const nm=x.nick||x.name||"Member";
+    return `<li><button class="avbtn" data-person="${x.uid}" aria-label="View profile">${avatar({name:nm,photo:x.photo})}</button>
+      <span class="nm"><button class="pbtn" data-person="${x.uid}">${esc(nm)}</button>
+      <small class="one">${x.bio?esc(x.bio):x.nick&&x.name&&x.nick!==x.name?esc(x.name):"Active "+fmtDate(x.seen)}</small></span>
+      <span class="acts">${findStatus(x.uid)}</span></li>`}).join("")}</ul>`;
+}
+function renderFind(){
+  if(S.mode!=="db")return `<p><button class="link" data-view="buddies">Back to buddies</button></p><div class="panel"><p class="muted" style="margin:0">Sign in to find buddies.</p></div>`;
+  if(!FIND.started){FIND.started=true;loadFind()}
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  return `<p><button class="link" data-view="buddies">Back to buddies</button></p>
+  <div class="panel"><h2>Find new buddies</h2>
+    <div class="findbar"><input class="field" id="findQ" type="search" placeholder="Search by name" value="${esc(FIND.q)}" autocomplete="off"></div>
+    ${S.settings.findable===false?`<p class="small muted" style="margin:6px 0 0">You're hidden from this list, so people can't find you here. You can change that on the Buddies tab.</p>`:""}
+    ${msg}
+    <div id="findList">${findRows()}</div>
+    ${FIND.err?`<p class="msg" style="color:var(--push)">${esc(FIND.err)}</p>`:""}
+    ${FIND.loading?`<p class="small muted" style="margin:12px 0 0">Loading people...</p>`
+      :FIND.done?"":`<p style="margin:12px 0 0"><button class="btn small" id="findMore">Load more</button></p>`}
+  </div>`;
 }
 
 /* ---------- workout detail and reports ---------- */
@@ -1216,13 +1293,13 @@ function closeShare(){
 
 /* ---------- render ---------- */
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-function softRender(force){if(force||["dash","buddies","buddy","person"].includes(S.view))render()}
+function softRender(force){if(force||["dash","buddies","buddy","person","find"].includes(S.view))render()}
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&["trainee","person","tday"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -1841,7 +1918,10 @@ function refreshProfile(u){
   if(S.mode!=="db")return;
   getDoc(doc(fs,"profiles",u)).then(d=>{if(d.exists()){SOC.profiles[u]=d.data();softRender()}}).catch(()=>{});
 }
-function openPerson(u){S.personId=u;S.msg="";S.view="person";loadProfile(u);refreshProfile(u);render();window.scrollTo(0,0)}
+function openPerson(u){
+  if(S.view!=="person")S.personFrom=S.view;
+  if(!SOC.profiles[u]){const f=FIND.list.find(x=>x.uid===u);if(f)SOC.profiles[u]={name:f.name,nick:f.nick,photo:f.photo,bio:f.bio}}
+  S.personId=u;S.msg="";S.view="person";loadProfile(u);refreshProfile(u);render();window.scrollTo(0,0)}
 function renderPerson(){
   const u=S.personId;const p=SOC.profiles[u]||{};const nm=pname(p);
   const bud=SOC.accepted.find(a=>a.uid===u),inc=SOC.incoming.find(r=>r.from===u),out=SOC.outgoing.find(r=>r.to===u);
@@ -1851,9 +1931,11 @@ function renderPerson(){
   const btns=(L?`<button class="btn primary" data-buddy="${u}">View progress</button>`:"")
     +(isTe?`<button class="btn" data-trainee="${u}">Open as trainer</button>`:"")
     +(inc?`<button class="btn primary" data-accept="${inc.id}">Accept</button><button class="btn" data-decline="${inc.id}">Decline</button>`:"")
-    +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"");
+    +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"")
+    +(!bud&&!inc&&!out&&u!==uid?`<button class="btn primary" data-add="${u}">Send buddy request</button>`:"");
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
-  return `<p><button class="link" data-view="buddies">Back to buddies</button></p>
+  const from=S.personFrom==="find"?"find":"buddies";
+  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":"buddies"}</button></p>
   <div class="panel profile">
     ${avatar(p,"xl")}
     <h1 class="pf-name">${esc(nm||"Loading...")}</h1>
@@ -1931,7 +2013,13 @@ function renderBuddies(){
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
         ?"Buddies see your plan name, weekly workouts, streak and top sets. Turn off and they see nothing."
         :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
+  <div class="panel"><label class="bigswitch"><input type="checkbox" id="findable" ${S.settings.findable!==false?"checked":""}>
+      <span><b>Show me in Find Buddies</b><br><span class="muted" style="font-size:14px">${S.settings.findable!==false
+        ?"Other members can see your name, photo and bio in the list and send you a request."
+        :"Off. People can only add you by email or invite link."}</span></span></label></div>
   <div class="panel"><h2>Add a buddy</h2>
+    <div class="row" style="margin-bottom:14px"><button class="btn primary" id="findBtn">Find New Buddies</button></div>
+    <p class="muted" style="font-size:14px;margin:0 0 8px">Or add someone by their Google email.</p>
     <div class="row"><input class="field" id="email" type="email" placeholder="Their Google email" autocomplete="off"><button class="btn primary" id="addEmail">Send request</button></div>
     <p class="muted" style="font-size:14px;margin:12px 0 8px">Or send your invite link. When they open it and sign in, they can add you in one tap.</p>
     <div class="row"><button class="btn" id="copyLink">Copy invite link</button>${navigator.share?`<button class="btn" id="shareLink">Share invite link</button>`:""}</div>
@@ -2048,6 +2136,9 @@ document.addEventListener("click",async e=>{
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.person){openPerson(ds.person);return}
+  if(ds.add){sendRequest(ds.add);return}
+  if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
+  if(t.id==="findMore"){loadFind();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
   if(t.id==="tMore"){TR.showN+=20;render();return}
@@ -2124,6 +2215,7 @@ document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
+  if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
   /* plan editor fields: update the draft without re-rendering */
   if(S.view==="planEdit"&&S.draft){
     if(ds.pf){S.draft[ds.pf]=el.value;return}
@@ -2147,6 +2239,7 @@ document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="range"){S.range=el.value}
+  else if(el.id==="findable"){S.settings.findable=el.checked;await saveSettings();syncDirectory(true);render()}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
   else if(el.id==="photoFile"){
     const f=el.files&&el.files[0];el.value="";
@@ -2228,7 +2321,7 @@ if(CONFIGURED){
       const prof=loadMyProfile();
       if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();prof.then(publishNow);
+      startSocial();prof.then(()=>{publishNow();syncDirectory()});
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
