@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install check</title>
+<style>
+:root{--bg:#11151B;--card:#1A2029;--ink:#E7EBF0;--muted:#98A2B1;--ok:#4DB07A;--bad:#E3574F;--warn:#E9BE3C;color-scheme:dark}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:24px 18px 60px}
+h1{font-size:24px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px;font-size:14px;word-break:break-all}
+ul{list-style:none;margin:0;padding:0}
+li{background:var(--card);border-radius:14px;padding:14px 16px;margin-bottom:10px;border-left:4px solid var(--muted)}
+li.ok{border-color:var(--ok)}li.bad{border-color:var(--bad)}li.warn{border-color:var(--warn)}
+li b{display:block}
+li .d{color:var(--muted);font-size:14px;margin-top:2px;word-break:break-word}
+li .fix{margin-top:6px;font-size:14px}
+.sum{border-radius:14px;padding:16px;margin-bottom:18px;font-weight:600}
+.sum.ok{background:color-mix(in srgb,var(--ok) 20%,transparent)}
+.sum.bad{background:color-mix(in srgb,var(--bad) 20%,transparent)}
+button{background:var(--ink);color:var(--bg);border:0;border-radius:999px;padding:12px 20px;font:600 15px system-ui;margin-top:8px}
+code{background:#0b0e13;padding:1px 5px;border-radius:5px;font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Install check</h1>
+  <p class="sub" id="where"></p>
+  <div id="sum" class="sum">Checking...</div>
+  <ul id="out"></ul>
+  <button onclick="location.reload()">Run again</button>
+</main>
+<script>
+const out=document.getElementById("out"),results=[];
+const base=new URL("./",location.href);
+document.getElementById("where").textContent="Checking "+base.href;
+function add(state,title,detail,fix){
+  results.push(state);
+  const li=document.createElement("li");li.className=state;
+  li.innerHTML="<b>"+(state==="ok"?"OK: ":state==="bad"?"Problem: ":"Note: ")+title+"</b>"+(detail?'<div class="d">'+detail+"</div>":"")+(fix&&state!=="ok"?'<div class="fix">Fix: '+fix+"</div>":"");
+  out.appendChild(li);
+}
+async function get(path){
+  try{const r=await fetch(new URL(path,base),{cache:"no-store"});return r}catch(e){return null}
+}
+function imgSize(url){return new Promise(res=>{const i=new Image();i.onload=()=>res([i.naturalWidth,i.naturalHeight]);i.onerror=()=>res(null);i.src=url+"?t="+Date.now()})}
+
+(async()=>{
+  // 1. secure page
+  add(location.protocol==="https:"?"ok":"bad","Page is served over HTTPS",location.protocol,"Open the https:// address of your site.");
+
+  // 2. index.html links the manifest
+  const idx=await get("./");
+  let linkHref=null;
+  if(idx&&idx.ok){
+    const html=await idx.text();
+    const m=html.match(/<link[^>]+rel=["']manifest["'][^>]*>/i);
+    if(m){linkHref=(m[0].match(/href=["']([^"']+)/i)||[])[1];add("ok","index.html links the manifest","&lt;link rel=\"manifest\" href=\""+linkHref+"\"&gt;")}
+    else add("bad","index.html does not link a manifest","The index.html on your site is an old version.","Upload the latest index.html from the zip.");
+    add(html.includes("Infinity")?"ok":"warn","index.html is the Infinity app",html.includes("Infinity")?"":"The page at this address doesn't look like the app.","Make sure check.html sits in the same folder as index.html.");
+  }else add("bad","Couldn't load index.html",idx?("Status "+idx.status):"Network error","Put index.html at the top level of the repo.");
+
+  // 3. manifest
+  const mpath=linkHref||"manifest.webmanifest";
+  const mr=await get(mpath);
+  let man=null;
+  if(!mr||!mr.ok){
+    add("bad","Manifest file not found",mpath+(mr?" returned status "+mr.status:" could not be fetched"),"Upload <code>manifest.webmanifest</code> to the top level of the repo, next to index.html. The name must match exactly.");
+  }else{
+    const txt=await mr.text();
+    try{man=JSON.parse(txt);add("ok","Manifest found and readable",mpath+" ("+(mr.headers.get("content-type")||"no type")+")")}
+    catch(e){add("bad","Manifest is not valid JSON",String(e.message),"Re-upload manifest.webmanifest from the zip without editing it.")}
+  }
+
+  // 4. manifest contents + icons
+  if(man){
+    add(man.name||man.short_name?"ok":"bad","Manifest has a name",man.name||man.short_name||"missing","Use the manifest from the zip.");
+    add(["standalone","fullscreen","minimal-ui"].includes(man.display)?"ok":"bad","Display mode is app-like","display: "+(man.display||"missing"),"Set \"display\": \"standalone\".");
+    add(man.start_url!=null?"ok":"bad","Start URL is set","start_url: "+man.start_url,"Set \"start_url\": \"./\".");
+    const icons=man.icons||[];
+    const mbase=new URL(mpath,base);
+    for(const need of [192,512]){
+      const ic=icons.find(i=>(i.sizes||"").split(" ").includes(need+"x"+need)&&(!i.purpose||i.purpose.includes("any")));
+      if(!ic){add("bad","Manifest lists a "+need+"px icon","missing","Use the manifest from the zip.");continue}
+      const url=new URL(ic.src,mbase).href;
+      const sz=await imgSize(url);
+      if(!sz)add("bad",need+"px icon file loads",url+" was not found","Create a folder named <code>icons</code> at the top level of the repo and upload the PNG files into it. Uploading from a phone often drops the folder, leaving the PNGs at the top level.");
+      else if(sz[0]!==need||sz[1]!==need)add("bad",need+"px icon has the right size","Actual size "+sz[0]+"x"+sz[1],"Use the icon files from the zip.");
+      else add("ok",need+"px icon loads",url);
+    }
+  }
+
+  // 5. service worker file + registration
+  const swr=await get("sw.js");
+  add(swr&&swr.ok?"ok":"bad","Service worker file found",swr?("sw.js status "+swr.status):"could not be fetched","Upload sw.js to the top level of the repo.");
+  if("serviceWorker" in navigator){
+    const reg=await navigator.serviceWorker.getRegistration(base.href);
+    add(reg&&reg.active?"ok":"warn","Service worker is running",reg?(reg.active?"Active, scope "+reg.scope:"Registered but not active yet"):"Not registered yet","Open the app page once, wait a few seconds, then run this check again.");
+  }
+
+  // 6. firebase config
+  const fc=await get("firebase-config.js");
+  add(fc&&fc.ok?"ok":"warn","firebase-config.js found",fc&&fc.ok?"":"Without it the app runs in guest mode. This does not affect installing.","Create firebase-config.js from firebase-config.example.js.");
+
+  // 7. already installed?
+  if(matchMedia("(display-mode: standalone)").matches)add("warn","You're viewing this inside the installed app","","");
+
+  const bad=results.filter(r=>r==="bad").length;
+  const sum=document.getElementById("sum");
+  sum.className="sum "+(bad?"bad":"ok");
+  sum.textContent=bad?bad+" problem"+(bad>1?"s":"")+" found. Fix the red items below, wait a minute for GitHub Pages to update, then run again."
+    :"Everything Chrome needs is in place. In Chrome: Site settings > Delete data for this site, reload the app, then use Install from the menu.";
+})();
+</script>
+</body>
+</html>
