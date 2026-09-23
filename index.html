@@ -338,6 +338,25 @@ body.landing-on .timer{display:none}
 .blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
 .avbtn{border:0;background:none;padding:0;line-height:0}
 .link.small{font-size:13px}
+.bio{white-space:pre-line;overflow-wrap:anywhere}
+textarea.field{resize:vertical;font:inherit}
+.av.xl{width:112px;height:112px;font-size:40px;border-width:3px}
+.pbtn{border:0;background:none;padding:0;font-weight:600;text-align:left;color:inherit;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.profile{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+.profile p{margin:0}
+.profile .pf-name{margin:8px 0 0;font:800 36px/1.05 var(--display);overflow-wrap:anywhere}
+.profile .pf-bio{max-width:36ch;margin:6px 0}
+.profile .nums3{width:100%;margin-top:8px;text-align:center}
+.profile .pf-actions{justify-content:center;margin-top:8px}
+.sharebar{display:flex;justify-content:center;margin-top:18px}
+dialog.share{border:0;padding:0;background:transparent;width:calc(100vw - 32px);max-width:440px}
+dialog.share::backdrop{background:rgba(0,0,0,.65)}
+dialog.share .sheet{background:var(--surface);color:var(--ink);border-radius:18px;padding:16px}
+dialog.share img{display:block;width:100%;height:auto;max-height:62vh;object-fit:contain;border-radius:12px;margin:0 auto 14px}
+dialog.share .row{justify-content:center}
+dialog.share a.btn{text-decoration:none}
+dialog.share a.btn:not(.primary){color:inherit}
+dialog.share p{margin:12px 0 0;text-align:center}
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
@@ -468,7 +487,7 @@ function igHandle(v){
   return String(v||"").trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i,"").replace(/[/?#].*$/,"").replace(/^@/,"").slice(0,40);
 }
 function avatar(p,lg){
-  const cls="av"+(lg?" lg":"");
+  const cls="av"+(lg?" "+(lg===true?"lg":lg):"");
   if(p&&p.photo)return `<img class="${cls}" src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">`;
   const i=((p&&p.name)||"?").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
   return `<span class="${cls}" aria-hidden="true">${esc(i||"?")}</span>`;
@@ -478,7 +497,7 @@ function avatar(p,lg){
 const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},mode:"local",
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
 const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[]};
-const ME={nick:"",photo:"",ig:"",custom:false};
+const ME={nick:"",photo:"",ig:"",bio:"",custom:false};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false};
 
 /* ---------- plans ---------- */
@@ -683,7 +702,7 @@ async function loadMyProfile(){
   try{
     const d=await getDoc(doc(fs,"profiles",uid));
     const v=d.exists()?d.data():{};
-    ME.nick=v.nick||"";ME.ig=v.ig||"";ME.custom=!!v.custom;ME.photo=v.custom?(v.photo||""):"";
+    ME.nick=v.nick||"";ME.ig=v.ig||"";ME.bio=v.bio||"";ME.custom=!!v.custom;ME.photo=v.custom?(v.photo||""):"";
     const patch={name:me.name};
     if(!v.custom&&me.photo&&v.photo!==me.photo)patch.photo=me.photo;
     await setDoc(doc(fs,"profiles",uid),patch,{merge:true});
@@ -692,9 +711,9 @@ async function loadMyProfile(){
 }
 function saveMyProfile(){
   const d=S.profileDraft||{};
-  ME.nick=(d.nick||"").trim().slice(0,40);ME.ig=igHandle(d.ig);
+  ME.nick=(d.nick||"").trim().slice(0,40);ME.ig=igHandle(d.ig);ME.bio=(d.bio||"").trim().slice(0,160);
   ME.custom=!!d.photo;ME.photo=d.photo||"";
-  const data={name:me.name,nick:ME.nick,ig:ME.ig,custom:ME.custom,photo:ME.photo||me.photo,updated:Date.now()};
+  const data={name:me.name,nick:ME.nick,ig:ME.ig,bio:ME.bio,custom:ME.custom,photo:ME.photo||me.photo,updated:Date.now()};
   return setDoc(doc(fs,"profiles",uid),data,{merge:true})
     .then(()=>{S.profileDraft=null;S.view="history";S.msg="";say("Profile saved.",true);schedulePublish();publishNow();render()})
     .catch(e=>say(fbError(e,"save your profile")));
@@ -854,15 +873,186 @@ function hintFor(ex,last){
   return {t:"Beat it: one more rep, or +"+step()+" "+u+"."};
 }
 
+/* ---------- share as image ---------- */
+/* Cards are drawn in the dark palette so they look the same whatever theme the phone uses. */
+const CARD={bg:"#11151B",surface:"#1A2029",field:"#222A35",line:"#2D3542",ink:"#E7EBF0",muted:"#98A2B1",
+  push:"#E3574F",pull:"#5B8CDD",legs:"#E9BE3C",core:"#4DB07A",cardio:"#38B2C2"};
+const CARD_TYPES={push:["push"],pull:["pull"],legs:["legs"],upper:["push","pull"],lower:["legs","core"],full:["push","pull","legs"],
+  legscore:["legs","core"],core:["core"],cardio:["cardio"]};
+const CARD_LIFTS={"Bench Press":"push","Squat":"legs","Deadlift or Rack Pull":"pull","Overhead Press":"core"};
+const INF_D="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z";
+const CW=1080,PAD=80;
+function typeColors(t){return (CARD_TYPES[t]||["muted"]).map(k=>CARD[k])}
+function cf(w,px,disp){return `${w} ${px}px ${disp?'"Barlow Condensed","Arial Narrow",Arial,sans-serif':'Barlow,system-ui,sans-serif'}`}
+async function cardFonts(){
+  if(!document.fonts)return;
+  const want=['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px Barlow','600 30px Barlow'];
+  try{await Promise.race([Promise.all(want.map(f=>document.fonts.load(f))),new Promise(r=>setTimeout(r,2500))])}catch(e){}
+}
+function loadImg(src){
+  return new Promise(res=>{
+    if(!src)return res(null);
+    const img=new Image(),t=setTimeout(()=>res(null),3000);
+    img.crossOrigin="anonymous";img.referrerPolicy="no-referrer";
+    img.onload=()=>{clearTimeout(t);res(img)};img.onerror=()=>{clearTimeout(t);res(null)};img.src=src;
+  });
+}
+function fitText(ctx,t,max){
+  t=String(t||"");if(ctx.measureText(t).width<=max)return t;
+  while(t.length&&ctx.measureText(t+"…").width>max)t=t.slice(0,-1);
+  return t.trimEnd()+"…";
+}
+function rrect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function box(ctx,x,y,w,h,accent){
+  ctx.fillStyle=CARD.surface;rrect(ctx,x,y,w,h,24);ctx.fill();
+  if(accent){ctx.save();rrect(ctx,x,y,w,h,24);ctx.clip();ctx.fillStyle=accent;ctx.fillRect(x,y,8,h);ctx.restore()}
+}
+function disc(ctx,x,y,r,cols){
+  const a=Math.PI*2/cols.length;
+  cols.forEach((c,i)=>{ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,r,-Math.PI/2+i*a,-Math.PI/2+(i+1)*a);ctx.closePath();ctx.fillStyle=c;ctx.fill()});
+}
+function drawAvatar(ctx,img,name,x,y,r){
+  ctx.save();ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.clip();
+  if(img){const s=Math.min(img.width,img.height);ctx.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,x-r,y-r,r*2,r*2)}
+  else{
+    ctx.fillStyle=CARD.field;ctx.fillRect(x-r,y-r,r*2,r*2);
+    const i=(name||"?").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase()||"?";
+    ctx.fillStyle=CARD.muted;ctx.font=cf(700,r*0.8,true);ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(i,x,y+2);
+  }
+  ctx.restore();ctx.textAlign="left";ctx.textBaseline="alphabetic";
+}
+function cardStart(H){
+  const c=document.createElement("canvas");c.width=CW;c.height=H;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle=CARD.bg;ctx.fillRect(0,0,CW,H);
+  const g=ctx.createLinearGradient(0,0,CW,0);g.addColorStop(0,CARD.push);g.addColorStop(.5,CARD.pull);g.addColorStop(1,CARD.legs);
+  ctx.fillStyle=g;ctx.fillRect(0,0,CW,10);
+  ctx.save();ctx.translate(PAD-10,62);ctx.scale(0.9,0.9);
+  const gm=ctx.createLinearGradient(12,0,108,0);gm.addColorStop(0,CARD.push);gm.addColorStop(.5,CARD.pull);gm.addColorStop(1,CARD.legs);ctx.strokeStyle=gm;ctx.lineWidth=9;ctx.lineCap="round";ctx.stroke(new Path2D(INF_D));ctx.restore();
+  ctx.fillStyle=CARD.ink;ctx.font=cf(800,46,true);ctx.fillText("INFINITY",PAD+110,112);
+  return {c,ctx};
+}
+function cardEnd(ctx,H){
+  ctx.fillStyle=CARD.muted;ctx.font=cf(500,28);
+  ctx.fillText(APP_NAME,PAD,H-70);
+  ctx.textAlign="right";ctx.fillText(new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}),CW-PAD,H-70);ctx.textAlign="left";
+}
+function kicker(ctx,t,y){ctx.fillStyle=CARD.muted;ctx.font=cf(600,28);ctx.fillText(t.toUpperCase().split("").join(String.fromCharCode(8202)),PAD,y)}
+function stat3(ctx,y,items){
+  const w=(CW-PAD*2-48)/3;
+  items.forEach(([v,l],i)=>{
+    const x=PAD+i*(w+24);box(ctx,x,y,w,190);
+    ctx.fillStyle=CARD.ink;ctx.font=cf(800,104,true);ctx.fillText(fitText(ctx,v,w-56),x+28,y+112);
+    ctx.fillStyle=CARD.muted;ctx.font=cf(500,30);ctx.fillText(fitText(ctx,l,w-56),x+28,y+160);
+  });
+}
+function toBlob(c){return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("blob")),"image/png"))}
+
+async function progressCard(){
+  const sum=live(computeSummary());const u=S.settings.unit;const H=1350;
+  const [,img]=await Promise.all([cardFonts(),loadImg(myPhoto())]);
+  const {c,ctx}=cardStart(H);
+  const name=myName()||"My training";
+  drawAvatar(ctx,img,name,PAD+70,270,70);
+  ctx.fillStyle=CARD.ink;ctx.font=cf(800,80,true);ctx.fillText(fitText(ctx,name,CW-PAD*2-180),PAD+170,270);
+  ctx.fillStyle=CARD.muted;ctx.font=cf(500,32);ctx.fillText(fitText(ctx,sum.planName||"",CW-PAD*2-180),PAD+170,316);
+  kicker(ctx,"This week",440);
+  const slot=(CW-PAD*2)/7;
+  WD.forEach((w,i)=>{
+    const x=PAD+slot*i+slot/2,t=sum.weekTypes[String(i+1)];
+    if(t)disc(ctx,x,520,42,typeColors(t));
+    else{ctx.beginPath();ctx.arc(x,520,40,0,Math.PI*2);ctx.strokeStyle=CARD.line;ctx.lineWidth=5;ctx.stroke()}
+    ctx.fillStyle=t?CARD.ink:CARD.muted;ctx.font=cf(600,28);ctx.textAlign="center";ctx.fillText(w,x,610);ctx.textAlign="left";
+  });
+  stat3(ctx,660,[[String(sum.weekDays.length),sum.weekDays.length===1?"workout":"workouts"],[String(sum.streak||0),"week streak"],[String(sum.total||0),"all time"]]);
+  kicker(ctx,"Best lifts ("+u+")",950);
+  const lw=(CW-PAD*2-60)/4;
+  KEY_LIFTS.forEach(([n,l],i)=>{
+    const x=PAD+i*(lw+20),lf=(sum.lifts||[]).find(z=>z.n===n);
+    box(ctx,x,985,lw,180,CARD[CARD_LIFTS[n]]);
+    ctx.fillStyle=CARD.muted;ctx.font=cf(600,28);ctx.fillText(l,x+32,1035);
+    ctx.fillStyle=CARD.ink;ctx.font=cf(800,72,true);
+    ctx.fillText(fitText(ctx,lf&&lf.pr.w>0?String(fromKg(lf.pr.w)):"-",lw-44),x+32,1125);
+  });
+  cardEnd(ctx,H);
+  return toBlob(c);
+}
+
+function fmtCardSet(x,from,ex){
+  const w=conv(x.w,from,S.settings.unit);
+  const r=x.r+(ex&&ex.u==="sec"?"s":ex&&ex.u==="min"?"m":"");
+  return w!=null&&w>0?w+"×"+r:r;
+}
+async function workoutCard(){
+  const s=cur();const d=day();const m=sessionMeta(s);const u=S.settings.unit;
+  const rows=Object.entries(s.entries||{}).map(([n,a])=>({n,f:filled(a)})).filter(x=>x.f.length);
+  const order=d.ex.map(x=>x.n);
+  rows.sort((a,b)=>{const i=order.indexOf(a.n),j=order.indexOf(b.n);return (i<0?99:i)-(j<0?99:j)});
+  let sets=0,vol=0,reps=0;
+  rows.forEach(x=>x.f.forEach(z=>{sets++;reps+=z.r||0;vol+=(conv(z.w,s.unit||"kg",u)||0)*(z.r||0)}));
+  const ROW=100,TOP=700,MAXROWS=11;
+  const shown=rows.length>MAXROWS?rows.slice(0,MAXROWS-1):rows;
+  const more=rows.length-shown.length;
+  const H=Math.max(1350,TOP+(shown.length+(more?1:0))*ROW+170);
+  await cardFonts();
+  const {c,ctx}=cardStart(H);
+  const col=typeColors(m.t)[0];
+  kicker(ctx,parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"}),230);
+  ctx.fillStyle=col;ctx.font=cf(800,120,true);ctx.fillText(fitText(ctx,m.title,CW-PAD*2),PAD,350);
+  const pl=getPlan(s.planId||"ppl");
+  ctx.fillStyle=CARD.muted;ctx.font=cf(500,32);ctx.fillText(fitText(ctx,[myName(),pl&&pl.name].filter(Boolean).join("  ·  "),CW-PAD*2),PAD,405);
+  stat3(ctx,450,[[String(rows.length),rows.length===1?"exercise":"exercises"],[String(sets),sets===1?"set":"sets"],
+    vol>0?[fmtNum(vol),"volume ("+u+")"]:[String(reps),"total reps"]]);
+  shown.forEach((x,i)=>{
+    const y=TOP+i*ROW,ex=d.ex.find(e=>e.n===x.n);
+    if(i){ctx.fillStyle=CARD.line;ctx.fillRect(PAD,y,CW-PAD*2,2)}
+    ctx.fillStyle=CARD.ink;ctx.font=cf(700,44,true);ctx.fillText(fitText(ctx,x.n,CW-PAD*2),PAD,y+50);
+    ctx.fillStyle=CARD.muted;ctx.font=cf(500,30);ctx.fillText(fitText(ctx,x.f.map(z=>fmtCardSet(z,s.unit||"kg",ex)).join("   "),CW-PAD*2),PAD,y+88);
+  });
+  if(more){ctx.fillStyle=CARD.muted;ctx.font=cf(600,30);ctx.fillText("+"+more+" more exercise"+(more===1?"":"s"),PAD,TOP+shown.length*ROW+60)}
+  cardEnd(ctx,H);
+  return toBlob(c);
+}
+
+let SHARE=null;
+async function openShare(kind){
+  if(kind==="workout"&&!(cur()&&hasSets(cur()))){setStatus("Log at least one set to share this workout.");return}
+  let blob;
+  try{blob=await (kind==="workout"?workoutCard():progressCard())}
+  catch(e){console.warn("share card",e);alert("Couldn't make the image. Try again.");return}
+  const name=(kind==="workout"?"workout-"+cur().date:"progress-"+today())+".png";
+  const file=new File([blob],name,{type:"image/png"});
+  const canShare=!!(navigator.canShare&&navigator.canShare({files:[file]}));
+  closeShare();
+  SHARE={file,url:URL.createObjectURL(blob)};
+  let dlg=$("#shareDlg");
+  if(!dlg){dlg=document.createElement("dialog");dlg.id="shareDlg";dlg.className="share";document.body.appendChild(dlg);
+    dlg.addEventListener("close",closeShare);dlg.addEventListener("click",e=>{if(e.target===dlg)dlg.close()})}
+  dlg.innerHTML=`<div class="sheet"><img src="${SHARE.url}" alt="${kind==="workout"?"Workout summary":"Progress summary"} image">
+    <div class="row">${canShare?`<button class="btn primary" id="shareImg">Share</button>`:""}
+      <a class="btn ${canShare?"":"primary"}" href="${SHARE.url}" download="${name}">Save image</a>
+      <button class="btn" id="closeShare">Close</button></div>
+    <p class="small muted">${canShare?"Share straight to Instagram, WhatsApp or any app.":"Save the image, then post it from Instagram, WhatsApp or any app."}</p></div>`;
+  if(!dlg.open)dlg.showModal();
+}
+function closeShare(){
+  if(!SHARE)return;
+  const dlg=$("#shareDlg");const url=SHARE.url;SHARE=null;
+  if(dlg&&dlg.open)dlg.close();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
 /* ---------- render ---------- */
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view))render()}
+function softRender(force){if(force||["dash","buddies","buddy","person"].includes(S.view))render()}
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&S.view==="trainee")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&(S.view==="trainee"||S.view==="person"))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -993,6 +1183,7 @@ function renderLog(){
     ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""}> Deload (about 40% fewer sets)</label>`:""}
   </div>
   ${body}
+  ${d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
 }
 function beatText(e,l,last){
@@ -1368,7 +1559,7 @@ function personCard(p,sum,isMe,buddyUid){
   const count=(L.weekDays||[]).length;
   return `<div class="card ${isMe?"me":""}">
     <div class="card-h">${avatar(p,true)}<div style="flex:1"><b>${isMe?"You":esc(pname(p)||"Buddy")}</b>
-      <small>${L.planName?esc(L.planName):""}${L.planName?"<br>":""}${L.lastDate?"Last workout "+fmtDate(L.lastDate):"No workouts yet"}${p&&p.ig?`<br><a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}</small></div>
+      <small>${L.planName?esc(L.planName):""}${L.planName?"<br>":""}${L.lastDate?"Last workout "+fmtDate(L.lastDate):"No workouts yet"}${p&&p.ig?`<br><a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}${p&&p.bio?`<br><span class="bio">${esc(p.bio)}</span>`:""}</small></div>
       ${buddyUid?`<button class="btn small" data-buddy="${buddyUid}">View</button>`:""}</div>
     ${miniWeek(L)}
     <div class="stats">
@@ -1446,6 +1637,7 @@ function renderDash(){
   <section class="sec"><div class="sec-h"><span class="kicker">This week</span><span class="small muted">${esc(plan.name)}</span></div>
     <div class="weekrow">${week}</div>
     <div class="nums3"><div><b>${L.weekDays.length}</b><span>workouts</span></div><div><b>${L.streak||0}</b><span>week streak</span></div><div><b>${L.total||0}</b><span>all time</span></div></div>
+    <div class="sharebar"><button class="btn small" id="shareProgress">Share my progress</button></div>
   </section>
   <section class="sec"><div class="sec-h"><span class="kicker">Best lifts</span><span class="small muted">${u}</span></div>
     <div class="lifts4">${lifts}</div></section>
@@ -1453,7 +1645,7 @@ function renderDash(){
 }
 function renderBuddy(){
   const b=S.buddyId;const p=SOC.profiles[b]||{};const sum=SOC.shared[b];
-  const back=`<p><button class="link" data-view="dash">Back to home</button></p>`;
+  const back=`<p class="row" style="justify-content:space-between"><button class="link" data-view="dash">Back to home</button><button class="link" data-person="${b}">View profile</button></p>`;
   if(!sum||!sum.sharing)return back+`<div class="panel"><p class="muted" style="margin:0">${esc(pname(p)||"This buddy")} isn't sharing progress right now.</p></div>`;
   const L=live(sum);const u=S.settings.unit;
   const lifts=L.lifts||[];
@@ -1475,8 +1667,38 @@ function renderBuddy(){
   ${rec?`<div class="panel"><h2>Recent workouts</h2>${rec}</div>`:""}`;
 }
 
+function refreshProfile(u){
+  if(S.mode!=="db")return;
+  getDoc(doc(fs,"profiles",u)).then(d=>{if(d.exists()){SOC.profiles[u]=d.data();softRender()}}).catch(()=>{});
+}
+function openPerson(u){S.personId=u;S.msg="";S.view="person";loadProfile(u);refreshProfile(u);render();window.scrollTo(0,0)}
+function renderPerson(){
+  const u=S.personId;const p=SOC.profiles[u]||{};const nm=pname(p);
+  const bud=SOC.accepted.find(a=>a.uid===u),inc=SOC.incoming.find(r=>r.from===u),out=SOC.outgoing.find(r=>r.to===u);
+  const isTr=SOC.trainers.includes(u),isTe=SOC.trainees.includes(u);
+  const sh=SOC.shared[u];const L=bud&&sh&&sh.sharing?live(sh):null;
+  const rel=isTr?"Your trainer":isTe?"You're training them":bud?"Your buddy":inc?"Wants to be your buddy":out?"Request sent":"";
+  const btns=(L?`<button class="btn primary" data-buddy="${u}">View progress</button>`:"")
+    +(isTe?`<button class="btn" data-trainee="${u}">Open as trainer</button>`:"")
+    +(inc?`<button class="btn primary" data-accept="${inc.id}">Accept</button><button class="btn" data-decline="${inc.id}">Decline</button>`:"")
+    +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"");
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  return `<p><button class="link" data-view="buddies">Back to buddies</button></p>
+  <div class="panel profile">
+    ${avatar(p,"xl")}
+    <h1 class="pf-name">${esc(nm||"Loading...")}</h1>
+    ${p.nick&&p.name&&p.nick!==p.name?`<p class="muted">${esc(p.name)}</p>`:""}
+    ${rel?`<span class="chip">${rel}</span>`:""}
+    ${p.ig?`<p><a class="link" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a></p>`:""}
+    <p class="bio pf-bio ${p.bio?"":"muted"}">${p.bio?esc(p.bio):"No bio yet."}</p>
+    ${L?`<div class="nums3"><div><b>${L.weekDays.length}</b><span>this week</span></div><div><b>${L.streak||0}</b><span>week streak</span></div><div><b>${L.total||0}</b><span>all time</span></div></div>`:""}
+    ${btns?`<div class="row pf-actions">${btns}</div>`:""}
+    ${msg}
+  </div>`;
+}
+
 function renderProfile(){
-  const d=S.profileDraft||(S.profileDraft={nick:ME.nick,ig:ME.ig,photo:ME.photo});
+  const d=S.profileDraft||(S.profileDraft={nick:ME.nick,ig:ME.ig,bio:ME.bio,photo:ME.photo});
   const prev={name:d.nick||me.name,photo:d.photo||me.photo};
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   return `<p><button class="link" data-view="history">Back</button></p>
@@ -1491,7 +1713,9 @@ function renderProfile(){
       <input class="field" data-prof="nick" value="${esc(d.nick)}" placeholder="${esc(me.name||"How buddies see you")}" maxlength="40"></label>
     <label class="stack" style="margin-bottom:16px"><span>Instagram</span>
       <input class="field" data-prof="ig" value="${esc(d.ig)}" placeholder="yourhandle" autocapitalize="none" autocorrect="off"></label>
-    <p class="small muted" style="margin:0 0 14px">Your nickname, photo and Instagram are visible to your buddies.</p>
+    <label class="stack" style="margin-bottom:16px"><span>Bio</span>
+      <textarea class="field" data-prof="bio" rows="3" maxlength="160" placeholder="A line about you and your training">${esc(d.bio||"")}</textarea></label>
+    <p class="small muted" style="margin:0 0 14px">Your nickname, photo, Instagram and bio are visible to your buddies.</p>
     <div class="row"><button class="btn primary" id="saveProfile">Save profile</button><button class="btn" data-view="history">Cancel</button></div>
     ${msg}
   </div>`;
@@ -1527,7 +1751,7 @@ function renderBuddies(){
   if(S.mode!=="db")return `<div class="panel"><h2>Buddies</h2><p class="muted">${CONFIGURED?"Sign in with Google to add buddies and see each other's progress.":"Set up Firebase to use buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const pa=S.pendingAdd&&S.pendingAdd!==uid&&!SOC.accepted.some(a=>a.uid===S.pendingAdd)?SOC.profiles[S.pendingAdd]:null;
-  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm">${esc(pname(p)||"Loading...")}${p.ig?` <a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}<small>${sub}</small></span>${btns}</li>`};
+  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li><button class="avbtn" data-person="${u}" aria-label="View profile">${avatar(p)}</button><span class="nm"><button class="pbtn" data-person="${u}">${esc(pname(p)||"Loading...")}</button>${p.ig?` <a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}<small>${sub}</small></span>${btns}</li>`};
   return `
   ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pname(pa)||"this person")}</b> as a buddy?</span>
     <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
@@ -1592,7 +1816,7 @@ function renderHistory(){
   </div>
   <div class="panel"><h2>Account</h2>
     ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
-      :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}</span></div>
+      :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}${ME.bio?`<br><span class="bio muted" style="font-size:14px">${esc(ME.bio)}</span>`:""}</span></div>
         <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button><button class="btn" id="signout">Sign out</button></div>`
       :`<button class="btn primary" id="signin">Sign in with Google</button>`}
   </div>
@@ -1646,6 +1870,7 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("[data-go-today]")){const p=activePlan();S.planId=p.id;S.date=today();S.day=dayOf(S.date);S.view="log";render();window.scrollTo(0,0);return}
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
+  if(ds.person){openPerson(ds.person);return}
   if(ds.trainer){setTrainer(ds.trainer,true);return}
   if(ds.untrainer){if(confirm("Remove trainer access from "+(pname(SOC.profiles[ds.untrainer])||"this buddy")+"?"))setTrainer(ds.untrainer,false);return}
   if(ds.trainee){openTrainee(ds.trainee);return}
@@ -1688,6 +1913,10 @@ document.addEventListener("click",async e=>{
     case "photoBtn":$("#photoFile").click();return;
     case "photoClear":S.profileDraft.photo="";render();return;
     case "saveProfile":saveMyProfile();return;
+    case "shareProgress":openShare("progress");return;
+    case "shareWorkout":openShare("workout");return;
+    case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:APP_NAME}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
+    case "closeShare":closeShare();return;
     case "importBtn":$("#importFile").click();return;
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
