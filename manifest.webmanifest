@@ -1,7 +1,8 @@
 {
+  "id": "./",
   "name": "Infinity Fitness Tracker",
   "short_name": "Infinity",
-  "description": "6-day push, pull, legs workout tracker with gym buddies",
+  "description": "Workout tracker with custom plans and gym buddies",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -9,8 +10,23 @@
   "background_color": "#18202C",
   "theme_color": "#18202C",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
