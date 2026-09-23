@@ -14,9 +14,25 @@ service cloud.firestore {
       return signedIn() && (accepted(request.auth.uid, other) || accepted(other, request.auth.uid));
     }
 
-    // Private workout log: only the owner, ever.
+    // Who may act as my trainer. Only I can change my own list.
+    match /coaching/{uid} {
+      allow read: if isMe(uid) || (signedIn() && request.auth.uid in resource.data.trainers);
+      allow write: if isMe(uid)
+        && request.resource.data.trainers is list
+        && request.resource.data.trainers.size() <= 10;
+    }
+
+    function isTrainerOf(uid) {
+      let p = /databases/$(database)/documents/coaching/$(uid);
+      return signedIn() && exists(p) && request.auth.uid in get(p).data.trainers;
+    }
+
+    // Workout log. The owner has full access.
+    // A trainer they chose can read it and write plans, never logged sets.
     match /users/{uid}/log/{docId} {
       allow read, write: if isMe(uid);
+      allow read: if isTrainerOf(uid);
+      allow write: if isTrainerOf(uid) && (docId.matches('plan_.*') || docId == 'coach');
     }
 
     // Name and photo. Anyone signed in can look up one profile by id,
