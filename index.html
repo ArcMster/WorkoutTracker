@@ -336,6 +336,7 @@ body.landing-on .timer{display:none}
 .blist .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .blist .mini{width:112px;gap:3px}
 .blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
+.coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
 .plate.missed .disc{opacity:.35}
@@ -467,7 +468,8 @@ function avatar(p,lg){
 /* ---------- state ---------- */
 const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},mode:"local",
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
-const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{}};
+const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[]};
+const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -560,6 +562,7 @@ async function initStore(){
       const v=d.data();
       if(d.id==="settings")Object.assign(S.settings,v);
       else if(d.id.startsWith("plan_"))S.plans[d.id.slice(5)]=v;
+      else if(d.id==="coach")S.coachDoc=v;
       else S.sessions[d.id]=v;
     });
     S.mode="db";
@@ -567,9 +570,24 @@ async function initStore(){
     try{const raw=localStorage.getItem(LS);if(raw){const v=JSON.parse(raw);S.sessions=v.sessions||{};S.plans=v.plans||{};Object.assign(S.settings,v.settings||{})}}catch(e){}
     S.mode="local";
   }
+  applyCoachAssignment();
   if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
   S.planId=S.settings.activePlan;
   ensureAnchor();
+}
+/* a trainer assigned a plan: switch to it once */
+function applyCoachAssignment(){
+  const c=S.coachDoc;S.coachNotice="";
+  if(!c||!c.activePlan||!c.at)return;
+  if((S.settings.coachSeen||0)>=c.at)return;
+  const pl=getPlan(c.activePlan);
+  S.settings.coachSeen=c.at;
+  if(pl){
+    S.settings.activePlan=c.activePlan;
+    S.settings.sched={planId:pl.id,date:today(),p:0};
+    S.coachNotice=(c.by?esc(c.by):"Your trainer")+" set your plan to "+esc(pl.name)+".";
+  }
+  saveSettings();
 }
 function writeDoc(id,data){
   if(S.mode==="db"){
@@ -649,7 +667,7 @@ function live(sum){
 function stopSocial(){
   SOC.unsubs.forEach(u=>u());SOC.unsubs=[];
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
-  Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{}});
+  Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
 }
 function loadProfile(u){
   if(SOC.profiles[u])return;
@@ -672,6 +690,11 @@ function startSocial(){
   };
   SOC.unsubs.push(onSnapshot(query(rq,where("from","==",uid)),s=>{fromMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(rq,where("to","==",uid)),s=>{toMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
+  /* who I let train me */
+  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);softRender()},e=>console.warn(e)));
+  /* who I train */
+  SOC.unsubs.push(onSnapshot(query(collection(fs,"coaching"),where("trainers","array-contains",uid)),
+    s=>{SOC.trainees=s.docs.map(d=>d.id);SOC.trainees.forEach(loadProfile);softRender()},e=>console.warn(e)));
 }
 function watchBuddy(b,recompute){
   SOC.buddyUnsubs[b]=onSnapshot(doc(fs,"shared",b),snap=>{
@@ -703,6 +726,38 @@ async function addByEmail(email){
 }
 function accept(id){return updateDoc(doc(fs,"requests",id),{status:"accepted"}).then(()=>say("You're now buddies.",true)).catch(()=>say("Couldn't accept. Try again."))}
 function removeReq(id,okMsg){return deleteDoc(doc(fs,"requests",id)).then(()=>okMsg&&say(okMsg,true)).catch(()=>say("That didn't go through. Try again."))}
+function setTrainer(bid,on){
+  const list=on?[...new Set([...SOC.trainers,bid])]:SOC.trainers.filter(x=>x!==bid);
+  if(list.length>10)return say("You can have up to 10 trainers.");
+  SOC.trainers=list;
+  setDoc(doc(fs,"coaching",uid),{trainers:list,updated:Date.now()})
+    .then(()=>say(on?(SOC.profiles[bid]||{}).name+" can now edit your plans.":"Trainer access removed.",true))
+    .catch(()=>say("Couldn't change that. Try again."));
+  softRender(true);
+}
+/* trainer side: load a trainee's plans and recent work */
+async function openTrainee(tid){
+  S.view="trainee";TR.uid=tid;TR.name=(SOC.profiles[tid]||{}).name||"Buddy";TR.plans={};TR.active=null;TR.sessions=[];TR.loading=true;render();
+  try{
+    const snap=await getDocs(collection(fs,"users",tid,"log"));
+    const sess=[];
+    snap.forEach(d=>{
+      const v=d.data();
+      if(d.id==="settings")TR.active=v.activePlan||"ppl";
+      else if(d.id.startsWith("plan_"))TR.plans[d.id.slice(5)]=v;
+      else if(d.id!=="coach"&&v&&v.date)sess.push(v);
+    });
+    TR.sessions=sess.filter(hasSets).sort((a,b)=>a.date<b.date?1:-1).slice(0,8);
+  }catch(e){say("Couldn't open their log. They may have removed your trainer access.")}
+  TR.loading=false;render();
+}
+function traineePlans(){return [...BUILTIN,...Object.entries(TR.plans).map(([id,p])=>({id,...p}))]}
+function assignPlan(id){
+  const pl=BUILTIN.find(b=>b.id===id)||(TR.plans[id]?{id,...TR.plans[id]}:null);
+  return setDoc(doc(fs,"users",TR.uid,"log","coach"),{activePlan:id,by:me.name,at:Date.now()})
+    .then(()=>{TR.active=id;say(esc(TR.name)+" now follows "+(pl?pl.name:"that plan")+".",true);render()})
+    .catch(()=>say("Couldn't assign that plan. Check that you still have trainer access."));
+}
 function inviteLink(){return location.origin+location.pathname+"?add="+uid}
 
 /* ---------- workout logic ---------- */
@@ -750,9 +805,9 @@ function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view)
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&S.view==="trainee")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -913,11 +968,197 @@ function renderPlans(){
   return `
   <div class="panel"><h2>Build your own plan</h2>
     <p class="muted" style="margin:0 0 12px;font-size:15px">Set up each day of the week with its own exercises, sets and rep ranges. Or duplicate a ready-made plan and change what you need.</p>
-    <button class="btn primary" id="newPlan">Create a new plan</button>${msg}</div>
+    <div class="row"><button class="btn primary" id="newPlan">Create a new plan</button>
+      <button class="btn" id="importBtn">Import from PDF or Excel</button></div>
+    <input type="file" id="importFile" accept=".pdf,.xlsx,.xls,.csv,application/pdf" hidden>
+    <p class="small muted" style="margin:12px 0 0">A file works best with one line per exercise, like "Bench Press 4 x 6-8", under a day heading such as "Monday: Push". Spreadsheets can use Day, Exercise, Sets and Reps columns.</p>
+    ${msg}</div>
   <div class="panel"><h2>Your plans</h2>
     ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0">No plans of your own yet. Create one above, or duplicate a ready-made plan below.</p>`}</div>
   <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
   <p class="muted" style="font-size:14px">Exercises with the same name share their history across plans, so switching plans keeps your progress and "last time" numbers.</p>`;
+}
+
+/* ---------- import plans from PDF, Excel or CSV ---------- */
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    if([...document.scripts].some(s=>s.src===src))return res();
+    const el=document.createElement("script");el.src=src;el.onload=()=>res();el.onerror=()=>rej(new Error("load"));
+    document.head.appendChild(el);
+  });
+}
+const TYPE_WORDS=[[/\bpush\b/i,"push"],[/\bpull\b/i,"pull"],[/\bupper\b/i,"upper"],[/\blower\b/i,"lower"],[/\bfull\s*body\b/i,"full"],
+  [/\blegs?\b/i,"legs"],[/\bcore|abs\b/i,"core"],[/\bcardio|run|conditioning\b/i,"cardio"],[/\brest|off\s*day\b/i,"rest"]];
+const EX_RE=/^(.*?)[\s:.\-–|]*?(\d{1,2})\s*(?:x|×|\*|sets?\s*(?:of|x)?)\s*(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?\s*(seconds?|secs?|minutes?|mins?|reps?)?\s*(?:\(?\s*(?:\/|per\s*|each\s*)(leg|side)s?\s*\)?)?\s*$/i;
+function typeOf(text){for(const [re,t] of TYPE_WORDS)if(re.test(text))return t;return "other"}
+function cleanName(s){return String(s||"").replace(/^[\s\-–—•·*\d.)|:]+/,"").replace(/[\s:\-–—•·|]+$/,"").trim()}
+const WD_RE=/\b(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?)\b/ig;
+/* "Monday PUSH - Chest, shoulders" becomes title "Push" and focus "Chest, shoulders" */
+function headOf(text){return String(text||"").split(/\s*[—–\-|:]\s+|\s{2,}/)[0]||""}
+/* the type comes from the heading itself first, so "LEGS - Main Lower Body Day" is Legs, not Lower */
+function titleFocus(text){
+  const parts=String(text||"").split(/\s*[—–\-|:]\s+|\s{2,}/).map(x=>cleanName(x.replace(WD_RE,""))).filter(Boolean);
+  let title=parts.shift()||"";
+  const focus=parts.join(", ");
+  let t=typeOf(title);
+  if(t==="other")t=typeOf(text||"");
+  if(t!=="other"&&(!title||title.length>24||new RegExp(TYPE_WORDS.find(w=>w[1]===t)[0]).test(title)))title=tinfo(t).label;
+  return {t,title:title||tinfo(t).label,focus};
+}
+function unitOf(a,b){
+  const u=(a||"").toLowerCase(),side=(b||"").toLowerCase();
+  if(/sec/.test(u))return "sec";
+  if(/min/.test(u))return "min";
+  if(/leg/.test(side))return "per leg";
+  if(/side/.test(side))return "per side";
+  return "";
+}
+function parseLines(lines){
+  const out=[],warn=[];let cur=null,prev=null;
+  const push=()=>{prev=cur;if(cur&&(cur.ex.length||cur.t==="rest"))out.push(cur)};
+  for(const raw of lines){
+    const line=String(raw||"").replace(/\s+/g," ").trim();
+    if(!line||line.length>160)continue;
+    const wd=line.match(/^(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)[a-z]*\b[\s:.\-–|]*(.*)$/i);
+    const dn=line.match(/^day\s*(\d{1,2})\b[\s:.\-–|]*(.*)$/i);
+    const ex=line.match(EX_RE);
+    if(!ex&&(wd||dn)){
+      push();
+      const restText=(wd?wd[6]:dn[2])||"";
+      const wdIdx=wd?["mo","tu","we","th","fr","sa","su"].indexOf(wd[1].slice(0,2).toLowerCase()):-1;
+      let tf=titleFocus(restText||line);let t=tf.t;
+      /* some files put the type on the line above, as in "PUSH - Chest" then "Day 1 . Monday" */
+      if(prev&&!prev.ex.length&&t==="other"&&prev.t!=="other"){t=prev.t;tf={title:prev.title,focus:prev.focus}}
+      cur={wd:wdIdx,t,title:tf.title,focus:tf.focus,note:"",ex:[]};
+      continue;
+    }
+    if(ex){
+      const name=cleanName(ex[1]);
+      if(!name){warn.push(line);continue}
+      if(!cur)cur={wd:-1,t:"other",title:"Workout",focus:"",note:"",ex:[]};
+      const lo=+ex[3],hi=ex[4]?+ex[4]:+ex[3];
+      cur.ex.push(X(name,Math.min(20,Math.max(1,+ex[2])),lo,Math.max(lo,hi),unitOf(ex[5],ex[6])));
+      continue;
+    }
+    /* a short line with a known workout word starts a day */
+    if(!/\d/.test(line)&&headOf(line).split(" ").length<=6&&typeOf(headOf(line))!=="other"){
+      const tf=titleFocus(line);const t=tf.t;
+      /* or the type comes just after the day heading */
+      if(cur&&!cur.ex.length&&cur.t==="other"){cur.t=t;cur.title=tf.title;cur.focus=tf.focus||cur.focus;continue}
+      push();
+      cur={wd:-1,t,title:tf.title,focus:tf.focus,note:"",ex:[]};
+      continue;
+    }
+    if(/\d/.test(line))warn.push(line);
+  }
+  push();
+  return {days:out,warn};
+}
+function parseSheet(rows){
+  const head=rows.findIndex(r=>r.some(c=>/exercise|movement|workout/i.test(c))&&r.some(c=>/sets?/i.test(c)));
+  if(head<0)return parseLines(rows.map(r=>r.filter(c=>c!=="").join(" ")));
+  const H=rows[head].map(c=>String(c).toLowerCase());
+  const col=re=>H.findIndex(c=>re.test(c));
+  const ci={day:col(/day|weekday/),ex:col(/exercise|movement|workout/),sets:col(/sets?/),reps:col(/reps?|rep range|count/),unit:col(/unit|counted|measure/)};
+  const out=[],warn=[];let cur=null;
+  for(let i=head+1;i<rows.length;i++){
+    const r=rows[i];if(!r.some(c=>c!==""))continue;
+    const dayCell=ci.day>=0?String(r[ci.day]||"").trim():"";
+    if(dayCell){
+      const wd=dayCell.match(/^(mon|tues?|wed(nes)?|thu(rs)?|fri|sat(ur)?|sun)/i);
+      const key=dayCell.toLowerCase();
+      if(!cur||cur.key!==key){
+        if(cur)out.push(cur);
+        const tf=titleFocus(dayCell);
+        cur={key,wd:wd?["mo","tu","we","th","fr","sa","su"].indexOf(wd[1].slice(0,2).toLowerCase()):-1,
+          t:tf.t,title:tf.title,focus:tf.focus,note:"",ex:[]};
+      }
+    }
+    const name=cleanName(ci.ex>=0?String(r[ci.ex]||""):"");
+    if(!name||!cur)continue;
+    if(/^rest$/i.test(name)){cur.t="rest";continue}
+    const sets=Math.min(20,Math.max(1,parseInt(ci.sets>=0?r[ci.sets]:"",10)||3));
+    const repTxt=String(ci.reps>=0?r[ci.reps]:"").trim();
+    const m=repTxt.match(/(\d{1,3})(?:\s*(?:-|–|to)\s*(\d{1,3}))?/);
+    const lo=m?+m[1]:8,hi=m&&m[2]?+m[2]:(m?+m[1]:12);
+    const unitTxt=(ci.unit>=0?String(r[ci.unit]):"")+" "+repTxt;
+    cur.ex.push(X(name,sets,lo,Math.max(lo,hi),unitOf(/sec|min/i.test(unitTxt)?unitTxt:"",/leg|side/i.test(unitTxt)?unitTxt:"")));
+  }
+  if(cur)out.push(cur);
+  return {days:out,warn};
+}
+/* turn parsed days into a 7-day plan */
+function toPlan(parsed,name){
+  const days=WD.map(()=>REST());
+  let next=0;const used=new Set();
+  parsed.days.forEach(d=>{
+    let i=d.wd>=0?d.wd:-1;
+    if(i<0||used.has(i)){while(next<7&&used.has(next))next++;i=next}
+    if(i>=7)return;
+    used.add(i);next=Math.max(next,i+1);
+    days[i]=d.t==="rest"||!d.ex.length?REST():{t:d.t==="other"?typeOf(d.title):d.t,title:d.title||"Workout",focus:d.focus||"",note:"",ex:d.ex};
+  });
+  return {name,days};
+}
+function splitCsv(line){
+  const out=[];let cur="",q=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(q){ if(c==='"'&&line[i+1]==='"'){cur+='"';i++} else if(c==='"'){q=false} else cur+=c; }
+    else if(c==='"')q=true;
+    else if(c===","){out.push(cur.trim());cur=""}
+    else cur+=c;
+  }
+  out.push(cur.trim());return out;
+}
+async function importFile(file){
+  const nm=(file.name||"plan").replace(/\.[^.]+$/,"");
+  say("Reading "+file.name+"...",true);
+  try{
+    let parsed;
+    if(/\.pdf$/i.test(file.name)){
+      await loadScript("./lib/pdf.min.js");
+      const lib=window.pdfjsLib;
+      lib.GlobalWorkerOptions.workerSrc="./lib/pdf.worker.min.js";
+      const buf=await file.arrayBuffer();
+      const pdf=await lib.getDocument({data:buf}).promise;
+      const lines=[];
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);const tc=await page.getTextContent();
+        const rows={};
+        tc.items.forEach(it=>{
+          const y=Math.round(it.transform[5]);
+          (rows[y]||(rows[y]=[])).push({x:it.transform[4],s:it.str});
+        });
+        Object.keys(rows).map(Number).sort((a,b)=>b-a)
+          .forEach(y=>lines.push(rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ")));
+      }
+      parsed=parseLines(lines);
+    }else if(/\.csv$/i.test(file.name)){
+      const text=await file.text();
+      const rows=text.split(/\r?\n/).filter(l=>l.trim()).map(splitCsv);
+      parsed=parseSheet(rows);
+    }else{
+      await loadScript("./lib/xlsx.min.js");
+      const wb=window.XLSX.read(await file.arrayBuffer(),{type:"array"});
+      const rows=[];
+      wb.SheetNames.forEach(sn=>{
+        window.XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false,defval:""})
+          .forEach(r=>rows.push(r.map(c=>String(c==null?"":c).trim())));
+      });
+      parsed=parseSheet(rows);
+    }
+    const workouts=parsed.days.filter(d=>d.ex&&d.ex.length);
+    if(!workouts.length){say("Couldn't find any exercises in that file. It needs lines like \"Bench Press 4 x 6-8\", or columns for Day, Exercise, Sets and Reps.");return}
+    const total=workouts.reduce((a,d)=>a+d.ex.length,0);
+    openEditor(toPlan(parsed,nm));
+    S.draftNote="Imported "+workouts.length+" workout day"+(workouts.length===1?"":"s")+" and "+total+" exercises from "+file.name+". Check everything below, then save."
+      +(parsed.warn.length?" "+parsed.warn.length+" line"+(parsed.warn.length===1?"":"s")+" couldn't be read and were skipped.":"");
+    render();
+  }catch(err){
+    console.warn(err);
+    say(/\.pdf$/i.test(file.name)?"Couldn't read that PDF. Check your connection, or export the plan as Excel or CSV and try again.":"Couldn't read that file. Excel (.xlsx), CSV and PDF are supported.");
+  }
 }
 
 /* plan view (read-only) */
@@ -954,7 +1195,7 @@ function renderPlanView(){
 
 /* plan editor */
 function blankPlan(){return {name:"",days:WD.map(()=>REST())}}
-function openEditor(plan,id){S.draft=clone({name:plan.name,days:plan.days});S.draftId=id||null;S.draftErr="";S.view="planEdit";render();window.scrollTo(0,0)}
+function openEditor(plan,id,coachFor){S.draft=clone({name:plan.name,days:plan.days});S.draftId=id||null;S.coachFor=coachFor||null;S.draftErr="";S.draftNote="";S.view="planEdit";render();window.scrollTo(0,0)}
 function renderPlanEdit(){
   const D=S.draft;if(!D){S.view="plans";return renderPlans()}
   const typeOpts=t=>Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${k===t?"selected":""}>${v.label}</option>`).join("");
@@ -993,6 +1234,8 @@ function renderPlanEdit(){
   }).join("");
   return `
   <p><button class="link" id="cancelPlan">Back to plans without saving</button></p>
+  ${S.draftNote?`<div class="panel"><p class="msg" style="margin:0;color:var(--good)">${esc(S.draftNote)}</p></div>`:""}
+  ${S.coachFor?`<div class="panel"><p class="msg" style="margin:0">You're editing a plan for ${esc(TR.name)}.</p></div>`:""}
   <div class="panel"><h2>${S.draftId?"Edit plan":"New plan"}</h2>
     <label class="stack"><span>Plan name</span><input class="field" data-pf="name" value="${esc(D.name)}" placeholder="e.g. Summer cut, 5 days"></label></div>
   <datalist id="exnames">${knownNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
@@ -1028,6 +1271,15 @@ function savePlan(){
   const isNew=!S.draftId;
   const id=S.draftId||newId();
   const plan={name,days,updated:Date.now()};
+  if(S.coachFor){
+    const tid=S.coachFor;TR.plans[id]=plan;
+    setDoc(doc(fs,"users",tid,"log","plan_"+id),clone(plan))
+      .then(()=>{if(isNew)assignPlan(id)})
+      .catch(()=>say("Couldn't save. They may have removed your trainer access."));
+    S.draft=null;S.draftId=null;S.coachFor=null;S.view="trainee";
+    S.msg=isNew?"Plan saved for "+TR.name+" and set as their plan.":"Plan saved for "+TR.name+".";S.msgOk=true;
+    render();window.scrollTo(0,0);return;
+  }
   S.plans[id]=plan;
   writeDoc("plan_"+id,clone(plan)).catch(()=>say("Couldn't save the plan. Check your connection and try again."));
   if(isNew)usePlan(id);
@@ -1133,6 +1385,7 @@ function renderDash(){
       :`<section class="sec"><p class="small muted" style="margin:0">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button></p></section>`;
   }
   return `
+  ${S.coachNotice?`<p class="coachnote">${S.coachNotice}</p>`:""}
   <header class="greet"><h1>${greeting()}${nm?", "+esc(nm):""}</h1><p>${new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</p></header>
   ${todayHtml}
   <section class="sec"><div class="sec-h"><span class="kicker">This week</span><span class="small muted">${esc(plan.name)}</span></div>
@@ -1167,6 +1420,32 @@ function renderBuddy(){
   ${rec?`<div class="panel"><h2>Recent workouts</h2>${rec}</div>`:""}`;
 }
 
+function renderTrainee(){
+  const back=`<p><button class="link" data-view="buddies">Back to buddies</button></p>`;
+  if(TR.loading)return back+`<div class="panel"><p class="muted" style="margin:0">Opening ${esc(TR.name)}'s plans...</p></div>`;
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  const mine=Object.entries(TR.plans).map(([id,p])=>({id,...p}));
+  const row=p=>{
+    const active=p.id===TR.active;
+    return `<li class="planrow">
+      <div class="planweek">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}"></span>`).join("")}</div>
+      <div class="nm"><b>${esc(p.name)}</b>${active?` <span class="tag">In use</span>`:""}<small>${esc(planSummary(p))}</small></div>
+      <div class="row">${active?"":`<button class="btn small primary" data-assign="${p.id}">Assign</button>`}
+        <button class="btn small" data-tedit="${p.id}">${p.builtin?"Duplicate for them":"Edit"}</button></div></li>`;
+  };
+  return back+`
+  <div class="panel"><div class="row">${avatar(SOC.profiles[TR.uid],true)}<div style="flex:1"><h2 class="pv-title" style="margin:0">${esc(TR.name)}</h2>
+    <p class="small muted" style="margin:2px 0 0">You're their trainer. You can change their plans and see their workouts.</p></div></div>
+    <div class="row" style="margin-top:14px"><button class="btn primary" id="newTraineePlan">Create a plan for them</button></div>${msg}</div>
+  <div class="panel"><h2>Their plans</h2>
+    ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0 0 10px">No custom plans yet.</p>`}</div>
+  <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
+  <div class="panel"><h2>Recent workouts</h2>
+    ${TR.sessions.length?TR.sessions.map(x=>{const m=sessionMeta(x);let n=0;Object.values(x.entries||{}).forEach(a=>n+=filled(a).length);
+      return `<div class="sess" style="cursor:default"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><b>${fmtDate(x.date)}</b> ${esc(m.title)}<small>${n} sets</small></div>`}).join("")
+      :`<p class="muted" style="margin:0">Nothing logged yet.</p>`}</div>`;
+}
+
 /* buddies */
 function renderBuddies(){
   if(S.mode!=="db")return `<div class="panel"><h2>Buddies</h2><p class="muted">${CONFIGURED?"Sign in with Google to add buddies and see each other's progress.":"Set up Firebase to use buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
@@ -1190,9 +1469,16 @@ function renderBuddies(){
     ${SOC.incoming.map(r=>person(r.from,"Wants to be your buddy",`<button class="btn primary small" data-accept="${r.id}">Accept</button><button class="btn small" data-decline="${r.id}">Decline</button>`)).join("")}
     ${SOC.outgoing.map(r=>person(r.to,"Waiting for them to accept",`<button class="btn small" data-cancel="${r.id}">Cancel</button>`)).join("")}
   </ul></div>`:""}
+  ${SOC.trainees.length?`<div class="panel"><h2>You're training</h2><ul class="people">
+    ${SOC.trainees.map(t=>person(t,"Gave you trainer access",`<button class="btn small primary" data-trainee="${t}">Open</button>`)).join("")}
+  </ul></div>`:""}
   <div class="panel"><h2>Your buddies</h2>
-    ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;
-      return person(a.uid,on?"Sharing progress":"Not sharing progress",`${on?`<button class="btn small" data-buddy="${a.uid}">View</button>`:""}<button class="btn small" data-remove="${a.id}">Remove</button>`)}).join("")}</ul>`
+    ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;const isTr=SOC.trainers.includes(a.uid);
+      return person(a.uid,isTr?"Your trainer, can edit your plans":(on?"Sharing progress":"Not sharing progress"),
+        `${on?`<button class="btn small" data-buddy="${a.uid}">View</button>`:""}
+         <button class="btn small ${isTr?"":"primary"}" data-${isTr?"untrainer":"trainer"}="${a.uid}">${isTr?"Remove trainer":"Make trainer"}</button>
+         <button class="btn small" data-remove="${a.id}">Remove</button>`)}).join("")}</ul>
+      <p class="small muted">A trainer can create and change your workout plans, and see your logged workouts. They can never change what you've already logged.</p>`
       :`<p class="muted" style="margin:0">No buddies yet. Add someone above and their progress shows up on your dashboard.</p>`}
   </div>`;
 }
@@ -1268,7 +1554,7 @@ function doSignIn(){
 }
 function leaveEditor(){
   if(S.draft&&!confirm("Leave without saving your changes to this plan?"))return false;
-  S.draft=null;S.draftId=null;return true;
+  S.draft=null;S.draftId=null;S.coachFor=null;return true;
 }
 document.addEventListener("click",async e=>{
   if(S.view==="enter"&&e.target.closest(".landing")){enterApp();return}
@@ -1283,6 +1569,12 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("[data-go-today]")){const p=activePlan();S.planId=p.id;S.date=today();S.day=dayOf(S.date);S.view="log";render();window.scrollTo(0,0);return}
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
+  if(ds.trainer){setTrainer(ds.trainer,true);return}
+  if(ds.untrainer){if(confirm("Remove trainer access from "+((SOC.profiles[ds.untrainer]||{}).name||"this buddy")+"?"))setTrainer(ds.untrainer,false);return}
+  if(ds.trainee){openTrainee(ds.trainee);return}
+  if(ds.assign){assignPlan(ds.assign);return}
+  if(ds.tedit){const p=BUILTIN.find(b=>b.id===ds.tedit)||(TR.plans[ds.tedit]?{id:ds.tedit,...TR.plans[ds.tedit]}:null);
+    if(p)openEditor(p.builtin?{name:p.name+" for "+TR.name,days:p.days}:p,p.builtin?null:ds.tedit,TR.uid);return}
   if(ds.accept){accept(ds.accept);return}
   if(ds.decline){removeReq(ds.decline,"Request declined.");return}
   if(ds.cancel){removeReq(ds.cancel,"Request cancelled.");return}
@@ -1316,6 +1608,8 @@ document.addEventListener("click",async e=>{
       return;
     case "shareLink":navigator.share({title:APP_NAME,text:"Be my gym buddy on "+APP_NAME,url:inviteLink()}).catch(()=>{});return;
     case "resetSched":resetSchedule();render();return;
+    case "importBtn":$("#importFile").click();return;
+    case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
     case "savePlan":savePlan();return;
     case "cancelPlan":case "cancelPlan2":if(leaveEditor()){S.view="plans";render();window.scrollTo(0,0)}return;
@@ -1361,6 +1655,7 @@ document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
+  else if(el.id==="importFile"){const f=el.files&&el.files[0];el.value="";if(f)importFile(f);}
   else if(el.id==="histEx"){S.histEx=el.value;render()}
   else if(el.id==="buddyEx"){S.buddyEx=el.value;render()}
   else if(el.id==="planSel"){if(getPlan(el.value)){usePlan(el.value);render()}}
