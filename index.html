@@ -915,6 +915,7 @@ function metaIn(s,getP){
   const p=getP(s.planId||"ppl");const d=p&&p.days[sessSrc(s)-1];
   return {t:s.t||(d&&d.t)||"other",title:s.title||(d&&d.title)||"Workout",plan:p,d};
 }
+function sortAsc(list){return list.slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.day-b.day)}
 function setCount(s){let n=0;Object.values(s.entries||{}).forEach(a=>n+=filled(a).length);return n}
 /* logged exercises in plan order: [{n,f,ex}] */
 function exList(s,m){
@@ -974,7 +975,7 @@ function csvOf(list,getP){
   const u=S.settings.unit;
   const q=v=>{v=v==null?"":String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
   const rows=[["Date","Workout","Plan","Exercise","Set","Weight ("+u+")","Reps","Unit","Done","Deload"]];
-  list.slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.day-b.day).forEach(s=>{
+  sortAsc(list).forEach(s=>{
     const m=metaIn(s,getP);
     exList(s,m).forEach(x=>x.f.forEach((z,k)=>rows.push([s.date,m.title,m.plan?m.plan.name:"",x.n,k+1,wOf(z,s)??"",z.r,
       x.ex&&x.ex.u?x.ex.u:"reps",z.done?"yes":"no",s.deload?"yes":""])));
@@ -983,26 +984,27 @@ function csvOf(list,getP){
 }
 function reportHtml(title,sub,list,getP){
   const u=S.settings.unit;
-  const desc=list.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.day-a.day);
+  /* oldest first, and exercises in the order the plan schedules them */
+  const asc=sortAsc(list);
   let sets=0,vol=0;const best={};
-  desc.forEach(s=>{sets+=setCount(s);vol+=sessVolume(s);
-    Object.entries(s.entries||{}).forEach(([n,a])=>filled(a).forEach(z=>{
-      const w=wOf(z,s)||0,b=best[n];if(!b||w>b.w||(w===b.w&&z.r>b.r))best[n]={w,r:z.r,d:s.date};
+  asc.forEach(s=>{sets+=setCount(s);vol+=sessVolume(s);
+    exList(s,metaIn(s,getP)).forEach(x=>x.f.forEach(z=>{
+      const w=wOf(z,s)||0,b=best[x.n];if(!b||w>b.w||(w===b.w&&z.r>b.r))best[x.n]={w,r:z.r,d:s.date};
     }));
   });
-  const weeks=new Set(desc.map(s=>mondayOf(s.date))).size;
+  const weeks=new Set(asc.map(s=>mondayOf(s.date))).size;
   const fmtS=(z,s)=>{const w=wOf(z,s);return (w!=null?w+"×":"")+z.r};
-  const bestRows=Object.entries(best).sort((a,b)=>a[0].localeCompare(b[0]))
+  const bestRows=Object.entries(best)
     .map(([n,b])=>`<tr><td>${esc(n)}</td><td>${b.w>0?b.w+" "+u+" × ":""}${b.r}</td><td>${fmtDate(b.d)}</td></tr>`).join("");
-  const days=desc.map(s=>{const m=metaIn(s,getP);const v=sessVolume(s);
+  const days=asc.map(s=>{const m=metaIn(s,getP);const v=sessVolume(s);
     return `<section class="rp-day"><h3>${parseISO(s.date).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})} · ${esc(m.title)}${s.deload?" (deload)":""}</h3>
       <p>${m.plan?esc(m.plan.name)+" · ":""}${setCount(s)} sets${v>0?" · "+fmtNum(v)+" "+u+" volume":""}</p>
       <table><thead><tr><th>Exercise</th><th>Sets (${u} × reps)</th><th>Planned</th></tr></thead><tbody>
       ${exList(s,m).map(x=>`<tr><td>${esc(x.n)}</td><td>${x.f.map(z=>fmtS(z,s)).join(", ")}</td><td>${x.ex?esc(target(x.ex,setsFor(x.ex,s.deload))):""}</td></tr>`).join("")}
       </tbody></table></section>`}).join("");
   return `<h1>${esc(title)}</h1><p>${esc(sub)} · Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
-    <div class="rp-stats"><div><b>${desc.length}</b>workouts</div><div><b>${sets}</b>sets</div><div><b>${fmtNum(vol)}</b>volume (${u})</div><div><b>${weeks}</b>active weeks</div></div>
-    ${desc.length>1&&bestRows?`<h2>Best sets</h2><table><thead><tr><th>Exercise</th><th>Best</th><th>Date</th></tr></thead><tbody>${bestRows}</tbody></table>`:""}
+    <div class="rp-stats"><div><b>${asc.length}</b>workouts</div><div><b>${sets}</b>sets</div><div><b>${fmtNum(vol)}</b>volume (${u})</div><div><b>${weeks}</b>active weeks</div></div>
+    ${asc.length>1&&bestRows?`<h2>Best sets</h2><table><thead><tr><th>Exercise</th><th>Best</th><th>Date</th></tr></thead><tbody>${bestRows}</tbody></table>`:""}
     <h2>Workouts</h2>${days||"<p>No workouts in this period.</p>"}`;
 }
 function printHtml(html){
