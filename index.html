@@ -172,9 +172,15 @@ tr.isdone input{opacity:.7}
 .board .v{text-align:right;font-variant-numeric:tabular-nums}
 .board .v small{display:block;color:var(--muted);font-size:12px}
 .people{list-style:none;margin:0;padding:0}
-.people li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.people li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
 .people li:first-child{border-top:0}
-.people .nm{flex:1;min-width:120px}
+.people .nm{min-width:0}
+.people .nm .pbtn{display:block;white-space:nowrap}
+.people .acts{display:flex;gap:8px;align-items:center}
+.people .more{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;padding:2px 0 0 48px}
+.iconbtn{width:38px;height:36px;display:grid;place-items:center;border:1px solid var(--line);background:var(--field);border-radius:10px;padding:0;font-size:22px;line-height:1;color:var(--muted)}
+.iconbtn[aria-expanded="true"]{color:var(--ink);border-color:var(--ink)}
+.btn.danger{color:var(--push)}
 .people .nm small{display:block;color:var(--muted);font-size:13px}
 .field{min-width:0;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px}
 .btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -357,6 +363,36 @@ dialog.share .row{justify-content:center}
 dialog.share a.btn{text-decoration:none}
 dialog.share a.btn:not(.primary){color:inherit}
 dialog.share p{margin:12px 0 0;text-align:center}
+.dhead{display:flex;align-items:center;gap:12px}
+.dhead .dot{width:18px;height:18px;border-radius:50%;flex:none;background:var(--c)}
+.dhead h2.pv-title{margin:0}
+.dnav{display:flex;justify-content:space-between;gap:8px;margin:0 0 16px}
+.dex{padding:14px 0;border-top:1px solid var(--line)}
+.dex:first-of-type{border-top:0;padding-top:4px}
+.dex h3{margin:0;font:700 21px/1.2 var(--display)}
+.dex>small{display:block;color:var(--muted);font-size:13px;margin:2px 0 6px}
+.dtable{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:15px}
+.dtable th{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:4px 0}
+.dtable td{padding:7px 0;border-top:1px solid var(--line)}
+.dtable td:first-child,.dtable th:first-child{width:40px;color:var(--muted)}
+.dtable td.ok{color:var(--good);font-weight:700}
+.export .row select{flex:1 1 160px;width:auto}
+#printArea{display:none}
+@media print{
+  body.printing{background:#fff}
+  body.printing>*:not(#printArea){display:none!important}
+  body.printing #printArea{display:block;color:#111;font:11pt/1.4 var(--body)}
+  #printArea h1{font:800 24pt/1.1 var(--display);margin:0 0 4pt}
+  #printArea h2{font:700 14pt/1.2 var(--display);margin:16pt 0 6pt}
+  #printArea h3{font:700 12pt/1.2 var(--display);margin:12pt 0 2pt}
+  #printArea p{margin:0;color:#555}
+  #printArea table{width:100%;border-collapse:collapse;margin:4pt 0}
+  #printArea th,#printArea td{border-bottom:1px solid #ddd;padding:3pt 6pt 3pt 0;text-align:left;vertical-align:top}
+  #printArea th{font-size:8.5pt;text-transform:uppercase;letter-spacing:.05em;color:#666}
+  #printArea .rp-stats{display:flex;gap:28pt;margin:10pt 0 0}
+  #printArea .rp-stats b{display:block;font:800 20pt/1 var(--display)}
+  #printArea .rp-day{break-inside:avoid}
+}
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
@@ -498,7 +534,7 @@ const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},pla
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
 const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[]};
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false};
-const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false};
+const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -811,7 +847,7 @@ function setTrainer(bid,on){
 }
 /* trainer side: load a trainee's plans and recent work */
 async function openTrainee(tid){
-  S.view="trainee";TR.uid=tid;TR.name=pname(SOC.profiles[tid])||"Buddy";TR.plans={};TR.active=null;TR.sessions=[];TR.loading=true;render();
+  S.view="trainee";TR.uid=tid;TR.name=pname(SOC.profiles[tid])||"Buddy";TR.plans={};TR.active=null;TR.sessions=[];TR.sel=null;TR.showN=20;TR.loading=true;render();
   try{
     const snap=await getDocs(collection(fs,"users",tid,"log"));
     const sess=[];
@@ -819,9 +855,9 @@ async function openTrainee(tid){
       const v=d.data();
       if(d.id==="settings")TR.active=v.activePlan||"ppl";
       else if(d.id.startsWith("plan_"))TR.plans[d.id.slice(5)]=v;
-      else if(d.id!=="coach"&&v&&v.date)sess.push(v);
+      else if(d.id!=="coach"&&v&&v.date)sess.push({...v,id:d.id});
     });
-    TR.sessions=sess.filter(hasSets).sort((a,b)=>a.date<b.date?1:-1).slice(0,8);
+    TR.sessions=sess.filter(hasSets).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.day-a.day);
   }catch(e){say(fbError(e,"open their log")+" They may also have removed your trainer access.")}
   TR.loading=false;render();
 }
@@ -871,6 +907,127 @@ function hintFor(ex,last){
     return {up:true,t:"Top of the range on every set. Go up to "+nx+" "+u+" and aim for "+ex.lo+" reps."}}
   if(allTop&&ex.lo<ex.hi)return {up:true,t:"Top of the range on every set. Time to add weight or a harder variation."};
   return {t:"Beat it: one more rep, or +"+step()+" "+u+"."};
+}
+
+/* ---------- workout detail and reports ---------- */
+function tPlan(id){return BUILTIN.find(p=>p.id===id)||(TR.plans[id]?{id,...TR.plans[id]}:null)}
+function metaIn(s,getP){
+  const p=getP(s.planId||"ppl");const d=p&&p.days[sessSrc(s)-1];
+  return {t:s.t||(d&&d.t)||"other",title:s.title||(d&&d.title)||"Workout",plan:p,d};
+}
+function setCount(s){let n=0;Object.values(s.entries||{}).forEach(a=>n+=filled(a).length);return n}
+/* logged exercises in plan order: [{n,f,ex}] */
+function exList(s,m){
+  const order=m.d?m.d.ex.map(x=>x.n):[];
+  return Object.entries(s.entries||{}).map(([n,a])=>({n,f:filled(a),ex:m.d&&m.d.ex.find(x=>x.n===n)})).filter(x=>x.f.length)
+    .sort((a,b)=>{const i=order.indexOf(a.n),j=order.indexOf(b.n);return (i<0?99:i)-(j<0?99:j)});
+}
+function sessVolume(s){
+  const u=S.settings.unit;let v=0;
+  Object.values(s.entries||{}).forEach(a=>filled(a).forEach(x=>v+=(conv(x.w,s.unit||"kg",u)||0)*(x.r||0)));
+  return v;
+}
+function wOf(x,s){const w=conv(x.w,s.unit||"kg",S.settings.unit);return w!=null&&w>0?w:null}
+function renderTDay(){
+  const list=TR.sessions;const i=list.findIndex(x=>x.id===TR.sel);const s=list[i];
+  const back=`<p><button class="link" data-view="trainee">Back to ${esc(TR.name)}</button></p>`;
+  if(!s)return back+`<div class="panel"><p class="muted" style="margin:0">That workout isn't available.</p></div>`;
+  const m=metaIn(s,tPlan);const u=S.settings.unit;const rows=exList(s,m);const vol=sessVolume(s);
+  const skipped=m.d?m.d.ex.filter(x=>!rows.some(r=>r.n===x.n)):[];
+  const older=list[i+1],newer=list[i-1];
+  const exHtml=rows.map(x=>`<div class="dex"><h3>${esc(x.n)}</h3>
+    <small>${x.ex?"Planned "+esc(target(x.ex,setsFor(x.ex,s.deload))):"Not in the plan"}</small>
+    <table class="dtable"><thead><tr><th>Set</th><th>Weight (${u})</th><th>${x.ex?repLabel(x.ex):"Reps"}</th><th>Done</th></tr></thead><tbody>
+    ${x.f.map((z,k)=>`<tr><td>${k+1}</td><td>${wOf(z,s)??"-"}</td><td>${z.r}</td><td class="ok">${z.done?"&#10003;":""}</td></tr>`).join("")}
+    </tbody></table></div>`).join("");
+  return back+`
+  <div class="dnav"><button class="btn small" ${older?`data-tday="${esc(older.id)}"`:"disabled"}>&larr; Older</button>
+    <button class="btn small" ${newer?`data-tday="${esc(newer.id)}"`:"disabled"}>Newer &rarr;</button></div>
+  <div class="panel"><div class="dhead"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><div>
+    <h2 class="pv-title">${esc(m.title)}</h2>
+    <p class="small muted" style="margin:2px 0 0">${parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"})}${m.plan?" · "+esc(m.plan.name):""}${s.deload?" · Deload":""}</p></div></div>
+    <div class="nums3" style="margin-top:16px"><div><b>${rows.length}</b><span>exercises</span></div><div><b>${setCount(s)}</b><span>sets</span></div>
+      <div><b>${vol>0?fmtNum(vol):"-"}</b><span>volume (${u})</span></div></div></div>
+  <div class="panel">${exHtml}
+    ${skipped.length?`<p class="small muted" style="margin:14px 0 0">Not logged: ${skipped.map(x=>esc(x.n)).join(", ")}</p>`:""}</div>
+  <div class="panel"><h2>Download</h2><div class="row"><button class="btn" id="csv-day">Excel (CSV)</button><button class="btn" id="pdf-day">Print or save PDF</button></div></div>`;
+}
+
+const RANGES=[["4w","Last 4 weeks",28],["12w","Last 12 weeks",84],["all","All time",0]];
+function exportPanel(key,label){
+  const cur=S.range||"12w";
+  return `<div class="panel export"><h2>Download report</h2>
+    <p class="small muted" style="margin:0 0 12px">${esc(label)}, set by set. CSV opens in Excel or Google Sheets. The report prints or saves as a PDF.</p>
+    <div class="row"><select id="range" aria-label="Report period">${RANGES.map(([k,l])=>`<option value="${k}" ${k===cur?"selected":""}>${l}</option>`).join("")}</select>
+      <button class="btn" id="csv-${key}">Excel (CSV)</button><button class="btn primary" id="pdf-${key}">Print or save PDF</button></div></div>`;
+}
+function inRange(list){
+  const d=(RANGES.find(x=>x[0]===(S.range||"12w"))||RANGES[1])[2];
+  if(!d)return list;const from=addDays(today(),-d+1);return list.filter(s=>s.date>=from);
+}
+function slug(t){return String(t||"workouts").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"workouts"}
+function downloadText(name,text,type){
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function csvOf(list,getP){
+  const u=S.settings.unit;
+  const q=v=>{v=v==null?"":String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  const rows=[["Date","Workout","Plan","Exercise","Set","Weight ("+u+")","Reps","Unit","Done","Deload"]];
+  list.slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.day-b.day).forEach(s=>{
+    const m=metaIn(s,getP);
+    exList(s,m).forEach(x=>x.f.forEach((z,k)=>rows.push([s.date,m.title,m.plan?m.plan.name:"",x.n,k+1,wOf(z,s)??"",z.r,
+      x.ex&&x.ex.u?x.ex.u:"reps",z.done?"yes":"no",s.deload?"yes":""])));
+  });
+  return "﻿"+rows.map(r=>r.map(q).join(",")).join("\r\n");
+}
+function reportHtml(title,sub,list,getP){
+  const u=S.settings.unit;
+  const desc=list.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.day-a.day);
+  let sets=0,vol=0;const best={};
+  desc.forEach(s=>{sets+=setCount(s);vol+=sessVolume(s);
+    Object.entries(s.entries||{}).forEach(([n,a])=>filled(a).forEach(z=>{
+      const w=wOf(z,s)||0,b=best[n];if(!b||w>b.w||(w===b.w&&z.r>b.r))best[n]={w,r:z.r,d:s.date};
+    }));
+  });
+  const weeks=new Set(desc.map(s=>mondayOf(s.date))).size;
+  const fmtS=(z,s)=>{const w=wOf(z,s);return (w!=null?w+"×":"")+z.r};
+  const bestRows=Object.entries(best).sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([n,b])=>`<tr><td>${esc(n)}</td><td>${b.w>0?b.w+" "+u+" × ":""}${b.r}</td><td>${fmtDate(b.d)}</td></tr>`).join("");
+  const days=desc.map(s=>{const m=metaIn(s,getP);const v=sessVolume(s);
+    return `<section class="rp-day"><h3>${parseISO(s.date).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})} · ${esc(m.title)}${s.deload?" (deload)":""}</h3>
+      <p>${m.plan?esc(m.plan.name)+" · ":""}${setCount(s)} sets${v>0?" · "+fmtNum(v)+" "+u+" volume":""}</p>
+      <table><thead><tr><th>Exercise</th><th>Sets (${u} × reps)</th><th>Planned</th></tr></thead><tbody>
+      ${exList(s,m).map(x=>`<tr><td>${esc(x.n)}</td><td>${x.f.map(z=>fmtS(z,s)).join(", ")}</td><td>${x.ex?esc(target(x.ex,setsFor(x.ex,s.deload))):""}</td></tr>`).join("")}
+      </tbody></table></section>`}).join("");
+  return `<h1>${esc(title)}</h1><p>${esc(sub)} · Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
+    <div class="rp-stats"><div><b>${desc.length}</b>workouts</div><div><b>${sets}</b>sets</div><div><b>${fmtNum(vol)}</b>volume (${u})</div><div><b>${weeks}</b>active weeks</div></div>
+    ${desc.length>1&&bestRows?`<h2>Best sets</h2><table><thead><tr><th>Exercise</th><th>Best</th><th>Date</th></tr></thead><tbody>${bestRows}</tbody></table>`:""}
+    <h2>Workouts</h2>${days||"<p>No workouts in this period.</p>"}`;
+}
+function printHtml(html){
+  let el=$("#printArea");
+  if(!el){el=document.createElement("div");el.id="printArea";document.body.appendChild(el)}
+  el.innerHTML=html;document.body.classList.add("printing");
+  const done=()=>{document.body.classList.remove("printing");el.innerHTML="";window.removeEventListener("afterprint",done)};
+  window.addEventListener("afterprint",done);
+  window.print();
+}
+function exportRun(key,csv){
+  const trainee=key==="t";
+  const all=trainee?TR.sessions:Object.values(S.sessions).filter(x=>x.date&&hasSets(x));
+  const getP=trainee?tPlan:getPlan;
+  const who=trainee?TR.name:(myName()||"My");
+  const list=inRange(all);
+  const period=(RANGES.find(x=>x[0]===(S.range||"12w"))||RANGES[1])[1];
+  if(!list.length){alert("No workouts logged in this period. Try a longer one.");return}
+  if(csv)downloadText(slug(who)+"-workouts-"+(S.range||"12w")+"-"+today()+".csv",csvOf(list,getP),"text/csv;charset=utf-8");
+  else printHtml(reportHtml((trainee?who+"'s":"My")+" workout report",period,list,getP));
+}
+function exportDay(csv){
+  const s=TR.sessions.find(x=>x.id===TR.sel);if(!s)return;
+  if(csv)downloadText(slug(TR.name)+"-"+s.date+".csv",csvOf([s],tPlan),"text/csv;charset=utf-8");
+  else printHtml(reportHtml(TR.name+"'s workout",fmtDate(s.date),[s],tPlan));
 }
 
 /* ---------- share as image ---------- */
@@ -1050,9 +1207,9 @@ function softRender(force){if(force||["dash","buddies","buddy","person"].include
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&(S.view==="trainee"||S.view==="person"))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&["trainee","person","tday"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -1740,10 +1897,12 @@ function renderTrainee(){
   <div class="panel"><h2>Their plans</h2>
     ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0 0 10px">No custom plans yet.</p>`}</div>
   <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
-  <div class="panel"><h2>Recent workouts</h2>
-    ${TR.sessions.length?TR.sessions.map(x=>{const m=sessionMeta(x);let n=0;Object.values(x.entries||{}).forEach(a=>n+=filled(a).length);
-      return `<div class="sess" style="cursor:default"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><b>${fmtDate(x.date)}</b> ${esc(m.title)}<small>${n} sets</small></div>`}).join("")
-      :`<p class="muted" style="margin:0">Nothing logged yet.</p>`}</div>`;
+  <div class="panel"><h2>Workouts</h2>
+    ${TR.sessions.length?TR.sessions.slice(0,TR.showN).map(x=>{const m=metaIn(x,tPlan);
+      return `<button class="sess" data-tday="${esc(x.id)}"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><b>${fmtDate(x.date)}</b> ${esc(m.title)}<small>${setCount(x)} sets</small></button>`}).join("")
+      +(TR.sessions.length>TR.showN?`<p style="margin:12px 0 0"><button class="btn small" id="tMore">Show more</button></p>`:"")
+      :`<p class="muted" style="margin:0">Nothing logged yet.</p>`}</div>
+  ${TR.sessions.length?exportPanel("t",TR.name+"'s workouts"):""}`;
 }
 
 /* buddies */
@@ -1751,7 +1910,7 @@ function renderBuddies(){
   if(S.mode!=="db")return `<div class="panel"><h2>Buddies</h2><p class="muted">${CONFIGURED?"Sign in with Google to add buddies and see each other's progress.":"Set up Firebase to use buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const pa=S.pendingAdd&&S.pendingAdd!==uid&&!SOC.accepted.some(a=>a.uid===S.pendingAdd)?SOC.profiles[S.pendingAdd]:null;
-  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li><button class="avbtn" data-person="${u}" aria-label="View profile">${avatar(p)}</button><span class="nm"><button class="pbtn" data-person="${u}">${esc(pname(p)||"Loading...")}</button>${p.ig?` <a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}<small>${sub}</small></span>${btns}</li>`};
+  const person=(u,sub,btns,extra)=>{const p=SOC.profiles[u]||{};return `<li><button class="avbtn" data-person="${u}" aria-label="View profile">${avatar(p)}</button><span class="nm"><button class="pbtn" data-person="${u}">${esc(pname(p)||"Loading...")}</button><small>${sub}</small></span><span class="acts">${btns}</span>${extra||""}</li>`};
   return `
   ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pname(pa)||"this person")}</b> as a buddy?</span>
     <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
@@ -1774,10 +1933,14 @@ function renderBuddies(){
   </ul></div>`:""}
   <div class="panel"><h2>Your buddies</h2>
     ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;const isTr=SOC.trainers.includes(a.uid);
-      return person(a.uid,isTr?"Your trainer, can edit your plans":(on?"Sharing progress":"Not sharing progress"),
+      const open=S.menuFor===a.uid;
+      return person(a.uid,isTr?"Your trainer":(on?"Sharing progress":"Not sharing progress"),
         `${on?`<button class="btn small" data-buddy="${a.uid}">View</button>`:""}
-         <button class="btn small ${isTr?"":"primary"}" data-${isTr?"untrainer":"trainer"}="${a.uid}">${isTr?"Remove trainer":"Make trainer"}</button>
-         <button class="btn small" data-remove="${a.id}">Remove</button>`)}).join("")}</ul>
+         <button class="iconbtn" data-more="${a.uid}" aria-expanded="${open}" aria-label="More options for ${esc(pname(SOC.profiles[a.uid])||"this buddy")}">&#8943;</button>`,
+        open?`<div class="more">
+          <button class="btn small" data-person="${a.uid}">View profile</button>
+          <button class="btn small" data-${isTr?"untrainer":"trainer"}="${a.uid}">${isTr?"Remove trainer":"Make trainer"}</button>
+          <button class="btn small danger" data-remove="${a.id}">Remove buddy</button></div>`:"")}).join("")}</ul>
       <p class="small muted">A trainer can create and change your workout plans, and see your logged workouts. They can never change what you've already logged.</p>`
       :`<p class="muted" style="margin:0">No buddies yet. Add someone above and their progress shows up on your dashboard.</p>`}
   </div>`;
@@ -1807,6 +1970,7 @@ function renderHistory(){
       <ul class="hlist">${pts.slice().reverse().slice(0,8).map(p=>`<li><span>${fmtDate(p.date)}</span><span>${p.sets.map(x=>fmtSet(x,p.unit)).join(", ")}</span></li>`).join("")}</ul>`
       :`<p class="muted">No sets logged for ${esc(S.histEx)} yet. Log a workout and it will chart here.</p>`}
   </div>
+  ${sorted().some(([,x])=>hasSets(x))?exportPanel("me","Your workouts"):""}
   <div class="panel"><h2>Sessions</h2>${sessions||`<p class="muted">Nothing logged yet. Open the Workout tab and fill in your first set.</p>`}</div>
   <div class="panel"><h2>Settings</h2>
     <div class="row" style="margin-bottom:12px"><span>Units</span>
@@ -1871,6 +2035,9 @@ document.addEventListener("click",async e=>{
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.person){openPerson(ds.person);return}
+  if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
+  if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
+  if(t.id==="tMore"){TR.showN+=20;render();return}
   if(ds.trainer){setTrainer(ds.trainer,true);return}
   if(ds.untrainer){if(confirm("Remove trainer access from "+(pname(SOC.profiles[ds.untrainer])||"this buddy")+"?"))setTrainer(ds.untrainer,false);return}
   if(ds.trainee){openTrainee(ds.trainee);return}
@@ -1917,6 +2084,8 @@ document.addEventListener("click",async e=>{
     case "shareWorkout":openShare("workout");return;
     case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:APP_NAME}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
     case "closeShare":closeShare();return;
+    case "csv-me":case "pdf-me":case "csv-t":case "pdf-t":exportRun(t.id.slice(4)||"",t.id.startsWith("csv"));return;
+    case "csv-day":case "pdf-day":exportDay(t.id==="csv-day");return;
     case "importBtn":$("#importFile").click();return;
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
@@ -1964,6 +2133,7 @@ document.addEventListener("input",e=>{
 document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
+  else if(el.id==="range"){S.range=el.value}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
   else if(el.id==="photoFile"){
     const f=el.files&&el.files[0];el.value="";
