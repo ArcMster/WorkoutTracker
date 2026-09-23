@@ -336,6 +336,8 @@ body.landing-on .timer{display:none}
 .blist .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .blist .mini{width:112px;gap:3px}
 .blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
+.avbtn{border:0;background:none;padding:0;line-height:0}
+.link.small{font-size:13px}
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
@@ -458,6 +460,13 @@ function target(ex,n){const r=reps(ex);return (n??ex.s)+(r?" x "+r:" sets")+(r&&
 function repLabel(ex){return ex.u==="sec"?"Sec":ex.u==="min"?"Min":"Reps"}
 function fmtNum(n){return Math.round(n).toLocaleString()}
 function newId(){return "p"+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function pname(p){return (p&&(p.nick||p.name))||""}
+function myName(){return ME.nick||me.name}
+function myPhoto(){return ME.photo||me.photo}
+function igUrl(h){return h?"https://instagram.com/"+String(h).replace(/^@/,""):""}
+function igHandle(v){
+  return String(v||"").trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i,"").replace(/[/?#].*$/,"").replace(/^@/,"").slice(0,40);
+}
 function avatar(p,lg){
   const cls="av"+(lg?" lg":"");
   if(p&&p.photo)return `<img class="${cls}" src="${esc(p.photo)}" alt="" referrerpolicy="no-referrer">`;
@@ -469,6 +478,7 @@ function avatar(p,lg){
 const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},mode:"local",
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
 const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[]};
+const ME={nick:"",photo:"",ig:"",custom:false};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false};
 
 /* ---------- plans ---------- */
@@ -643,7 +653,7 @@ function computeSummary(){
     return {n,pr,h:h.slice(-24)};
   });
   const recent=list.slice(-6).reverse().map(s=>{let c=0;Object.values(s.entries||{}).forEach(a=>c+=filled(a).length);const m=sessionMeta(s);return {d:s.date,day:s.day,t:m.t,title:m.title,sets:c}});
-  return {sharing:true,name:me.name,photo:me.photo,planName:activePlan().name,weekStart:wk,weekDays:Object.keys(weekTypes).map(Number),weekTypes,streak,
+  return {sharing:true,name:myName(),photo:myPhoto(),ig:ME.ig,planName:activePlan().name,weekStart:wk,weekDays:Object.keys(weekTypes).map(Number),weekTypes,streak,
     volumeWeek:Math.round(volumeWeek),total:list.length,lastDate:list.length?list[list.length-1].date:null,lifts:liftArr,recent,updated:Date.now()};
 }
 let pubTimer=null;
@@ -653,7 +663,7 @@ function schedulePublish(){
 }
 function publishNow(){
   if(S.mode!=="db")return Promise.resolve();
-  const data=S.settings.sharing?computeSummary():{sharing:false,name:me.name,photo:me.photo,updated:Date.now()};
+  const data=S.settings.sharing?computeSummary():{sharing:false,name:myName(),photo:myPhoto(),updated:Date.now()};
   return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
 }
 function live(sum){
@@ -668,6 +678,45 @@ function stopSocial(){
   SOC.unsubs.forEach(u=>u());SOC.unsubs=[];
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
+}
+async function loadMyProfile(){
+  try{
+    const d=await getDoc(doc(fs,"profiles",uid));
+    const v=d.exists()?d.data():{};
+    ME.nick=v.nick||"";ME.ig=v.ig||"";ME.custom=!!v.custom;ME.photo=v.custom?(v.photo||""):"";
+    const patch={name:me.name};
+    if(!v.custom&&me.photo&&v.photo!==me.photo)patch.photo=me.photo;
+    await setDoc(doc(fs,"profiles",uid),patch,{merge:true});
+    render();
+  }catch(e){console.warn("profile",e)}
+}
+function saveMyProfile(){
+  const d=S.profileDraft||{};
+  ME.nick=(d.nick||"").trim().slice(0,40);ME.ig=igHandle(d.ig);
+  ME.custom=!!d.photo;ME.photo=d.photo||"";
+  const data={name:me.name,nick:ME.nick,ig:ME.ig,custom:ME.custom,photo:ME.photo||me.photo,updated:Date.now()};
+  return setDoc(doc(fs,"profiles",uid),data,{merge:true})
+    .then(()=>{S.profileDraft=null;S.view="history";S.msg="";say("Profile saved.",true);schedulePublish();publishNow();render()})
+    .catch(e=>say(fbError(e,"save your profile")));
+}
+/* shrink a picked photo so it fits in the profile document */
+function readPhoto(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const S2=256,c=document.createElement("canvas");c.width=c.height=S2;
+        const side=Math.min(img.width,img.height);
+        c.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S2,S2);
+        let q=0.85,url=c.toDataURL("image/jpeg",q);
+        while(url.length>200000&&q>0.4){q-=0.15;url=c.toDataURL("image/jpeg",q)}
+        res(url);
+      };
+      img.onerror=()=>rej(new Error("image"));img.src=fr.result;
+    };
+    fr.onerror=()=>rej(new Error("read"));fr.readAsDataURL(file);
+  });
 }
 function loadProfile(u){
   if(SOC.profiles[u])return;
@@ -726,18 +775,24 @@ async function addByEmail(email){
 }
 function accept(id){return updateDoc(doc(fs,"requests",id),{status:"accepted"}).then(()=>say("You're now buddies.",true)).catch(()=>say("Couldn't accept. Try again."))}
 function removeReq(id,okMsg){return deleteDoc(doc(fs,"requests",id)).then(()=>okMsg&&say(okMsg,true)).catch(()=>say("That didn't go through. Try again."))}
+function fbError(e,what){
+  const c=e&&e.code||"";
+  if(c==="permission-denied")return "Firestore refused that ("+what+"). Publish the latest firestore.rules in the Firebase console, then try again.";
+  if(c==="unavailable")return "No connection. That will go through once you're back online.";
+  return "Couldn't "+what+". "+(c?"("+c+")":"Try again.");
+}
 function setTrainer(bid,on){
+  const was=SOC.trainers;
   const list=on?[...new Set([...SOC.trainers,bid])]:SOC.trainers.filter(x=>x!==bid);
   if(list.length>10)return say("You can have up to 10 trainers.");
-  SOC.trainers=list;
+  SOC.trainers=list;softRender(true);
   setDoc(doc(fs,"coaching",uid),{trainers:list,updated:Date.now()})
-    .then(()=>say(on?(SOC.profiles[bid]||{}).name+" can now edit your plans.":"Trainer access removed.",true))
-    .catch(()=>say("Couldn't change that. Try again."));
-  softRender(true);
+    .then(()=>say(on?pname(SOC.profiles[bid])+" can now edit your plans.":"Trainer access removed.",true))
+    .catch(e=>{SOC.trainers=was;say(fbError(e,"change trainer access"))});
 }
 /* trainer side: load a trainee's plans and recent work */
 async function openTrainee(tid){
-  S.view="trainee";TR.uid=tid;TR.name=(SOC.profiles[tid]||{}).name||"Buddy";TR.plans={};TR.active=null;TR.sessions=[];TR.loading=true;render();
+  S.view="trainee";TR.uid=tid;TR.name=pname(SOC.profiles[tid])||"Buddy";TR.plans={};TR.active=null;TR.sessions=[];TR.loading=true;render();
   try{
     const snap=await getDocs(collection(fs,"users",tid,"log"));
     const sess=[];
@@ -748,7 +803,7 @@ async function openTrainee(tid){
       else if(d.id!=="coach"&&v&&v.date)sess.push(v);
     });
     TR.sessions=sess.filter(hasSets).sort((a,b)=>a.date<b.date?1:-1).slice(0,8);
-  }catch(e){say("Couldn't open their log. They may have removed your trainer access.")}
+  }catch(e){say(fbError(e,"open their log")+" They may also have removed your trainer access.")}
   TR.loading=false;render();
 }
 function traineePlans(){return [...BUILTIN,...Object.entries(TR.plans).map(([id,p])=>({id,...p}))]}
@@ -756,7 +811,7 @@ function assignPlan(id){
   const pl=BUILTIN.find(b=>b.id===id)||(TR.plans[id]?{id,...TR.plans[id]}:null);
   return setDoc(doc(fs,"users",TR.uid,"log","coach"),{activePlan:id,by:me.name,at:Date.now()})
     .then(()=>{TR.active=id;say(esc(TR.name)+" now follows "+(pl?pl.name:"that plan")+".",true);render()})
-    .catch(()=>say("Couldn't assign that plan. Check that you still have trainer access."));
+    .catch(e=>say(fbError(e,"assign that plan")));
 }
 function inviteLink(){return location.origin+location.pathname+"?add="+uid}
 
@@ -805,14 +860,14 @@ function softRender(force){if(force||["dash","buddies","buddy"].includes(S.view)
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
   const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&S.view==="trainee")||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
   app.innerHTML=`
-  <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?avatar(me):""}</div>
+  <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
   <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
@@ -845,7 +900,7 @@ const INFINITY_SVG=`<svg class="l-mark" viewBox="0 0 120 60" aria-hidden="true">
   <path pathLength="1" d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z"
     fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const MINI_MARK=`<svg class="mini-mark" viewBox="0 0 120 60" aria-hidden="true"><path d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z" fill="none" stroke="url(#lgm)" stroke-width="9" stroke-linecap="round"/><defs><linearGradient id="lgm" x1="0" x2="1"><stop offset="0" stop-color="var(--push)"/><stop offset=".5" stop-color="var(--pull)"/><stop offset="1" stop-color="var(--legs)"/></linearGradient></defs></svg>`;
-function firstName(){return (me.name||"").trim().split(/\s+/)[0]||""}
+function firstName(){return (myName()||"").trim().split(/\s+/)[0]||""}
 function renderLanding(mode){
   const booting=mode==="boot",enter=mode==="enter";
   const actions=enter
@@ -1275,7 +1330,7 @@ function savePlan(){
     const tid=S.coachFor;TR.plans[id]=plan;
     setDoc(doc(fs,"users",tid,"log","plan_"+id),clone(plan))
       .then(()=>{if(isNew)assignPlan(id)})
-      .catch(()=>say("Couldn't save. They may have removed your trainer access."));
+      .catch(e=>say(fbError(e,"save their plan")));
     S.draft=null;S.draftId=null;S.coachFor=null;S.view="trainee";
     S.msg=isNew?"Plan saved for "+TR.name+" and set as their plan.":"Plan saved for "+TR.name+".";S.msgOk=true;
     render();window.scrollTo(0,0);return;
@@ -1312,8 +1367,8 @@ function personCard(p,sum,isMe,buddyUid){
   }).join("");
   const count=(L.weekDays||[]).length;
   return `<div class="card ${isMe?"me":""}">
-    <div class="card-h">${avatar(p,true)}<div style="flex:1"><b>${isMe?"You":esc(p.name)}</b>
-      <small>${L.planName?esc(L.planName):""}${L.planName?"<br>":""}${L.lastDate?"Last workout "+fmtDate(L.lastDate):"No workouts yet"}</small></div>
+    <div class="card-h">${avatar(p,true)}<div style="flex:1"><b>${isMe?"You":esc(pname(p)||"Buddy")}</b>
+      <small>${L.planName?esc(L.planName):""}${L.planName?"<br>":""}${L.lastDate?"Last workout "+fmtDate(L.lastDate):"No workouts yet"}${p&&p.ig?`<br><a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}</small></div>
       ${buddyUid?`<button class="btn small" data-buddy="${buddyUid}">View</button>`:""}</div>
     ${miniWeek(L)}
     <div class="stats">
@@ -1377,7 +1432,7 @@ function renderDash(){
     const hidden=SOC.accepted.length-(people.length-1);
     buddiesHtml=SOC.accepted.length?`<section class="sec"><div class="sec-h"><span class="kicker">Buddies this week</span><button class="link" data-view="buddies">Manage</button></div>
       <ul class="blist">${people.map(x=>`<li ${x.isMe?"":`data-buddy="${x.uid}" role="button" tabindex="0"`}>${avatar(x.p)}
-        <span class="nm">${x.isMe?"You":esc(x.p.name||"Buddy")}</span>
+        <span class="nm">${x.isMe?"You":esc(pname(x.p)||"Buddy")}</span>
         ${miniWeek(x.L)}
         <span class="ct">${x.L.weekDays.length}</span></li>`).join("")}</ul>
       ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing right now.</p>`:""}
@@ -1399,7 +1454,7 @@ function renderDash(){
 function renderBuddy(){
   const b=S.buddyId;const p=SOC.profiles[b]||{};const sum=SOC.shared[b];
   const back=`<p><button class="link" data-view="dash">Back to home</button></p>`;
-  if(!sum||!sum.sharing)return back+`<div class="panel"><p class="muted" style="margin:0">${esc(p.name||"This buddy")} isn't sharing progress right now.</p></div>`;
+  if(!sum||!sum.sharing)return back+`<div class="panel"><p class="muted" style="margin:0">${esc(pname(p)||"This buddy")} isn't sharing progress right now.</p></div>`;
   const L=live(sum);const u=S.settings.unit;
   const lifts=L.lifts||[];
   if(!lifts.some(x=>x.n===S.buddyEx)&&lifts.length)S.buddyEx=lifts[0].n;
@@ -1410,7 +1465,7 @@ function renderBuddy(){
     return `<div class="sess" style="cursor:default"><span class="dot" style="--c:${tinfo(t).bg}"></span><b>${fmtDate(r.d)}</b> ${esc(title)}<small>${r.sets} sets</small></div>`}).join("");
   return back+`
   ${personCard(p,sum,false,null)}
-  <div class="panel" style="margin-top:16px"><h2>${esc(p.name)}'s lifts</h2>
+  <div class="panel" style="margin-top:16px"><h2>${esc(pname(p)||"Their")} lifts</h2>
     ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option ${x.n===S.buddyEx?"selected":""}>${esc(x.n)}</option>`).join("")}</select>
     <div class="chart">${chart(pts,useW,S.buddyEx)}</div>
     <ul class="hlist">${pts.slice().reverse().slice(0,8).map(x=>`<li><span>${fmtDate(x.date)}</span><span>Top set ${x.w>0?x.w+" "+u+" x ":""}${x.r}</span></li>`).join("")}</ul>
@@ -1420,6 +1475,27 @@ function renderBuddy(){
   ${rec?`<div class="panel"><h2>Recent workouts</h2>${rec}</div>`:""}`;
 }
 
+function renderProfile(){
+  const d=S.profileDraft||(S.profileDraft={nick:ME.nick,ig:ME.ig,photo:ME.photo});
+  const prev={name:d.nick||me.name,photo:d.photo||me.photo};
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  return `<p><button class="link" data-view="history">Back</button></p>
+  <div class="panel"><h2>Your profile</h2>
+    <div class="row" style="align-items:center;margin-bottom:16px">${avatar(prev,true)}
+      <div class="row" style="flex:1">
+        <button class="btn small" id="photoBtn">Change photo</button>
+        ${d.photo?`<button class="btn small" id="photoClear">Use Google photo</button>`:""}
+      </div></div>
+    <input type="file" id="photoFile" accept="image/*" hidden>
+    <label class="stack" style="margin-bottom:12px"><span>Nickname</span>
+      <input class="field" data-prof="nick" value="${esc(d.nick)}" placeholder="${esc(me.name||"How buddies see you")}" maxlength="40"></label>
+    <label class="stack" style="margin-bottom:16px"><span>Instagram</span>
+      <input class="field" data-prof="ig" value="${esc(d.ig)}" placeholder="yourhandle" autocapitalize="none" autocorrect="off"></label>
+    <p class="small muted" style="margin:0 0 14px">Your nickname, photo and Instagram are visible to your buddies.</p>
+    <div class="row"><button class="btn primary" id="saveProfile">Save profile</button><button class="btn" data-view="history">Cancel</button></div>
+    ${msg}
+  </div>`;
+}
 function renderTrainee(){
   const back=`<p><button class="link" data-view="buddies">Back to buddies</button></p>`;
   if(TR.loading)return back+`<div class="panel"><p class="muted" style="margin:0">Opening ${esc(TR.name)}'s plans...</p></div>`;
@@ -1451,9 +1527,9 @@ function renderBuddies(){
   if(S.mode!=="db")return `<div class="panel"><h2>Buddies</h2><p class="muted">${CONFIGURED?"Sign in with Google to add buddies and see each other's progress.":"Set up Firebase to use buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const pa=S.pendingAdd&&S.pendingAdd!==uid&&!SOC.accepted.some(a=>a.uid===S.pendingAdd)?SOC.profiles[S.pendingAdd]:null;
-  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm">${esc(p.name||"Loading...")}<small>${sub}</small></span>${btns}</li>`};
+  const person=(u,sub,btns)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm">${esc(pname(p)||"Loading...")}${p.ig?` <a class="link small" href="${igUrl(p.ig)}" target="_blank" rel="noopener">@${esc(p.ig)}</a>`:""}<small>${sub}</small></span>${btns}</li>`};
   return `
-  ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pa.name||"this person")}</b> as a buddy?</span>
+  ${pa?`<div class="panel"><h2>Invite</h2><div class="row">${avatar(pa)}<span style="flex:1">Add <b>${esc(pname(pa)||"this person")}</b> as a buddy?</span>
     <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
   <div class="panel"><label class="bigswitch"><input type="checkbox" id="sharing" ${S.settings.sharing?"checked":""}>
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
@@ -1516,7 +1592,8 @@ function renderHistory(){
   </div>
   <div class="panel"><h2>Account</h2>
     ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
-      :uid?`<div class="row">${avatar(me)}<span style="flex:1">${esc(me.name)}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span></span><button class="btn" id="signout">Sign out</button></div>`
+      :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}</span></div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button><button class="btn" id="signout">Sign out</button></div>`
       :`<button class="btn primary" id="signin">Sign in with Google</button>`}
   </div>
   <div class="panel"><h2>How to progress</h2><ul class="rules">
@@ -1570,7 +1647,7 @@ document.addEventListener("click",async e=>{
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.trainer){setTrainer(ds.trainer,true);return}
-  if(ds.untrainer){if(confirm("Remove trainer access from "+((SOC.profiles[ds.untrainer]||{}).name||"this buddy")+"?"))setTrainer(ds.untrainer,false);return}
+  if(ds.untrainer){if(confirm("Remove trainer access from "+(pname(SOC.profiles[ds.untrainer])||"this buddy")+"?"))setTrainer(ds.untrainer,false);return}
   if(ds.trainee){openTrainee(ds.trainee);return}
   if(ds.assign){assignPlan(ds.assign);return}
   if(ds.tedit){const p=BUILTIN.find(b=>b.id===ds.tedit)||(TR.plans[ds.tedit]?{id:ds.tedit,...TR.plans[ds.tedit]}:null);
@@ -1578,7 +1655,7 @@ document.addEventListener("click",async e=>{
   if(ds.accept){accept(ds.accept);return}
   if(ds.decline){removeReq(ds.decline,"Request declined.");return}
   if(ds.cancel){removeReq(ds.cancel,"Request cancelled.");return}
-  if(ds.remove){const a=SOC.accepted.find(x=>x.id===ds.remove);const nm=a&&SOC.profiles[a.uid]?SOC.profiles[a.uid].name:"this buddy";
+  if(ds.remove){const a=SOC.accepted.find(x=>x.id===ds.remove);const nm=a&&SOC.profiles[a.uid]?pname(SOC.profiles[a.uid]):"this buddy";
     if(confirm("Remove "+nm+" as a buddy? You'll stop seeing each other's progress."))removeReq(ds.remove,"Buddy removed.");return}
   /* plans */
   if(ds.viewplan){S.viewPlanId=ds.viewplan;S.msg="";S.view="planView";render();window.scrollTo(0,0);return}
@@ -1608,6 +1685,9 @@ document.addEventListener("click",async e=>{
       return;
     case "shareLink":navigator.share({title:APP_NAME,text:"Be my gym buddy on "+APP_NAME,url:inviteLink()}).catch(()=>{});return;
     case "resetSched":resetSchedule();render();return;
+    case "photoBtn":$("#photoFile").click();return;
+    case "photoClear":S.profileDraft.photo="";render();return;
+    case "saveProfile":saveMyProfile();return;
     case "importBtn":$("#importFile").click();return;
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
@@ -1632,6 +1712,7 @@ document.addEventListener("click",async e=>{
 document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
+  if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
   /* plan editor fields: update the draft without re-rendering */
   if(S.view==="planEdit"&&S.draft){
     if(ds.pf){S.draft[ds.pf]=el.value;return}
@@ -1655,6 +1736,10 @@ document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
+  else if(el.id==="photoFile"){
+    const f=el.files&&el.files[0];el.value="";
+    if(f)readPhoto(f).then(u=>{S.profileDraft.photo=u;render()}).catch(()=>say("Couldn't read that image. Try another one."));
+  }
   else if(el.id==="importFile"){const f=el.files&&el.files[0];el.value="";if(f)importFile(f);}
   else if(el.id==="histEx"){S.histEx=el.value;render()}
   else if(el.id==="buddyEx"){S.buddyEx=el.value;render()}
@@ -1726,7 +1811,7 @@ if(CONFIGURED){
     if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
     try{await initStore()}catch(e){S.mode="local"}
     if(S.mode==="db"){
-      setDoc(doc(fs,"profiles",uid),{name:me.name,photo:me.photo},{merge:true}).catch(()=>{});
+      loadMyProfile();
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
       startSocial();publishNow();
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
