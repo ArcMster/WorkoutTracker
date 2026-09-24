@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the buddy leaderboard (cache `infinity-v19`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the buddy leaderboard (cache `infinity-v20`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v19` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v20` |
 
 ## Files
 
@@ -67,7 +67,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Buddies who don't share appear as one muted line ("2 buddies aren't sharing"), not as rows.
 - A trainer also sees their trainees, even ones who don't share: their counts are worked out from the log the trainer can already read, loaded once per session. Only the trainer sees those rows.
 - Tapping a row opens that person's profile. With no buddies, the screen links to Find New Buddies.
-- Buddies on older app versions publish no month numbers, so they show 0 for This month until they update.
+- Buddies on older app versions publish no month numbers. For This month they show "-", rank last and are named in a note asking them to open the latest version; their summary republishes with month numbers when they do.
 
 ### Trainers
 - **Make trainer** on a buddy gives them coach access. You can have up to 10 trainers.

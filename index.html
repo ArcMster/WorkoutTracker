@@ -2179,7 +2179,9 @@ function boardRows(){
     if(sum){rows.push({uid:t,p:SOC.profiles[t]||{},L:live(sum),trainee:!(sh&&sh.sharing)});seen.add(t)}
   });
   const m=BOARD.metric,p=BOARD.period;
-  rows.forEach(r=>{r.v=boardVal(r.L,m,p);r.vol=boardVal(r.L,"volume",p);r.nm=r.isMe?"You":pname(r.p)||"Buddy"});
+  /* summaries from app versions before the leaderboard have no month numbers: show them as unknown, not zero */
+  rows.forEach(r=>{r.nm=r.isMe?"You":pname(r.p)||"Buddy";r.unk=m!=="streak"&&p==="month"&&r.L.monthStart==null;
+    r.v=r.unk?-1:boardVal(r.L,m,p);r.vol=r.unk?-1:boardVal(r.L,"volume",p)});
   rows.sort((a,b)=>(b.v-a.v)||(b.vol-a.vol)||a.nm.localeCompare(b.nm));
   const loading=SOC.trainees.some(t=>BOARD.tr[t]===null&&!seen.has(t));
   const hidden=SOC.accepted.filter(a=>!seen.has(a.uid)&&!(SOC.trainees.includes(a.uid)&&BOARD.tr[a.uid]===null)).length;
@@ -2198,7 +2200,7 @@ function renderBoard(){
   const sub=m==="streak"?"Weeks in a row with at least one workout":p==="month"?new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"}):"Week of "+fmtDate(mondayOf(today()));
   const show=r=>m==="volume"?[fmtNum(u==="lb"?r.v/0.45359:r.v),u]:m==="streak"?[r.v,r.v===1?"week":"weeks"]:[r.v,r.v===1?"workout":"workouts"];
   const row=(r,i)=>{
-    const [n,l]=show(r);
+    const [n,l]=r.unk?["-","not updated"]:show(r);
     const inner=`${avatar(r.p)}<span class="nm">${esc(r.nm)}${r.trainee?`<small>Trainee, only you see this</small>`:""}</span><span class="v"><b>${n}</b><small>${l}</small></span>`;
     return `<li class="${r.isMe?"me":""}"><span class="rk">${i+1}</span>${r.isMe?`<span class="bd-p">${inner}</span>`:`<button class="bd-p" data-person="${r.uid}" aria-label="${esc(r.nm)}, rank ${i+1}, ${n} ${l}">${inner}</button>`}</li>`;
   };
@@ -2207,6 +2209,7 @@ function renderBoard(){
     ${m!=="streak"?seg("bp",p,[["week","This week"],["month","This month"]],"Period"):""}</div>
   <div class="panel"><ol class="board">${rows.map(row).join("")}</ol>
     ${loading?`<p class="small muted">Loading your trainees...</p>`:""}
+    ${(()=>{const old=rows.filter(r=>r.unk).map(r=>r.nm);return old.length?`<p class="small muted">${esc(old.join(", "))} ${old.length===1?"needs":"need"} to open the latest version of the app before monthly numbers show.</p>`:""})()}
     ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing.</p>`:""}
     ${!S.settings.sharing?`<p class="small muted">Your buddies can't see you here. <button class="link small" data-view="buddies">Turn on sharing</button></p>`:""}
   </div>`;
