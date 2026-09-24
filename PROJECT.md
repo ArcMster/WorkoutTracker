@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning and admin (cache `infinity-v22`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning and admin (cache `infinity-v23`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v22` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v23` |
 
 ## Files
 
@@ -62,7 +62,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
 - Progress tab: a chart per exercise, the session list, and report downloads.
-- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback.
+- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback.
 - **Reports:** Excel (CSV) with one row per set, or a printable report that saves as a PDF. Ranges are the last 4 weeks, last 12 weeks or all time. Rows go oldest to newest, with exercises in the plan's scheduled order.
 
 ### Profile
