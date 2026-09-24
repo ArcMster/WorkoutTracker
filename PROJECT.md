@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v24`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v25`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v24` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v25` |
 
 ## Files
 
@@ -35,11 +35,12 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Exercise tutorials
 - Admins attach a YouTube video to any exercise in **Admin > Exercise tutorials**: every exercise in the ready-made plans, the admin's own plans and log, anything that already has a video, plus an "Another exercise" row for custom names. Watch links, youtu.be links, Shorts, embed links and bare ids are accepted; only the 11-character id is stored, and it's validated before saving.
 - On the Workout screen (and a trainer's view of a trainee's workout) an exercise with a video shows a **Watch** button in its header. Tapping opens an inline 16:9 `youtube-nocookie.com` player; tapping again closes it. One video at a time, never autoplayed, and no player is created until asked.
+- Plan entries that offer options get one video per option: `vidParts()` splits on " or " and " / ", and a leading equipment or angle word borrows the shared ending ("Barbell or Dumbbell Curl" gives Barbell Curl and Dumbbell Curl; "Deadlift or Rack Pull" gives Deadlift and Rack Pull). The plan entry and its logged history keep the combined name. On the Workout screen such an entry shows a row of labelled buttons, one per option that has a video.
 - Videos are keyed by `slug(exercise name)`, the same helper used for file names, so "Pull-ups / Lat Pulldown" always maps to `pull-ups-lat-pulldown` and a video follows the exercise across plans, like history does.
 - Loaded once per sign-in into the `VIDS` map. Guests (no Firebase) see no Watch buttons.
 
 ### Admin
-- **Progress > Account > Admin**, visible only when `admins/{myUid}` exists.
+- **Admin** tab in the top menu, shown only when `admins/{myUid}` exists.
 - Counts of users, admins and disabled accounts; user list from `profiles`, 50 per page, with name search over loaded pages; admin, disabled and "You" badges.
 - Per user, behind a confirmation: **Disable** / **Enable** and **Make admin** / **Remove admin**. Your own row has no actions. Each action stores `by` and `at` and adds an `audit` entry; the last 10 show under Recent actions.
 - Disabling is an app flag enforced by the rules, not a Firebase Auth disable. On sign-in the app reads `accounts/{myUid}` first; if disabled it shows one calm screen and loads nothing else, with no listeners and no writes.

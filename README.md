@@ -76,13 +76,13 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 
 ## Admin
 
-Admins see an **Admin** button in **Progress > Account**. It's hidden completely for everyone else. The admin screen shows counts (users, admins, disabled) and a list of users, 50 at a time, with name search over the loaded pages. For each user an admin can **Disable** / **Enable** the account and **Make admin** / **Remove admin**, each after a confirmation. Every action records who did it and when, in the changed document and in `audit/{id}`.
+Admins get an **Admin** tab in the top menu. It's hidden completely for everyone else. The admin screen shows counts (users, admins, disabled) and a list of users, 50 at a time, with name search over the loaded pages. For each user an admin can **Disable** / **Enable** the account and **Make admin** / **Remove admin**, each after a confirmation. Every action records who did it and when, in the changed document and in `audit/{id}`.
 
 Admins can't read anyone's workout log. Only trainers someone chose can do that.
 
 **What "disabled" means.** A browser app can't disable a Firebase Authentication account (that needs the Admin SDK on a server). So disabling is an app-level flag, `accounts/{uid}.disabled`, enforced by the security rules. The person can still sign in with Google, but the app shows only a "This account has been disabled" screen, loads nothing, and the rules refuse every write of their data. It doesn't delete anything, and **Enable** restores the account as it was. The rules don't block reads, so a disabled person with their own tools could still read what they could read before.
 
-**Exercise tutorials.** The admin screen also lists every exercise with a field for a YouTube link. Paste a watch link, youtu.be link or video id and tap Save; everyone then sees a **Watch** button on that exercise while logging, which plays the video inline. Clear the field and save to remove it. For an exercise that isn't listed (from someone's custom plan), use **Another exercise** and type its name exactly as it appears in the plan.
+**Exercise tutorials.** The admin screen also lists every exercise with a field for a YouTube link. Paste a watch link, youtu.be link or video id and tap Save; everyone then sees a **Watch** button on that exercise while logging, which plays the video inline. Clear the field and save to remove it. Plan entries with options are split, so "Barbell or Dumbbell Curl" appears as Barbell Curl and Dumbbell Curl, each with its own video, and people logging that entry see a Watch button for each option. For an exercise that isn't listed (from someone's custom plan), use **Another exercise** and type its name.
 
 **Making the first admin** (the app can't do this for itself):
 
@@ -90,7 +90,7 @@ Admins can't read anyone's workout log. Only trainers someone chose can do that.
 2. Firebase console > **Authentication** > **Users**. Find the account (for this app, psnathsrt@gmail.com) and copy its **User UID**.
 3. **Firestore Database** > **Data** > **Start collection** (or open `admins` if it exists). Collection ID: `admins`.
 4. Document ID: paste the UID. Add two fields: `by` (string, for example `console`) and `at` (timestamp, now). Save.
-5. Reopen the app and go to **Progress > Account > Admin**.
+5. Reopen the app. The **Admin** tab appears at the end of the top menu.
 
 After that, admins make other admins from the app. Nobody can remove their own admin rights or disable themselves, so there's always at least one admin.
 
