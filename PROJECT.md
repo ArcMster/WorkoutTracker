@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the buddy leaderboard (cache `infinity-v20`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard and Advanced Planning (cache `infinity-v21`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v20` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v21` |
 
 ## Files
 
@@ -41,6 +41,15 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Six-week cycles with a suggested deload in week 6 (about 40% fewer sets).
 - The logging screen shows last time's numbers, hints for beating them, and a rest timer.
 - Exercises with the same name share history across plans.
+
+### Advanced Planning
+- **Plans > Advanced Planning > Generate a plan** builds a starting plan from body weight, height (cm, or ft and in), goal (Build muscle, Get stronger, Lose fat, General fitness), days per week (3 to 6) and strength (Beginner, or best sets of bench press, squat, leg press and overhead press).
+- Templates come from the ready-made plans: 3 days full body, 4 upper/lower, 5 upper/lower then push/pull/legs, 6 push/pull/legs twice.
+- Goal sets the rep ranges: strength 3 to 6 on the main lifts, muscle 6 to 12, fat loss and general fitness 10 to 15 with an extra accessory (fat loss also gets a 10 to 15 minute cardio finisher).
+- With best lifts, each day's note suggests a starting weight: the Epley one-rep max, the weight for the top of the rep range, less 10%, rounded down to 2.5 kg or 5 lb, never above the lift entered. Beginner plans say to start light and add weight weekly.
+- Body weight and height only choose between easier and harder bodyweight moves (lat pulldown or pull-ups, pushdowns or dips, lying or hanging leg raises) and fill in a summary line. No calorie targets, diets or nutrition advice, by design.
+- Read-only preview, **Download PDF** through the printable-report path (overview page, then one page per training day), and **Save to my plans**. Nothing is written until Save is pressed. Preview and PDF both carry a one-line "not medical advice" note.
+- In an installed iOS app a **Save as image** button is also shown, drawing the plan with the share-as-image code, because printing there is still unverified.
 
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
@@ -117,10 +126,11 @@ The whole script is one ES module inside `<script type="module">`.
   - `ME`: your own nickname, photo, Instagram and bio
   - `TR`: the trainee a trainer has open
   - `FIND`: the Find Buddies list and paging
+  - `GEN`: Advanced Planning answers and the generated plan (not saved until the user saves it)
   - `BOARD`: leaderboard metric and period, where it was opened from, and trainee counts loaded from their logs
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
   - main tabs: `dash` (Home), `log` (Workout), `plans`, `buddies`, `history` (Progress)
-  - plan screens: `planView`, `planEdit`
+  - plan screens: `planView`, `planEdit`, `gen` (Advanced Planning)
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
   - trainer screens: `trainee`, `tday` (a trainee's single workout)

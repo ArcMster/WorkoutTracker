@@ -65,6 +65,15 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Trainers also see their trainees there, worked out from the log they can already read. Only the trainer sees those rows.
 - It uses the existing `shared/{uid}` summary, which now also carries `monthStart`, `monthWorkouts` and `volumeMonth`. No new collections or rules.
 
+## Advanced Planning
+
+**Plans > Advanced Planning** asks for body weight, height, goal, days per week and either Beginner or your best lifts, then builds a starting plan from the ready-made ones. It runs entirely on the device, with no AI and no network needed.
+
+- Review it, **Download PDF** (the browser's Save as PDF), or **Save to my plans**. Nothing is saved until you tap Save.
+- With best lifts entered, each day suggests starting weights (Epley estimate, rounded down, never above your lift).
+- It gives training suggestions only: no calorie targets, diets or nutrition advice. It's a general plan, not medical advice.
+- Inside an installed iPhone app, **Save as image** is offered as well, in case printing to PDF doesn't work there.
+
 ## Importing a plan
 
 **Plans > Import from PDF or Excel** reads `.pdf`, `.xlsx`, `.xls` and `.csv` files, then opens the result in the plan editor for you to check before saving.

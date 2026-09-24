@@ -179,6 +179,14 @@ tr.isdone input{opacity:.7}
 .bd-ctl{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 16px}
 .sec-h .links{display:inline-flex;gap:16px}
 .panel .sec-h h2{margin:0}
+.gl{display:flex;flex-direction:column;gap:8px;font-weight:600;font-size:14px;margin-bottom:14px}
+.gl:last-child{margin-bottom:0}
+.gl .seg{align-self:flex-start}
+.gen-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gen-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.gen-opts button{border:0;background:var(--field);border-radius:10px;padding:12px 10px;font-weight:600;color:var(--muted)}
+.gen-opts button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.gen-lifts{display:grid;grid-template-columns:minmax(0,1fr) 84px 68px;gap:8px;align-items:center;font-size:15px}
 .board .v small{display:block;color:var(--muted);font-size:12px}
 .people{list-style:none;margin:0;padding:0}
 .people li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
@@ -404,6 +412,8 @@ dialog.share p{margin:12px 0 0;text-align:center}
   #printArea .rp-stats{display:flex;gap:28pt;margin:10pt 0 0}
   #printArea .rp-stats b{display:block;font:800 20pt/1 var(--display)}
   #printArea .rp-day{break-inside:avoid}
+  #printArea .gp-day{break-before:page}
+  #printArea .gp-note{margin-top:8pt;color:#333}
 }
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
@@ -1307,13 +1317,45 @@ async function workoutCard(){
   return toBlob(c);
 }
 
+function wrapText(ctx,t,max){
+  const out=[];let line="";
+  String(t||"").split(/\s+/).forEach(w=>{const n=line?line+" "+w:w;if(line&&ctx.measureText(n).width>max){out.push(line);line=w}else line=n});
+  if(line)out.push(line);return out;
+}
+/* The generated plan as an image, for installed iOS apps where printing may not work.
+   Laid out twice: once to measure the height, once to draw. */
+function planCardLayout(ctx,draw){
+  const p=GEN.plan,W=CW-PAD*2;let y=230;
+  const text=(t,font,color,x,align)=>{if(!draw)return;ctx.font=font;ctx.fillStyle=color;ctx.textAlign=align||"left";ctx.fillText(t,x,y);ctx.textAlign="left"};
+  ctx.font=cf(800,72,true);text(fitText(ctx,p.name,W),cf(800,72,true),CARD.ink,PAD);
+  ctx.font=cf(500,30);wrapText(ctx,GEN.info,W).forEach(l=>{y+=44;text(l,cf(500,30),CARD.muted,PAD)});
+  p.days.forEach((d,i)=>{
+    if(d.t==="rest")return;
+    y+=100;ctx.font=cf(700,50,true);text(fitText(ctx,WD_LONG[i]+": "+d.title,W),cf(700,50,true),typeColors(d.t)[0],PAD);
+    d.ex.forEach(x=>{
+      y+=54;ctx.font=cf(500,32);const t=target(x);const tw=ctx.measureText(t).width;
+      text(fitText(ctx,x.n,W-tw-30),cf(500,32),CARD.ink,PAD);text(t,cf(500,32),CARD.muted,CW-PAD,"right");
+    });
+    if(d.note){ctx.font=cf(500,28);y+=12;wrapText(ctx,d.note,W).forEach(l=>{y+=40;text(l,cf(500,28),CARD.muted,PAD)})}
+  });
+  y+=90;ctx.font=cf(500,28);wrapText(ctx,GEN_NOTE,W).forEach(l=>{y+=40;text(l,cf(500,28),CARD.muted,PAD)});
+  return y+150;
+}
+async function planCard(){
+  await cardFonts();
+  const H=Math.max(1350,planCardLayout(document.createElement("canvas").getContext("2d"),false));
+  const {c,ctx}=cardStart(H);
+  planCardLayout(ctx,true);cardEnd(ctx,H);
+  return toBlob(c);
+}
+
 let SHARE=null;
 async function openShare(kind){
   if(kind==="workout"&&!(cur()&&hasSets(cur()))){setStatus("Log at least one set to share this workout.");return}
   let blob;
-  try{blob=await (kind==="workout"?workoutCard():progressCard())}
+  try{blob=await (kind==="workout"?workoutCard():kind==="plan"?planCard():progressCard())}
   catch(e){console.warn("share card",e);alert("Couldn't make the image. Try again.");return}
-  const name=(kind==="workout"?"workout-"+cur().date:"progress-"+today())+".png";
+  const name=(kind==="workout"?"workout-"+cur().date:kind==="plan"?slug(GEN.plan.name)+"-"+today():"progress-"+today())+".png";
   const file=new File([blob],name,{type:"image/png"});
   const canShare=!!(navigator.canShare&&navigator.canShare({files:[file]}));
   closeShare();
@@ -1321,11 +1363,11 @@ async function openShare(kind){
   let dlg=$("#shareDlg");
   if(!dlg){dlg=document.createElement("dialog");dlg.id="shareDlg";dlg.className="share";document.body.appendChild(dlg);
     dlg.addEventListener("close",closeShare);dlg.addEventListener("click",e=>{if(e.target===dlg)dlg.close()})}
-  dlg.innerHTML=`<div class="sheet"><img src="${SHARE.url}" alt="${kind==="workout"?"Workout summary":"Progress summary"} image">
+  dlg.innerHTML=`<div class="sheet"><img src="${SHARE.url}" alt="${kind==="workout"?"Workout summary":kind==="plan"?"Workout plan":"Progress summary"} image">
     <div class="row">${canShare?`<button class="btn primary" id="shareImg">Share</button>`:""}
       <a class="btn ${canShare?"":"primary"}" href="${SHARE.url}" download="${name}">Save image</a>
       <button class="btn" id="closeShare">Close</button></div>
-    <p class="small muted">${canShare?"Share straight to Instagram, WhatsApp or any app.":"Save the image, then post it from Instagram, WhatsApp or any app."}</p></div>`;
+    <p class="small muted">${kind==="plan"?(canShare?"Share it to Files, Photos or any app.":"Save the image to keep a copy of your plan."):canShare?"Share straight to Instagram, WhatsApp or any app.":"Save the image, then post it from Instagram, WhatsApp or any app."}</p></div>`;
   if(!dlg.open)dlg.showModal();
 }
 function closeShare(){
@@ -1341,9 +1383,9 @@ function softRender(force){if(force||["dash","buddies","buddy","person","find","
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard,gen:renderGen};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView","gen"].includes(S.view));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -1503,6 +1545,9 @@ function renderPlans(){
   };
   const mine=allPlans().filter(p=>!p.builtin);
   return `
+  <div class="panel"><h2>Advanced Planning</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:15px">Answer a few questions about your body weight, height, goal and strength. You get a starting plan to review, download as a PDF or save.</p>
+    <button class="btn primary" id="openGen">Generate a plan</button></div>
   <div class="panel"><h2>Build your own plan</h2>
     <p class="muted" style="margin:0 0 12px;font-size:15px">Set up each day of the week with its own exercises, sets and rep ranges. Or duplicate a ready-made plan and change what you need.</p>
     <div class="row"><button class="btn primary" id="newPlan">Create a new plan</button>
@@ -1699,12 +1744,9 @@ async function importFile(file){
 }
 
 /* plan view (read-only) */
-function renderPlanView(){
-  const p=getPlan(S.viewPlanId);
-  const back=`<p><button class="link" data-view="plans">Back to plans</button></p>`;
-  if(!p)return back+`<div class="panel"><p class="muted" style="margin:0">This plan no longer exists.</p></div>`;
-  const active=p.id===S.settings.activePlan;
-  const days=p.days.map((d,i)=>{
+/* read-only day cards, shared by the plan view and the Advanced Planning preview */
+function planDaysHtml(p){
+  return p.days.map((d,i)=>{
     if(d.t==="rest")return `<div class="pv-rest"><span class="pv-dot off"></span><b>${WD_LONG[i]}</b><span class="muted">Rest${d.focus&&d.focus!==REST().focus?": "+esc(d.focus):""}</span></div>`;
     const sets=d.ex.reduce((a,x)=>a+x.s,0);
     return `<section class="ex pv-day" style="--dc:${tinfo(d.t).solid}">
@@ -1715,6 +1757,13 @@ function renderPlanView(){
       <ol class="pv-list">${d.ex.map(x=>`<li><span>${esc(x.n)}</span><span class="pv-t">${esc(target(x))}</span></li>`).join("")}</ol>
     </section>`;
   }).join("");
+}
+function renderPlanView(){
+  const p=getPlan(S.viewPlanId);
+  const back=`<p><button class="link" data-view="plans">Back to plans</button></p>`;
+  if(!p)return back+`<div class="panel"><p class="muted" style="margin:0">This plan no longer exists.</p></div>`;
+  const active=p.id===S.settings.activePlan;
+  const days=planDaysHtml(p);
   return back+`
   <div class="panel">
     <div class="planweek" style="margin-bottom:10px">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
@@ -1829,6 +1878,156 @@ function usePlan(id){
   S.settings.activePlan=id;S.planId=id;
   const plan=getPlan(id);S.settings.sched={planId:id,date:today(),p:alignedP(plan,today())};
   saveSettings();schedulePublish();
+}
+
+/* ---------- Advanced Planning ----------
+   A starting plan from body weight, height, goal, days per week and best lifts. Plain arithmetic
+   on the ready-made plans: works offline, same answers always give the same plan.
+   By design it gives no calorie targets, diets, weight-loss rates or nutrition advice. */
+const GOALS=[["muscle","Build muscle"],["strength","Get stronger"],["fat","Lose fat"],["general","General fitness"]];
+const GEN_DAYS={3:"Full body, three days a week.",4:"Upper and lower body, two days of each.",5:"Upper and lower body, then push, pull and legs.",6:"Push, pull and legs, twice a week."};
+/* best lifts the user can enter, and the plan exercises each one sets a starting weight for */
+const GEN_LIFTS=[["bench","Bench press",["Bench Press","Flat or Incline Bench Press"]],["squat","Squat",["Squat"]],
+  ["legpress","Leg press",["Leg Press or Walking Lunges","Front Squat or Leg Press"]],["ohp","Overhead press",["Overhead Press"]]];
+/* bodyweight exercises: the easier version to start with, and the harder one to build up to */
+const GEN_BW=[["Pull-ups / Lat Pulldown","the lat pulldown","pull-ups"],["Weighted Pull-ups / Lat Pulldown","the lat pulldown","pull-ups"],
+  ["Triceps Dips or Pushdowns","pushdowns","dips"],["Hanging Leg Raises","lying leg raises","hanging leg raises"]];
+const GEN_EXTRA=[X("Plank",3,30,45,"sec"),X("Face Pulls",3,12,15),X("Walking Lunges",3,12,15,"per leg"),X("Russian Twists",3,15,20,"per side"),X("Hanging Leg Raises",3,10,15)];
+const GEN_CARDIO=X("Cardio Finisher (bike, rower or incline walk)",1,10,15,"min");
+const GEN_START="Start light: use weights you can lift for every rep with good form, then add a little weight each week once you reach the top of the rep range.";
+const GEN_NOTE="This is a general training plan, not medical advice. If you have an injury or a health condition, check with a professional before you start.";
+const GEN={wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"muscle",days:4,level:"beginner",lifts:{},plan:null,info:"",err:""};
+
+function genTemplate(n){
+  const [ppl,ul,fb]=["ppl","ul4","fb3"].map(id=>BUILTIN.find(p=>p.id===id).days);
+  if(n===3)return fb;
+  if(n===4)return ul;
+  if(n===5)return [ul[0],ul[1],REST(),ppl[0],ppl[1],ppl[2],REST()];
+  return ppl;
+}
+function genRead(){
+  const u=S.settings.unit,lb=u==="lb";
+  const wt=num(GEN.wt);
+  if(wt==null||wt<(lb?66:30)||wt>(lb?660:300))return {err:"Enter your body weight in "+u+"."};
+  let cm=null,htxt="";
+  if(GEN.hu==="cm"){cm=num(GEN.cm);htxt=Math.round(cm)+" cm"}
+  else{const f=num(GEN.ft),i=num(GEN.inch)||0;if(f!=null){cm=(f*12+i)*2.54;htxt=f+" ft "+i+" in"}}
+  if(cm==null||cm<120||cm>230)return {err:"Enter a height between 120 and 230 cm (about 4 ft to 7 ft 6 in)."};
+  const lifts={};
+  if(GEN.level==="lifts"){
+    for(const [k,label] of GEN_LIFTS){
+      const L=GEN.lifts[k]||{};const w=num(L.w),r=num(L.r)??1;
+      if(w==null)continue;
+      if(w<=0||w>(lb?1100:500))return {err:"Check the weight for "+label.toLowerCase()+"."};
+      if(r<1||r>20||r!==Math.round(r))return {err:"Reps for "+label.toLowerCase()+" should be a whole number from 1 to 20."};
+      lifts[k]={w,e1:r===1?w:w*(1+r/30)};/* Epley estimate of a one-rep max */
+    }
+    if(!Object.keys(lifts).length)return {err:"Enter at least one best lift, or choose Beginner."};
+  }
+  return {wt,htxt,kg:lb?wt*0.45359:wt,cm,lifts};
+}
+/* sets and rep ranges by goal; the first two exercises of a day are the main lifts */
+function genShape(ex,i,goal,beginner){
+  const x={...ex};
+  if(x.u==="sec"||x.u==="min")return x;
+  const main=i<2&&ex.lo<=8,iso=ex.lo>=12;
+  if(goal==="strength"){if(main){x.s=4;x.lo=i?4:3;x.hi=i?6:5}else if(iso){x.lo=10;x.hi=12}else{x.s=3;x.lo=6;x.hi=8}}
+  else if(goal==="muscle"){if(main){x.s=4;x.lo=6;x.hi=8}else if(iso){x.lo=12;x.hi=15}else{x.s=3;x.lo=8;x.hi=12}}
+  else{x.s=3;x.lo=main?10:12;x.hi=main?12:15}
+  if(beginner&&main)x.s=3;
+  return x;
+}
+/* a conservative working weight: the Epley weight for the top of the range, less 10%,
+   rounded down to 2.5 kg or 5 lb and never above the best lift entered */
+function genWeights(ex,lifts,u){
+  const st=u==="kg"?2.5:5;const out=[];
+  ex.forEach(x=>{
+    const L=GEN_LIFTS.find(l=>l[2].includes(x.n));const b=L&&lifts[L[0]];if(!b)return;
+    const w=Math.min(Math.floor(b.e1/(1+x.hi/30)*0.9/st)*st,Math.floor(b.w/st)*st);
+    if(w>0)out.push(x.n+(L[0]==="legpress"?" (leg press)":"")+" "+w+" "+u);
+  });
+  return out.length?"Starting weights: "+out.join(", ")+".":"";
+}
+function genPlan(){
+  const r=genRead();
+  if(r.err){GEN.err=r.err;GEN.plan=null;render();return}
+  const beginner=GEN.level!=="lifts",goal=GEN.goal,n=GEN.days,u=S.settings.unit;
+  const bmi=r.kg/((r.cm/100)**2);
+  const easy=beginner||bmi>=30,hard=!beginner&&bmi<27;
+  const days=genTemplate(n).map(d=>{
+    if(d.t==="rest")return REST();
+    const ex=d.ex.map((x,i)=>genShape(x,i,goal,beginner));
+    if(goal==="fat"||goal==="general"){const add=GEN_EXTRA.find(e=>!ex.some(x=>x.n.toLowerCase()===e.n.toLowerCase()));if(add)ex.push({...add})}
+    if(goal==="fat")ex.push({...GEN_CARDIO});
+    const bw=GEN_BW.filter(m=>ex.some(x=>x.n===m[0]));
+    const es=[...new Set(bw.map(m=>m[1]))],hs=[...new Set(bw.map(m=>m[2]))];
+    const bwNote=!bw.length?"":easy?"Bodyweight moves: start with "+es.join(" and ")+", and build up to "+hs.join(" and ")+"."
+      :hard?"Bodyweight moves: go for "+hs.join(" and ")+" rather than the easier version.":"";
+    const note=[beginner?GEN_START:genWeights(ex,r.lifts,u),beginner?"":"Add weight once you reach the top of the rep range on every set.",bwNote].filter(Boolean).join(" ");
+    return {t:d.t,title:d.title,focus:d.focus,note,ex};
+  });
+  const gl=GOALS.find(g=>g[0]===goal)[1];
+  GEN.plan={name:"Advanced: "+gl+", "+n+" days",days};
+  GEN.info="Built for "+r.wt+" "+u+" and "+r.htxt+": "+gl.toLowerCase()+", "+n+" days a week, "+(beginner?"starting light.":"working weights from your best lifts.");
+  GEN.err="";S.msg="";render();window.scrollTo(0,0);
+}
+function genSave(){
+  const p=GEN.plan;if(!p)return;
+  const id=newId();
+  S.plans[id]={name:p.name,days:clone(p.days),updated:Date.now()};
+  writeDoc("plan_"+id,clone(S.plans[id])).catch(()=>say("Couldn't save the plan. Check your connection and try again."));
+  GEN.plan=null;S.viewPlanId=id;S.view="planView";
+  S.msg="Saved to your plans. Tap Use this plan to start following it.";S.msgOk=true;render();window.scrollTo(0,0);
+}
+function genTarget(x){return reps(x)+" "+(x.u==="sec"?"seconds":x.u==="min"?"minutes":x.u?"reps "+x.u:"reps")}
+function genPrintHtml(){
+  const p=GEN.plan;
+  const week=p.days.map((d,i)=>`<tr><td>${WD_LONG[i]}</td><td>${d.t==="rest"?"Rest":esc(d.title)}</td><td>${d.t==="rest"?"":esc(d.focus||"")}</td></tr>`).join("");
+  const days=p.days.map((d,i)=>d.t==="rest"?"":`<section class="gp-day"><h2>${WD_LONG[i]}: ${esc(d.title)}</h2>${d.focus?`<p>${esc(d.focus)}</p>`:""}
+    <table><thead><tr><th>Exercise</th><th>Sets</th><th>Target</th></tr></thead><tbody>
+    ${d.ex.map(x=>`<tr><td>${esc(x.n)}</td><td>${x.s}</td><td>${esc(genTarget(x))}</td></tr>`).join("")}</tbody></table>
+    ${d.note?`<p class="gp-note">${esc(d.note)}</p>`:""}</section>`).join("");
+  return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
+    <h2>Your week</h2><table><thead><tr><th>Day</th><th>Workout</th><th>Focus</th></tr></thead><tbody>${week}</tbody></table>
+    <p class="gp-note">${GEN_NOTE}</p>${days}`;
+}
+function renderGen(){
+  const back=`<p><button class="link" data-view="plans">Back to plans</button></p>`;
+  const u=S.settings.unit;
+  if(GEN.plan){
+    const p=GEN.plan,iosApp=isIOS&&standalone();
+    return back+`<div class="panel">
+      <div class="planweek" style="margin-bottom:10px">${p.days.map((d,i)=>`<span class="${d.t==="rest"?"off":""}" style="--c:${tinfo(d.t).bg}" title="${WD[i]}: ${esc(d.title)}"></span>`).join("")}</div>
+      <h2 class="pv-title" style="margin-bottom:4px">${esc(p.name)}</h2>
+      <p class="muted" style="margin:0 0 10px;font-size:15px">${esc(GEN.info)}</p>
+      <p class="small muted" style="margin:0 0 14px">${GEN_NOTE}</p>
+      <div class="row"><button class="btn primary" id="genPdf">Download PDF</button>${iosApp?`<button class="btn" id="genImg">Save as image</button>`:""}<button class="btn" id="genEdit">Change answers</button></div>
+      ${iosApp?`<p class="small muted" style="margin:10px 0 0">If Download PDF does nothing in the installed app, use Save as image.</p>`:""}
+    </div>
+    ${planDaysHtml(p)}
+    <div class="panel"><p class="small muted" style="margin:0 0 12px">Nothing is saved until you choose to. Saving adds this plan to Your plans, where you can edit it or start using it.</p>
+      <button class="btn" id="genSave">Save to my plans</button></div>`;
+  }
+  const opt=(key,val,cur,label)=>`<button data-${key}="${val}" aria-pressed="${String(val)===String(cur)}">${label}</button>`;
+  const L=k=>GEN.lifts[k]||{};
+  return back+`<header class="greet"><h1>Advanced Planning</h1><p>A starting plan from your body stats, goal and strength.</p></header>
+  <div class="panel"><h2>About you</h2>
+    <label class="gl">Body weight (${u})<input class="field" data-gen="wt" inputmode="decimal" autocomplete="off" value="${esc(GEN.wt)}"></label>
+    <div class="gl"><span>Height</span><div class="seg" role="group" aria-label="Height unit">${opt("ghu","cm",GEN.hu,"cm")}${opt("ghu","ft",GEN.hu,"ft and in")}</div>
+    ${GEN.hu==="cm"?`<input class="field" data-gen="cm" inputmode="decimal" autocomplete="off" aria-label="Height in cm" placeholder="cm" value="${esc(GEN.cm)}">`
+      :`<div class="gen-2"><input class="field" data-gen="ft" inputmode="numeric" autocomplete="off" aria-label="Height, feet" placeholder="ft" value="${esc(GEN.ft)}"><input class="field" data-gen="inch" inputmode="decimal" autocomplete="off" aria-label="Height, inches" placeholder="in" value="${esc(GEN.inch)}"></div>`}</div>
+  </div>
+  <div class="panel"><h2>Goal</h2><div class="gen-opts" role="group" aria-label="Goal">${GOALS.map(([v,l])=>opt("ggoal",v,GEN.goal,l)).join("")}</div></div>
+  <div class="panel"><h2>Days per week</h2><div class="seg" role="group" aria-label="Days per week">${[3,4,5,6].map(n=>opt("gdays",n,GEN.days,n)).join("")}</div>
+    <p class="small muted" style="margin:10px 0 0">${GEN_DAYS[GEN.days]}</p></div>
+  <div class="panel"><h2>Strength</h2><div class="seg" role="group" aria-label="Strength">${opt("glevel","beginner",GEN.level,"Beginner")}${opt("glevel","lifts",GEN.level,"I know my best lifts")}</div>
+    ${GEN.level==="lifts"?`<p class="small muted" style="margin:12px 0 10px">Your best recent set of each, in ${u}. Leave any you don't do blank.</p>
+      <div class="gen-lifts">${GEN_LIFTS.map(([k,l])=>`<span>${l}</span><input class="field" data-gen="lw.${k}" inputmode="decimal" autocomplete="off" placeholder="${u}" aria-label="${l}, weight in ${u}" value="${esc(L(k).w||"")}"><input class="field" data-gen="lr.${k}" inputmode="numeric" autocomplete="off" placeholder="reps" aria-label="${l}, reps" value="${esc(L(k).r||"")}">`).join("")}</div>`
+      :`<p class="small muted" style="margin:10px 0 0">No numbers needed. The plan starts light and adds weight week by week.</p>`}
+  </div>
+  ${GEN.err?`<p class="msg" style="color:var(--push)">${esc(GEN.err)}</p>`:""}
+  <div class="row"><button class="btn primary" id="genGo">Make my plan</button></div>
+  <p class="small muted">${GEN_NOTE}</p>`;
 }
 
 /* dashboard */
@@ -2238,6 +2437,10 @@ document.addEventListener("click",async e=>{
   if(t.id==="findMore"){loadFind();return}
   if(ds.bm){BOARD.metric=ds.bm;render();return}
   if(ds.bp){BOARD.period=ds.bp;render();return}
+  if(ds.ghu){GEN.hu=ds.ghu;render();return}
+  if(ds.ggoal){GEN.goal=ds.ggoal;render();return}
+  if(ds.gdays){GEN.days=+ds.gdays;render();return}
+  if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
   if(t.id==="tMore"){TR.showN+=20;render();return}
@@ -2292,6 +2495,12 @@ document.addEventListener("click",async e=>{
     case "importBtn":$("#importFile").click();return;
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
+    case "openGen":S.msg="";GEN.plan=null;GEN.err="";S.view="gen";render();window.scrollTo(0,0);return;
+    case "genGo":genPlan();return;
+    case "genEdit":GEN.plan=null;render();window.scrollTo(0,0);return;
+    case "genSave":genSave();return;
+    case "genPdf":printHtml(genPrintHtml());return;
+    case "genImg":openShare("plan");return;
     case "savePlan":savePlan();return;
     case "cancelPlan":case "cancelPlan2":if(leaveEditor()){S.view="plans";render();window.scrollTo(0,0)}return;
   }
@@ -2310,10 +2519,11 @@ document.addEventListener("click",async e=>{
     if(e2.done)startTimer(REST_SECONDS);
   }
 });
-document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value)});
+document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value);if(e.key==="Enter"&&e.target.dataset.gen)genPlan()});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
+  if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
   if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
   /* plan editor fields: update the draft without re-rendering */
   if(S.view==="planEdit"&&S.draft){
