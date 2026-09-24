@@ -183,6 +183,7 @@ tr.isdone input{opacity:.7}
 .gl:last-child{margin-bottom:0}
 .gl .seg{align-self:flex-start}
 .tag.warn{background:var(--push)}
+.nums3.four{grid-template-columns:repeat(4,1fr)}
 .ex-head h2{min-width:0}
 .ex-r{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
 .watch{border:0;background:var(--field);color:var(--ink);border-radius:999px;padding:5px 12px 5px 10px;font:600 13px var(--body);display:inline-flex;align-items:center;gap:6px}
@@ -582,7 +583,7 @@ const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:nu
 /* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
 const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:""};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -802,7 +803,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
   BOARD.tr={};
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:""});
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -1102,7 +1103,7 @@ function renderTDay(){
   const m=metaIn(s,tPlan);const u=S.settings.unit;const rows=exList(s,m);const vol=sessVolume(s);
   const skipped=m.d?m.d.ex.filter(x=>!rows.some(r=>r.n===x.n)):[];
   const older=list[i+1],newer=list[i-1];
-  const exHtml=rows.map(x=>`<div class="dex"><div class="dex-h"><h3>${esc(x.n)}</h3>${watchHead(x.n)}</div>${watchRow(x.n)}<div class="vid"></div>
+  const exHtml=rows.map(x=>`<div class="dex"><div class="dex-h"><h3>${esc(dn(x.n))}</h3>${watchHead(x.n)}</div>${watchRow(x.n)}<div class="vid"></div>
     <small>${x.ex?"Planned "+esc(target(x.ex,setsFor(x.ex,s.deload))):"Not in the plan"}</small>
     <table class="dtable"><thead><tr><th>Set</th><th>Weight (${u})</th><th>${x.ex?repLabel(x.ex):"Reps"}</th><th>Done</th></tr></thead><tbody>
     ${x.f.map((z,k)=>`<tr><td>${k+1}</td><td>${wOf(z,s)??"-"}</td><td>${z.r}</td><td class="ok">${z.done?"&#10003;":""}</td></tr>`).join("")}
@@ -1116,7 +1117,7 @@ function renderTDay(){
     <div class="nums3" style="margin-top:16px"><div><b>${rows.length}</b><span>exercises</span></div><div><b>${setCount(s)}</b><span>sets</span></div>
       <div><b>${vol>0?fmtNum(vol):"-"}</b><span>volume (${u})</span></div></div></div>
   <div class="panel">${exHtml}
-    ${skipped.length?`<p class="small muted" style="margin:14px 0 0">Not logged: ${skipped.map(x=>esc(x.n)).join(", ")}</p>`:""}</div>
+    ${skipped.length?`<p class="small muted" style="margin:14px 0 0">Not logged: ${skipped.map(x=>esc(dn(x.n))).join(", ")}</p>`:""}</div>
   <div class="panel"><h2>Download</h2><div class="row"><button class="btn" id="csv-day">Excel (CSV)</button><button class="btn" id="pdf-day">Print or save PDF</button></div></div>`;
 }
 
@@ -1155,14 +1156,32 @@ function ytId(v){
   return null;
 }
 function vidFor(name){const v=VIDS[slug(name)];return v?v.id:""}
+/* The name people see. Admins can rename an exercise; the data keeps the original name, so
+   history, charts and "last time" stay connected. A combined entry like "Barbell or Dumbbell Curl"
+   is rebuilt from its options when one of them was renamed. */
+function dn(name){
+  const v=VIDS[slug(name)];if(v&&v.display)return v.display;
+  const parts=vidParts(name);
+  if(parts.length<2||!parts.some(q=>VIDS[slug(q)]&&VIDS[slug(q)].display))return name;
+  return parts.map(q=>{const w=VIDS[slug(q)];return w&&w.display?w.display:q}).join(" or ");
+}
+/* the other way, for the plan editor: a typed display name maps back to the name the data uses */
+function canon(t){
+  t=String(t||"").trim();if(!t)return t;
+  const known=[...new Set([...BUILTIN.flatMap(p=>p.days.flatMap(d=>d.ex.map(x=>x.n))),...knownNames(),...Object.values(VIDS).map(v=>v.name)])];
+  if(known.some(c=>c===t&&dn(c)===c))return t;
+  const hit=known.find(c=>dn(c)!==c&&dn(c).toLowerCase()===t.toLowerCase());
+  return hit||t;
+}
 async function loadVids(force){
   if(S.mode!=="db"||(vidsLoaded&&!force))return;
   vidsLoaded=true;
   try{
     const snap=await getDocs(collection(fs,"exercises"));
     Object.keys(VIDS).forEach(k=>delete VIDS[k]);
-    snap.forEach(d=>{const v=d.data();if(v&&YT_ID.test(v.youtube||""))VIDS[d.id]={id:v.youtube,name:v.name||d.id}});
-    if(["log","tday","admin"].includes(S.view))render();
+    snap.forEach(d=>{const v=d.data()||{};
+      VIDS[d.id]={id:YT_ID.test(v.youtube||"")?v.youtube:"",name:v.name||d.id,display:typeof v.display==="string"?v.display.trim():"",added:v.added===true}});
+    render();
   }catch(e){vidsLoaded=false;console.warn("tutorials",e)}
 }
 /* A plan entry can offer options ("Barbell or Dumbbell Curl", "Pull-ups / Lat Pulldown"). Each option is its own
@@ -1188,8 +1207,8 @@ function vidOpts(name){
 }
 function watchBtns(name){
   const {multi,list}=vidOpts(name);
-  return list.map(x=>{const label=multi?x.n:"Watch";
-    return `<button class="watch" data-watch="${x.id}" data-wname="${esc(x.n)}" data-label="${esc(label)}" aria-expanded="false">${esc(label)}</button>`}).join("");
+  return list.map(x=>{const label=multi?dn(x.n):"Watch";
+    return `<button class="watch" data-watch="${x.id}" data-wname="${esc(dn(x.n))}" data-label="${esc(label)}" aria-expanded="false">${esc(label)}</button>`}).join("");
 }
 /* the Watch control for an exercise header: one plain button, or a row of labelled buttons for options */
 function watchHead(name){return vidOpts(name).multi?"":watchBtns(name)}
@@ -1216,7 +1235,7 @@ function csvOf(list,getP){
   const rows=[["Date","Workout","Plan","Exercise","Set","Weight ("+u+")","Reps","Unit","Done","Deload"]];
   sortAsc(list).forEach(s=>{
     const m=metaIn(s,getP);
-    exList(s,m).forEach(x=>x.f.forEach((z,k)=>rows.push([s.date,m.title,m.plan?m.plan.name:"",x.n,k+1,wOf(z,s)??"",z.r,
+    exList(s,m).forEach(x=>x.f.forEach((z,k)=>rows.push([s.date,m.title,m.plan?m.plan.name:"",dn(x.n),k+1,wOf(z,s)??"",z.r,
       x.ex&&x.ex.u?x.ex.u:"reps",z.done?"yes":"no",s.deload?"yes":""])));
   });
   return "﻿"+rows.map(r=>r.map(q).join(",")).join("\r\n");
@@ -1234,12 +1253,12 @@ function reportHtml(title,sub,list,getP){
   const weeks=new Set(asc.map(s=>mondayOf(s.date))).size;
   const fmtS=(z,s)=>{const w=wOf(z,s);return (w!=null?w+"×":"")+z.r};
   const bestRows=Object.entries(best)
-    .map(([n,b])=>`<tr><td>${esc(n)}</td><td>${b.w>0?b.w+" "+u+" × ":""}${b.r}</td><td>${fmtDate(b.d)}</td></tr>`).join("");
+    .map(([n,b])=>`<tr><td>${esc(dn(n))}</td><td>${b.w>0?b.w+" "+u+" × ":""}${b.r}</td><td>${fmtDate(b.d)}</td></tr>`).join("");
   const days=asc.map(s=>{const m=metaIn(s,getP);const v=sessVolume(s);
     return `<section class="rp-day"><h3>${parseISO(s.date).toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})} · ${esc(m.title)}${s.deload?" (deload)":""}</h3>
       <p>${m.plan?esc(m.plan.name)+" · ":""}${setCount(s)} sets${v>0?" · "+fmtNum(v)+" "+u+" volume":""}</p>
       <table><thead><tr><th>Exercise</th><th>Sets (${u} × reps)</th><th>Planned</th></tr></thead><tbody>
-      ${exList(s,m).map(x=>`<tr><td>${esc(x.n)}</td><td>${x.f.map(z=>fmtS(z,s)).join(", ")}</td><td>${x.ex?esc(target(x.ex,setsFor(x.ex,s.deload))):""}</td></tr>`).join("")}
+      ${exList(s,m).map(x=>`<tr><td>${esc(dn(x.n))}</td><td>${x.f.map(z=>fmtS(z,s)).join(", ")}</td><td>${x.ex?esc(target(x.ex,setsFor(x.ex,s.deload))):""}</td></tr>`).join("")}
       </tbody></table></section>`}).join("");
   return `<h1>${esc(title)}</h1><p>${esc(sub)} · Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
     <div class="rp-stats"><div><b>${asc.length}</b>workouts</div><div><b>${sets}</b>sets</div><div><b>${fmtNum(vol)}</b>volume (${u})</div><div><b>${weeks}</b>active weeks</div></div>
@@ -1405,7 +1424,7 @@ function workoutRows(ctx,rows,s,d,col,top,draw){
     if(i&&draw){ctx.fillStyle=CARD.line;ctx.fillRect(PAD,y-26,CW-PAD*2,2)}
     if(draw){
       ctx.fillStyle=CARD.muted;ctx.font=cf(800,44,true);ctx.fillText(String(i+1).padStart(2,"0"),PAD,y+42);
-      ctx.fillStyle=CARD.ink;ctx.font=cf(700,46,true);ctx.fillText(fitText(ctx,x.n,W),X0,y+42);
+      ctx.fillStyle=CARD.ink;ctx.font=cf(700,46,true);ctx.fillText(fitText(ctx,dn(x.n),W),X0,y+42);
     }
     let best=-1,bw=-1,br=-1;
     x.f.forEach((z,k)=>{const w=conv(z.w,s.unit||"kg",S.settings.unit)||0;if(w>0&&(w>bw||(w===bw&&z.r>br))){best=k;bw=w;br=z.r}});
@@ -1468,7 +1487,7 @@ function planCardLayout(ctx,draw){
     y+=100;ctx.font=cf(700,50,true);text(fitText(ctx,WD_LONG[i]+": "+d.title,W),cf(700,50,true),typeColors(d.t)[0],PAD);
     d.ex.forEach(x=>{
       y+=54;ctx.font=cf(500,32);const t=target(x);const tw=ctx.measureText(t).width;
-      text(fitText(ctx,x.n,W-tw-30),cf(500,32),CARD.ink,PAD);text(t,cf(500,32),CARD.muted,CW-PAD,"right");
+      text(fitText(ctx,dn(x.n),W-tw-30),cf(500,32),CARD.ink,PAD);text(t,cf(500,32),CARD.muted,CW-PAD,"right");
     });
     if(d.note){ctx.font=cf(500,28);y+=12;wrapText(ctx,d.note,W).forEach(l=>{y+=40;text(l,cf(500,28),CARD.muted,PAD)})}
   });
@@ -1523,10 +1542,10 @@ function render(){
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
-  if(S.view==="disabled"){app.innerHTML=renderDisabled();return}
+  if(S.view==="disabled"||S.view==="pending"){app.innerHTML=S.view==="pending"?renderPending():renderDisabled();return}
   app.innerHTML=`
   <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
-  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"):""}</nav>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   if(at&&at.scrollIntoView)at.scrollIntoView({block:"nearest",inline:"nearest"});
@@ -1631,7 +1650,7 @@ function renderLog(){
         </tr>`;
       }).join("");
       return `<section class="ex">
-        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="ex-r"><span class="target">${esc(target(ex,n))}</span>${watchHead(ex.n)}</span></div>
+        <div class="ex-head"><h2>${esc(dn(ex.n))}</h2><span class="ex-r"><span class="target">${esc(target(ex,n))}</span>${watchHead(ex.n)}</span></div>
         ${watchRow(ex.n)}
         <div class="vid"></div>
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
@@ -1891,7 +1910,7 @@ function planDaysHtml(p){
         <span class="pv-count">${d.ex.length} exercise${d.ex.length===1?"":"s"}, ${sets} sets</span></div>
       ${d.focus?`<p class="last">${esc(d.focus)}</p>`:""}
       ${d.note?`<p class="hint">${esc(d.note)}</p>`:""}
-      <ol class="pv-list">${d.ex.map(x=>`<li><span>${esc(x.n)}</span><span class="pv-t">${esc(target(x))}</span></li>`).join("")}</ol>
+      <ol class="pv-list">${d.ex.map(x=>`<li><span>${esc(dn(x.n))}</span><span class="pv-t">${esc(target(x))}</span></li>`).join("")}</ol>
     </section>`;
   }).join("");
 }
@@ -1927,7 +1946,7 @@ function renderPlanEdit(){
     const rest=d.t==="rest";
     const exRows=d.ex.map((x,j)=>`
       <div class="exrow">
-        <input class="field ename" list="exnames" data-di="${i}" data-xi="${j}" data-xf="n" value="${esc(x.n)}" placeholder="Exercise name" aria-label="Exercise name">
+        <input class="field ename" list="exnames" data-di="${i}" data-xi="${j}" data-xf="n" value="${esc(dn(x.n))}" placeholder="Exercise name" aria-label="Exercise name">
         <div class="nums"><label class="mini-f"><span>Sets</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="s" value="${x.s??""}"></label>
         <label class="mini-f"><span>Min</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="lo" value="${x.lo??""}"></label>
         <label class="mini-f"><span>Max</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="hi" value="${x.hi??""}"></label></div>
@@ -1961,7 +1980,7 @@ function renderPlanEdit(){
   ${S.coachFor?`<div class="panel"><p class="msg" style="margin:0">You're editing a plan for ${esc(TR.name)}.</p></div>`:""}
   <div class="panel"><h2>${S.draftId?"Edit plan":"New plan"}</h2>
     <label class="stack"><span>Plan name</span><input class="field" data-pf="name" value="${esc(D.name)}" placeholder="e.g. Summer cut, 5 days"></label></div>
-  <datalist id="exnames">${knownNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+  <datalist id="exnames">${[...new Set([...knownNames(),...Object.values(VIDS).filter(v=>v.added).map(v=>v.name)].map(dn))].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
   ${days}
   <div class="savebar">
     ${S.draftErr?`<p class="msg" style="color:var(--push);margin:0 0 8px">${esc(S.draftErr)}</p>`:""}
@@ -1978,13 +1997,13 @@ function savePlan(){
     if(d.t==="rest"){days.push({t:"rest",title:"Rest",focus:(d.focus||"").trim(),note:"",ex:[]});continue}
     const ex=[];
     for(const x of d.ex){
-      const n=(x.n||"").trim();
+      const n=canon(x.n);
       if(!n)continue;
       const s=num(x.s),lo=num(x.lo),hi=num(x.hi)??lo;
-      if(!s||s<1||s>20)return failDraft(WD_LONG[i]+": "+n+" needs between 1 and 20 sets.");
-      if(lo==null||lo<1)return failDraft(WD_LONG[i]+": "+n+" needs a minimum of at least 1.");
-      if(hi<lo)return failDraft(WD_LONG[i]+": for "+n+", the max can't be lower than the min.");
-      if(ex.some(e=>e.n.toLowerCase()===n.toLowerCase()))return failDraft(WD_LONG[i]+": "+n+" is listed twice. Use one entry with more sets.");
+      if(!s||s<1||s>20)return failDraft(WD_LONG[i]+": "+dn(n)+" needs between 1 and 20 sets.");
+      if(lo==null||lo<1)return failDraft(WD_LONG[i]+": "+dn(n)+" needs a minimum of at least 1.");
+      if(hi<lo)return failDraft(WD_LONG[i]+": for "+dn(n)+", the max can't be lower than the min.");
+      if(ex.some(e=>e.n.toLowerCase()===n.toLowerCase()))return failDraft(WD_LONG[i]+": "+dn(n)+" is listed twice. Use one entry with more sets.");
       ex.push({n,s:Math.round(s),lo:Math.round(lo),hi:Math.round(hi),u:x.u||""});
     }
     if(!ex.length)return failDraft(WD_LONG[i]+" has no exercises. Add at least one, or set the day to Rest.");
@@ -2081,7 +2100,7 @@ function genWeights(ex,lifts,u){
   ex.forEach(x=>{
     const L=GEN_LIFTS.find(l=>l[2].includes(x.n));const b=L&&lifts[L[0]];if(!b)return;
     const w=Math.min(Math.floor(b.e1/(1+x.hi/30)*0.9/st)*st,Math.floor(b.w/st)*st);
-    if(w>0)out.push(x.n+(L[0]==="legpress"?" (leg press)":"")+" "+w+" "+u);
+    if(w>0)out.push(dn(x.n)+(L[0]==="legpress"?" (leg press)":"")+" "+w+" "+u);
   });
   return out.length?"Starting weights: "+out.join(", ")+".":"";
 }
@@ -2122,7 +2141,7 @@ function genPrintHtml(){
   const week=p.days.map((d,i)=>`<tr><td>${WD_LONG[i]}</td><td>${d.t==="rest"?"Rest":esc(d.title)}</td><td>${d.t==="rest"?"":esc(d.focus||"")}</td></tr>`).join("");
   const days=p.days.map((d,i)=>d.t==="rest"?"":`<section class="gp-day"><h2>${WD_LONG[i]}: ${esc(d.title)}</h2>${d.focus?`<p>${esc(d.focus)}</p>`:""}
     <table><thead><tr><th>Exercise</th><th>Sets</th><th>Target</th></tr></thead><tbody>
-    ${d.ex.map(x=>`<tr><td>${esc(x.n)}</td><td>${x.s}</td><td>${esc(genTarget(x))}</td></tr>`).join("")}</tbody></table>
+    ${d.ex.map(x=>`<tr><td>${esc(dn(x.n))}</td><td>${x.s}</td><td>${esc(genTarget(x))}</td></tr>`).join("")}</tbody></table>
     ${d.note?`<p class="gp-note">${esc(d.note)}</p>`:""}</section>`).join("");
   return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
     <h2>Your week</h2><table><thead><tr><th>Day</th><th>Workout</th><th>Focus</th></tr></thead><tbody>${week}</tbody></table>
@@ -2285,8 +2304,8 @@ function renderBuddy(){
   return back+`
   ${personCard(p,sum,false,null)}
   <div class="panel" style="margin-top:16px"><h2>${esc(pname(p)||"Their")} lifts</h2>
-    ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option ${x.n===S.buddyEx?"selected":""}>${esc(x.n)}</option>`).join("")}</select>
-    <div class="chart">${chart(pts,useW,S.buddyEx)}</div>
+    ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option value="${esc(x.n)}" ${x.n===S.buddyEx?"selected":""}>${esc(dn(x.n))}</option>`).join("")}</select>
+    <div class="chart">${chart(pts,useW,dn(S.buddyEx))}</div>
     <ul class="hlist">${pts.slice().reverse().slice(0,8).map(x=>`<li><span>${fmtDate(x.date)}</span><span>Top set ${x.w>0?x.w+" "+u+" x ":""}${x.r}</span></li>`).join("")}</ul>
     ${lf?`<p class="muted" style="font-size:14px">Best: ${lf.pr.w>0?fromKg(lf.pr.w)+" "+u+" x ":""}${lf.pr.r}, ${fmtDate(lf.pr.d)}</p>`:""}`
     :`<p class="muted">No lifts logged yet.</p>`}
@@ -2446,10 +2465,10 @@ function renderHistory(){
   }).join("");
   return `
   <div class="panel"><h2>Lift progress</h2>
-    <select id="histEx" aria-label="Exercise">${names.map(n=>`<option ${n===S.histEx?"selected":""}>${esc(n)}</option>`).join("")}</select>
-    ${pts.length?`<div class="chart">${chart(pts,useW,S.histEx)}</div>
+    <select id="histEx" aria-label="Exercise">${names.map(n=>`<option value="${esc(n)}" ${n===S.histEx?"selected":""}>${esc(dn(n))}</option>`).join("")}</select>
+    ${pts.length?`<div class="chart">${chart(pts,useW,dn(S.histEx))}</div>
       <ul class="hlist">${pts.slice().reverse().slice(0,8).map(p=>`<li><span>${fmtDate(p.date)}</span><span>${p.sets.map(x=>fmtSet(x,p.unit)).join(", ")}</span></li>`).join("")}</ul>`
-      :`<p class="muted">No sets logged for ${esc(S.histEx)} yet. Log a workout and it will chart here.</p>`}
+      :`<p class="muted">No sets logged for ${esc(dn(S.histEx))} yet. Log a workout and it will chart here.</p>`}
   </div>
   ${sorted().some(([,x])=>hasSets(x))?exportPanel("me","Your workouts"):""}
   <div class="panel"><h2>Sessions</h2>${sessions||`<p class="muted">Nothing logged yet. Open the Workout tab and fill in your first set.</p>`}</div>
@@ -2551,6 +2570,27 @@ function renderBoard(){
   </div>`;
 }
 
+/* ---------- joining ----------
+   New people ask to join and wait for an admin. People who used the app before this
+   (they have a profile but no account record) count as active, as the rules do. */
+function statusOf(a){return a.status||(a.disabled===true?"disabled":"active")}
+async function accountStatus(acct,prof){
+  if(acct&&acct.exists())return statusOf(acct.data());
+  if(!acct||!prof||prof.exists())return "active";/* couldn't check, or an existing member: the rules still decide */
+  try{
+    const photo=(me.photo||"").length<=1000?me.photo||"":"";
+    await setDoc(doc(fs,"accounts",uid),{status:"pending",name:(me.name||"").slice(0,80),email:me.email,photo,requested:serverTimestamp()});
+  }catch(e){console.warn("join request",e)}
+  return "pending";
+}
+function renderPending(){
+  return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
+  <div class="calm"><h1>Request sent</h1>
+    <p>Thanks for signing up. An admin needs to approve your account before you can use ${APP_NAME}. Check back soon.</p>
+    ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
+    <div class="row" style="justify-content:center"><button class="btn primary" id="checkAgain">Check again</button><button class="btn" id="signout">Sign out</button></div></div>`;
+}
+
 /* ---------- disabled account ---------- */
 function renderDisabled(){
   return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
@@ -2569,9 +2609,12 @@ function admStart(){
 }
 async function admCounts(){
   try{
-    const [u,a,d]=await Promise.all([getCountFromServer(collection(fs,"profiles")),getDocs(collection(fs,"admins")),
-      getDocs(query(collection(fs,"accounts"),where("disabled","==",true)))]);
-    ADM.admins=new Set(a.docs.map(x=>x.id));ADM.disabled=new Set(d.docs.map(x=>x.id));
+    const acc=collection(fs,"accounts");
+    const [u,a,d,dOld,pend]=await Promise.all([getCountFromServer(collection(fs,"profiles")),getDocs(collection(fs,"admins")),
+      getDocs(query(acc,where("status","==","disabled"))),getDocs(query(acc,where("disabled","==",true))),getDocs(query(acc,where("status","==","pending")))]);
+    ADM.admins=new Set(a.docs.map(x=>x.id));
+    ADM.disabled=new Set([...d.docs,...dOld.docs].filter(x=>statusOf(x.data())==="disabled").map(x=>x.id));
+    ADM.pending=pend.docs.map(x=>({uid:x.id,...x.data()})).sort((x,y)=>(y.requested?.seconds||0)-(x.requested?.seconds||0));
     ADM.counts={users:u.data().count};
   }catch(e){console.warn("admin counts",e);ADM.err=fbError(e,"load the counts")}
   softRender();
@@ -2595,7 +2638,7 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from"};
+const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise"};
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
@@ -2603,55 +2646,72 @@ function vidNames(){
     .forEach(n=>{n=String(n||"").trim();if(n&&!m.has(slug(n)))m.set(slug(n),n)});
   return [...m.values()].sort((a,b)=>a.localeCompare(b));
 }
-/* save or clear one exercise's video; key is the exercise name, or "" for the "another exercise" row */
-async function admVideo(key){
+/* save one catalogue entry: the name shown, the YouTube video, or both. key is the exercise name,
+   or "" for the Add exercise row. An entry with no rename, no video and not admin-added is removed. */
+async function admExercise(key,remove){
   const name=(key||$("#vNew")?.value||"").trim().slice(0,80);
   const k=slug(name);
-  const inp=document.querySelector(`[data-vurl="${CSS.escape(key)}"]`);
-  const id=ytId(inp?inp.value:"");
-  if(!name){say("Type the exercise name exactly as it appears in the plan.");return}
-  /* show a problem next to the field without redrawing, so what was typed stays */
-  const note=t=>{ADM.vmsg[k]=t;const li=inp&&inp.closest("li");let sm=li&&li.querySelector("small");
+  const li=key?document.querySelector(`li[data-ex="${CSS.escape(key)}"]`):$("#vNewRow");
+  const urlIn=li&&li.querySelector("[data-vurl]"),dispIn=li&&li.querySelector("[data-vdisp]");
+  const note=t=>{ADM.vmsg[k]=t;let sm=li&&li.querySelector("small");
     if(li&&!sm){sm=document.createElement("small");li.appendChild(sm)}if(sm)sm.textContent=t;else render()};
+  if(!name){note("Type the exercise name.");return}
+  const cur=VIDS[k];
+  if(remove&&!confirm("Remove "+(cur&&cur.display||name)+" from the exercise list? Plans that use it keep it."))return;
+  const id=remove?"":ytId(urlIn?urlIn.value:"");
   if(id===null){note("That doesn't look like a YouTube link or video id.");return}
-  if(id===""&&!VIDS[k]){note("Paste a YouTube link first.");return}
+  const disp=remove?name:((dispIn?dispIn.value:name).trim().slice(0,80)||name);
+  const display=disp!==name?disp:"";
+  const added=remove?false:key?!!(cur&&cur.added):true;
+  if(!key&&!remove&&(cur||BUILTIN.some(p=>p.days.some(d=>d.ex.some(x=>slug(x.n)===k))))){note(name+" is already in the list. Edit it there.");return}
+  const keep=id||display||added;
+  if(!keep&&!cur){note("Nothing to save. Change the name or paste a YouTube link.");return}
   try{
-    if(id)await setDoc(doc(fs,"exercises",k),{name,youtube:id,updatedBy:uid,updatedAt:serverTimestamp()});
+    if(keep)await setDoc(doc(fs,"exercises",k),{name,...(id?{youtube:id}:{}),...(display?{display}:{}),...(added?{added:true}:{}),updatedBy:uid,updatedAt:serverTimestamp()});
     else await deleteDoc(doc(fs,"exercises",k));
-  }catch(e){note(fbError(e,"save the video"));return}
-  if(id)VIDS[k]={id,name};else delete VIDS[k];
-  ADM.vmsg[k]=id?"Saved. Video id "+id+".":"Video removed.";
+  }catch(e){note(fbError(e,"save that exercise"));return}
+  if(keep)VIDS[k]={id:id||"",name,display,added};else delete VIDS[k];
+  ADM.vmsg[k]=remove?"Removed.":"Saved."+(display?" Shown as "+display+".":"")+(id?" Video id "+id+".":"");
   if(!key)ADM.newName="";
-  const entry={action:id?"video":"unvideo",target:k,name,by:uid,at:serverTimestamp()};
+  const action=remove?"exremove":!key?"exadd":"exedit";
+  const entry={action,target:k,name:display||name,by:uid,at:serverTimestamp()};
   ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
   setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
   render();
 }
 function vidRows(){
   const q=ADM.vq.trim().toLowerCase();
-  const names=vidNames().filter(n=>!q||n.toLowerCase().includes(q));
+  const names=vidNames().filter(n=>!q||n.toLowerCase().includes(q)||dn(n).toLowerCase().includes(q));
   if(!names.length)return `<li class="muted" style="display:block">No exercise matches that.</li>`;
-  return names.map(n=>{const k=slug(n),v=VIDS[k],m=ADM.vmsg[k];
-    return `<li><b>${esc(n)}</b>
-      <input class="field" data-vurl="${esc(n)}" inputmode="url" autocomplete="off" placeholder="YouTube link" value="${v?"https://youtu.be/"+v.id:""}" aria-label="YouTube link for ${esc(n)}">
-      <button class="btn small" data-vsave="${esc(n)}">Save</button>
-      <small>${m?esc(m):v?"Video id "+v.id:"No video yet"}</small></li>`}).join("");
+  return names.map(n=>{const k=slug(n),v=VIDS[k]||{},m=ADM.vmsg[k];
+    const status=[v.added?"Added by an admin":"",v.display?"Originally "+n:"",v.id?"Video id "+v.id:"No video yet"].filter(Boolean).join(" · ");
+    return `<li data-ex="${esc(n)}"><b>${esc(dn(n))}</b>
+      <input class="field" data-vdisp value="${esc(v.display||n)}" autocomplete="off" aria-label="Name shown for ${esc(n)}" style="grid-column:1/-1">
+      <input class="field" data-vurl inputmode="url" autocomplete="off" placeholder="YouTube link" value="${v.id?"https://youtu.be/"+v.id:""}" aria-label="YouTube link for ${esc(n)}">
+      <span class="row" style="flex-wrap:nowrap">${v.added?`<button class="btn small danger" data-vdel="${esc(n)}">Remove</button>`:""}<button class="btn small" data-vsave="${esc(n)}">Save</button></span>
+      <small>${m?esc(m):esc(status)}</small></li>`}).join("");
 }
 async function admAct(kind,u){
   if(u===uid)return;
-  const p=ADM.list.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
-  const ask={disable:"Disable "+nm+"? They can still sign in, but can't use the app or change any of their data until you enable them again.",
+  const p=ADM.list.find(x=>x.uid===u)||ADM.pending.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
+  const ask={approve:"Approve "+nm+(p.email?" ("+p.email+")":"")+"? They'll be able to use the app.",
+    decline:"Decline "+nm+"? Their account is marked Disabled and they can't use the app. You can enable it later.",
+    disable:"Disable "+nm+"? They can still sign in, but can't use the app or change any of their data until you enable them again.",
     enable:"Enable "+nm+" again?",
     makeadmin:"Make "+nm+" an admin? They'll be able to see every user, disable accounts and change who is an admin.",
     unadmin:"Remove admin rights from "+nm+"?"}[kind];
   if(!ask||!confirm(ask))return;
   const stamp={by:uid,at:serverTimestamp()};
   try{
-    if(kind==="disable"||kind==="enable")await setDoc(doc(fs,"accounts",u),{disabled:kind==="disable",...stamp});
+    if(["disable","enable","approve","decline"].includes(kind)){
+      const off=kind==="disable"||kind==="decline";
+      await setDoc(doc(fs,"accounts",u),{status:off?"disabled":"active",disabled:off,...stamp},{merge:true});
+    }
     else if(kind==="makeadmin")await setDoc(doc(fs,"admins",u),stamp);
     else await deleteDoc(doc(fs,"admins",u));
   }catch(e){say(fbError(e,"change that account"));return}
-  if(kind==="disable")ADM.disabled.add(u);if(kind==="enable")ADM.disabled.delete(u);
+  if(kind==="disable"||kind==="decline")ADM.disabled.add(u);if(kind==="enable")ADM.disabled.delete(u);
+  if(kind==="approve"||kind==="decline")ADM.pending=ADM.pending.filter(x=>x.uid!==u);
   if(kind==="makeadmin")ADM.admins.add(u);if(kind==="unadmin")ADM.admins.delete(u);
   const entry={action:kind,target:u,name:nm.slice(0,80),...stamp};
   ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
@@ -2677,24 +2737,27 @@ function renderAdmin(){
   const c=ADM.counts;const n=v=>c?v:"-";
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const when=a=>a&&a.toDate?a.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):"Just now";
-  return `<header class="greet"><h1>Admin</h1><p>Users, admins and disabled accounts.</p></header>
-  <section class="sec"><div class="nums3"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
+  return `<header class="greet"><h1>Admin</h1><p>Join requests, users, admins and exercises.</p></header>
+  <section class="sec"><div class="nums3 four"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.pending.length)}</b><span>requests</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
+  ${ADM.pending.length?`<div class="panel"><h2>Requested to join</h2><ul class="people">${ADM.pending.map(r=>`<li>${avatar({name:r.name,photo:r.photo})}
+      <span class="nm"><b>${esc(r.name||"Unnamed")}</b> <span class="tag plain">Requested to join</span><small class="one">${esc(r.email||"")}${r.requested&&r.requested.toDate?" · "+r.requested.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):""}</small></span><span></span>
+      <div class="adm-acts"><button class="btn small primary" data-adm="approve" data-u="${r.uid}">Approve</button><button class="btn small danger" data-adm="decline" data-u="${r.uid}">Decline</button></div></li>`).join("")}</ul></div>`:""}
   ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
   <div class="panel"><h2>Users</h2>
     <input class="field" id="admQ" type="search" placeholder="Search by name" autocomplete="off" value="${esc(ADM.q)}" style="width:100%;margin-bottom:6px">
     ${msg}
     <ul class="people" id="admList">${admRows()}</ul>
     ${ADM.done?"":`<div class="row" style="margin-top:12px"><button class="btn" id="admMore" ${ADM.loading?"disabled":""}>${ADM.loading?"Loading...":"Load more"}</button></div>`}
-    <p class="small muted" style="margin:12px 0 0">Search checks the users loaded so far. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
+    <p class="small muted" style="margin:12px 0 0">Search checks the users loaded so far. New people who sign in appear under Requested to join and can't use the app until an admin approves them. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
   </div>
-  <div class="panel"><h2>Exercise tutorials</h2>
-    <p class="small muted" style="margin:0 0 10px">Paste a YouTube link (a watch link, youtu.be link or video id). Everyone sees a Watch button on that exercise while they log it. Clear the link and save to remove it.</p>
+  <div class="panel"><h2>Exercises</h2>
+    <p class="small muted" style="margin:0 0 10px">Change the name everyone sees for an exercise, for example Squat to Weighted Squat, and attach a YouTube tutorial (a watch link, youtu.be link or video id). A new name shows everywhere, in every plan and report, and logged history stays connected. Clear a link and save to remove the video.</p>
     <input class="field" id="vQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(ADM.vq)}" style="width:100%">
     <ul class="vids" id="vList">${vidRows()}</ul>
-    <h2 style="margin-top:14px">Another exercise</h2>
-    <p class="small muted" style="margin:0 0 10px">For an exercise that isn't listed, type its name. Entries with options, like "Barbell or Dumbbell Curl", are listed as separate exercises, each with its own video.</p>
-    <ul class="vids"><li><input class="field" id="vNew" autocomplete="off" placeholder="Exercise name" value="${esc(ADM.newName)}" style="grid-column:1/-1" aria-label="Exercise name">
-      <input class="field" data-vurl="" inputmode="url" autocomplete="off" placeholder="YouTube link" aria-label="YouTube link"><button class="btn small" data-vsave="">Save</button>
+    <h2 style="margin-top:14px">Add an exercise</h2>
+    <p class="small muted" style="margin:0 0 10px">New exercises are suggested to everyone when they build or edit a plan. A video is optional. Entries with options, like "Barbell or Dumbbell Curl", are listed above as separate exercises.</p>
+    <ul class="vids"><li id="vNewRow"><input class="field" id="vNew" autocomplete="off" placeholder="Exercise name" value="${esc(ADM.newName)}" style="grid-column:1/-1" aria-label="New exercise name">
+      <input class="field" data-vurl inputmode="url" autocomplete="off" placeholder="YouTube link (optional)" aria-label="YouTube link"><button class="btn small primary" data-vsave="">Add</button>
       ${ADM.newName&&ADM.vmsg[slug(ADM.newName)]?`<small>${esc(ADM.vmsg[slug(ADM.newName)])}</small>`:""}</li></ul>
   </div>
   ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}</span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
@@ -2728,7 +2791,8 @@ document.addEventListener("click",async e=>{
   if(ds.gdays){GEN.days=+ds.gdays;render();return}
   if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
   if(ds.watch){toggleVid(t);return}
-  if(ds.vsave!=null){admVideo(ds.vsave);return}
+  if(ds.vsave!=null){admExercise(ds.vsave);return}
+  if(ds.vdel!=null){admExercise(ds.vdel,true);return}
   if(ds.adm){admAct(ds.adm,ds.u);return}
   if(t.id==="admMore"){admLoad();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
@@ -2763,6 +2827,7 @@ document.addEventListener("click",async e=>{
     case "signin":doSignIn();return;
     case "guest":S.view="dash";render();return;
     case "signout":signOut(auth);return;
+    case "checkAgain":location.reload();return;
     case "restart":S.settings.start=mondayOf(today());saveSettings();render();return;
     case "addEmail":addByEmail($("#email").value);return;
     case "pa-yes":{const to=S.pendingAdd;S.pendingAdd=null;clearAddParam();sendRequest(to);return}
@@ -2918,16 +2983,17 @@ if(CONFIGURED){
     const hadMe=restoreMe();
     if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
     /* A disabled account gets one calm screen: no log, no listeners, no writes. */
-    const [acct,adm]=await Promise.all([getDoc(doc(fs,"accounts",uid)).catch(()=>null),getDoc(doc(fs,"admins",uid)).catch(()=>null)]);
-    if(acct&&acct.exists()&&acct.data().disabled===true){S.view="disabled";render();return}
+    const [acct,adm,prof]=await Promise.all(["accounts","admins","profiles"].map(c=>getDoc(doc(fs,c,uid)).catch(()=>null)));
     ADM.is=!!(adm&&adm.exists());
+    const st=await accountStatus(acct,prof);
+    if(st==="disabled"||st==="pending"){S.view=st;render();return}
     try{await initStore()}catch(e){S.mode="local"}
     if(S.mode==="db"){
       /* First sign-in on this device: wait briefly for the nickname rather than flash the Google name. */
       const prof=loadMyProfile();
       if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();loadVids();prof.then(()=>{publishNow();syncDirectory()});
+      startSocial();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}

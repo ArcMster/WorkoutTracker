@@ -80,9 +80,13 @@ Admins get an **Admin** tab in the top menu. It's hidden completely for everyone
 
 Admins can't read anyone's workout log. Only trainers someone chose can do that.
 
+**Joining needs approval.** Anyone can open the app link and sign in with Google, but a new person only gets a "Request sent" screen until an admin approves them. Requests appear at the top of the Admin tab (with a count on the tab): **Approve** makes the account active, **Decline** marks it disabled. People who were already using the app before this change stay active.
+
 **What "disabled" means.** A browser app can't disable a Firebase Authentication account (that needs the Admin SDK on a server). So disabling is an app-level flag, `accounts/{uid}.disabled`, enforced by the security rules. The person can still sign in with Google, but the app shows only a "This account has been disabled" screen, loads nothing, and the rules refuse every write of their data. It doesn't delete anything, and **Enable** restores the account as it was. The rules don't block reads, so a disabled person with their own tools could still read what they could read before.
 
-**Exercise tutorials.** The admin screen also lists every exercise with a field for a YouTube link. Paste a watch link, youtu.be link or video id and tap Save; everyone then sees a **Watch** button on that exercise while logging, which plays the video inline. Clear the field and save to remove it. Plan entries with options are split, so "Barbell or Dumbbell Curl" appears as Barbell Curl and Dumbbell Curl, each with its own video, and people logging that entry see a Watch button for each option. For an exercise that isn't listed (from someone's custom plan), use **Another exercise** and type its name.
+**Renaming and adding exercises.** In **Admin > Exercises**, change the name shown for any exercise (for example Squat to Weighted Squat) and tap Save. The new name appears everywhere, for everyone, in every plan, report and share image. Nobody's data is rewritten: plans and logged sets keep the original name underneath, so history and charts stay connected. **Add an exercise** adds a new one, which everyone then gets as a suggestion when building or editing a plan.
+
+**Exercise tutorials.** The same list has a field for a YouTube link on each exercise. Paste a watch link, youtu.be link or video id and tap Save; everyone then sees a **Watch** button on that exercise while logging, which plays the video inline. Clear the field and save to remove it. Plan entries with options are split, so "Barbell or Dumbbell Curl" appears as Barbell Curl and Dumbbell Curl, each with its own video, and people logging that entry see a Watch button for each option. For an exercise that isn't listed (from someone's custom plan), use **Another exercise** and type its name.
 
 **Making the first admin** (the app can't do this for itself):
 
@@ -122,9 +126,9 @@ profiles/{uid}                     name, nickname, photo, Instagram, bio
 directory/{uid}                    public card for Find New Buddies
 emails/{email}                     uid, for add-by-email
 admins/{uid}                       { by, at }: presence means admin
-accounts/{uid}                     { disabled, by, at }: disabled true blocks the account
+accounts/{uid}                     { status, name, email, photo, requested, by, at }: pending, active or disabled
 audit/{id}                         { action, target, name, by, at }: admin actions
-exercises/{slug}                   { name, youtube, updatedBy, updatedAt }: tutorial video per exercise
+exercises/{slug}                   { name, display, youtube, added, updatedBy, updatedAt }: renames, tutorial videos, added exercises
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
 shared/{uid}                       progress summary buddies can see
 ```
