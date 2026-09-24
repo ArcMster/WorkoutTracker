@@ -9,10 +9,19 @@ service cloud.firestore {
     function isAdmin() {
       return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
-    // An account is active unless an admin has set accounts/{uid}.disabled to true.
+    // Account status: 'pending' (requested to join), 'active' or 'disabled'.
+    // Older account documents only carry disabled: true or false.
+    function acctStatus(d) {
+      return d.get('status', d.get('disabled', false) == true ? 'disabled' : 'active');
+    }
+    // Active means an admin approved the account (or never disabled it). People who used the app
+    // before join approval have no account document but do have a profile, so they stay active.
+    // Anyone new has neither until they ask to join, and stays blocked until an admin approves them.
     function isActive(uid) {
       let p = /databases/$(database)/documents/accounts/$(uid);
-      return !exists(p) || get(p).data.get('disabled', false) != true;
+      return exists(p)
+        ? acctStatus(get(p).data) == 'active'
+        : exists(/databases/$(database)/documents/profiles/$(uid));
     }
     // The signed-in user writing is not disabled. Added to every write of a user's own data.
     function active() { return signedIn() && isActive(request.auth.uid); }
@@ -28,14 +37,24 @@ service cloud.firestore {
       allow delete: if isAdmin() && uid != request.auth.uid;
     }
 
-    // Disabled accounts. The owner can read their own status; only admins can change it,
-    // and an admin can't disable themselves.
+    // Account status. The owner can read their own; admins can read all.
     match /accounts/{uid} {
       allow read: if isMe(uid) || isAdmin();
-      allow write: if isAdmin() && uid != request.auth.uid
-        && request.resource.data.keys().hasOnly(['disabled', 'by', 'at'])
-        && request.resource.data.disabled is bool
-        && request.resource.data.by == request.auth.uid;
+      // A new user asks to join: only the pending state, with what an admin needs to recognise them.
+      allow create: if isMe(uid)
+        && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.photo is string && request.resource.data.photo.size() <= 1000
+        && request.resource.data.requested == request.time;
+      // Admins approve, decline (disable) or enable accounts, never their own.
+      allow create, update: if isAdmin() && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested'])
+        && request.resource.data.status in ['active', 'disabled']
+        && request.resource.data.disabled == (request.resource.data.status == 'disabled')
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time;
     }
 
     // Record of admin actions. Admins can add entries and read them; nobody can change or delete them.
