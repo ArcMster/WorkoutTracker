@@ -1250,11 +1250,17 @@ function cardEnd(ctx,H){
   ctx.textAlign="right";ctx.fillText(new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}),CW-PAD,H-70);ctx.textAlign="left";
 }
 function kicker(ctx,t,y){ctx.fillStyle=CARD.muted;ctx.font=cf(600,28);ctx.fillText(t.toUpperCase().split("").join(String.fromCharCode(8202)),PAD,y)}
+/* the largest font, from px down to min, at which text fits in max; cut with an ellipsis only below min */
+function fitFont(ctx,t,max,px,min,w,disp){
+  for(;px>min;px-=2){ctx.font=cf(w,px,disp);if(ctx.measureText(t).width<=max)return t}
+  ctx.font=cf(w,min,disp);return fitText(ctx,t,max);
+}
 function stat3(ctx,y,items){
   const w=(CW-PAD*2-48)/3;
   items.forEach(([v,l],i)=>{
     const x=PAD+i*(w+24);box(ctx,x,y,w,190);
-    ctx.fillStyle=CARD.ink;ctx.font=cf(800,104,true);ctx.fillText(fitText(ctx,v,w-56),x+28,y+112);
+    const t=fitFont(ctx,v,w-56,104,48,800,true);
+    ctx.fillStyle=CARD.ink;ctx.fillText(t,x+28,y+112);
     ctx.fillStyle=CARD.muted;ctx.font=cf(500,30);ctx.fillText(fitText(ctx,l,w-56),x+28,y+160);
   });
 }
@@ -1295,6 +1301,40 @@ function fmtCardSet(x,from,ex){
   const r=x.r+(ex&&ex.u==="sec"?"s":ex&&ex.u==="min"?"m":"");
   return w!=null&&w>0?w+"×"+r:r;
 }
+/* a soft glow in the workout's colour behind the header */
+function glow(ctx,col){
+  const g=ctx.createRadialGradient(CW-140,190,0,CW-140,190,520);
+  g.addColorStop(0,col);g.addColorStop(1,"transparent");
+  ctx.save();ctx.globalAlpha=.2;ctx.fillStyle=g;ctx.fillRect(0,10,CW,760);ctx.restore();
+}
+/* exercise rows: a number, the name, then every set as a pill that wraps; the best set is filled in the day colour.
+   Laid out twice like the plan card: once to measure, once to draw. */
+const PILL_H=62,PILL_GAP=14,PILL_PAD=24;
+function workoutRows(ctx,rows,s,d,col,top,draw){
+  const X0=PAD+84,W=CW-PAD-X0;let y=top;
+  rows.forEach((x,i)=>{
+    const ex=d.ex.find(e=>e.n===x.n);
+    if(i&&draw){ctx.fillStyle=CARD.line;ctx.fillRect(PAD,y-26,CW-PAD*2,2)}
+    if(draw){
+      ctx.fillStyle=CARD.muted;ctx.font=cf(800,44,true);ctx.fillText(String(i+1).padStart(2,"0"),PAD,y+42);
+      ctx.fillStyle=CARD.ink;ctx.font=cf(700,46,true);ctx.fillText(fitText(ctx,x.n,W),X0,y+42);
+    }
+    let best=-1,bw=-1,br=-1;
+    x.f.forEach((z,k)=>{const w=conv(z.w,s.unit||"kg",S.settings.unit)||0;if(w>0&&(w>bw||(w===bw&&z.r>br))){best=k;bw=w;br=z.r}});
+    let px=X0,py=y+70;ctx.font=cf(600,32);
+    x.f.forEach((z,k)=>{
+      const t=fmtCardSet(z,s.unit||"kg",ex),tw=ctx.measureText(t).width+PILL_PAD*2;
+      if(px>X0&&px+tw>CW-PAD){px=X0;py+=PILL_H+PILL_GAP}
+      if(draw){
+        ctx.fillStyle=k===best?col:CARD.surface;rrect(ctx,px,py,tw,PILL_H,PILL_H/2);ctx.fill();
+        ctx.fillStyle=k===best?CARD.bg:CARD.ink;ctx.font=cf(600,32);ctx.fillText(t,px+PILL_PAD,py+42);
+      }
+      px+=tw+PILL_GAP;
+    });
+    y=py+PILL_H+56;
+  });
+  return y;
+}
 async function workoutCard(){
   const s=cur();const d=day();const m=sessionMeta(s);const u=S.settings.unit;
   const rows=Object.entries(s.entries||{}).map(([n,a])=>({n,f:filled(a)})).filter(x=>x.f.length);
@@ -1302,26 +1342,23 @@ async function workoutCard(){
   rows.sort((a,b)=>{const i=order.indexOf(a.n),j=order.indexOf(b.n);return (i<0?99:i)-(j<0?99:j)});
   let sets=0,vol=0,reps=0;
   rows.forEach(x=>x.f.forEach(z=>{sets++;reps+=z.r||0;vol+=(conv(z.w,s.unit||"kg",u)||0)*(z.r||0)}));
-  const ROW=100,TOP=700,MAXROWS=11;
+  const TOP=740,MAXROWS=10;
   const shown=rows.length>MAXROWS?rows.slice(0,MAXROWS-1):rows;
   const more=rows.length-shown.length;
-  const H=Math.max(1350,TOP+(shown.length+(more?1:0))*ROW+170);
   await cardFonts();
-  const {c,ctx}=cardStart(H);
   const col=typeColors(m.t)[0];
-  kicker(ctx,parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"}),230);
-  ctx.fillStyle=col;ctx.font=cf(800,120,true);ctx.fillText(fitText(ctx,m.title,CW-PAD*2),PAD,350);
+  const end=workoutRows(document.createElement("canvas").getContext("2d"),shown,s,d,col,TOP,false);
+  const H=Math.max(1350,end+(more?70:0)+130);
+  const {c,ctx}=cardStart(H);
+  glow(ctx,col);
+  kicker(ctx,parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"}),240);
+  ctx.fillStyle=col;ctx.font=cf(800,132,true);ctx.fillText(fitText(ctx,m.title,CW-PAD*2),PAD,366);
   const pl=getPlan(s.planId||"ppl");
-  ctx.fillStyle=CARD.muted;ctx.font=cf(500,32);ctx.fillText(fitText(ctx,[myName(),pl&&pl.name].filter(Boolean).join("  ·  "),CW-PAD*2),PAD,405);
-  stat3(ctx,450,[[String(rows.length),rows.length===1?"exercise":"exercises"],[String(sets),sets===1?"set":"sets"],
+  ctx.fillStyle=CARD.muted;ctx.font=cf(500,32);ctx.fillText(fitText(ctx,[myName(),pl&&pl.name].filter(Boolean).join("  ·  "),CW-PAD*2),PAD,422);
+  stat3(ctx,476,[[String(rows.length),rows.length===1?"exercise":"exercises"],[String(sets),sets===1?"set":"sets"],
     vol>0?[fmtNum(vol),"volume ("+u+")"]:[String(reps),"total reps"]]);
-  shown.forEach((x,i)=>{
-    const y=TOP+i*ROW,ex=d.ex.find(e=>e.n===x.n);
-    if(i){ctx.fillStyle=CARD.line;ctx.fillRect(PAD,y,CW-PAD*2,2)}
-    ctx.fillStyle=CARD.ink;ctx.font=cf(700,44,true);ctx.fillText(fitText(ctx,x.n,CW-PAD*2),PAD,y+50);
-    ctx.fillStyle=CARD.muted;ctx.font=cf(500,30);ctx.fillText(fitText(ctx,x.f.map(z=>fmtCardSet(z,s.unit||"kg",ex)).join("   "),CW-PAD*2),PAD,y+88);
-  });
-  if(more){ctx.fillStyle=CARD.muted;ctx.font=cf(600,30);ctx.fillText("+"+more+" more exercise"+(more===1?"":"s"),PAD,TOP+shown.length*ROW+60)}
+  workoutRows(ctx,shown,s,d,col,TOP,true);
+  if(more){ctx.fillStyle=CARD.muted;ctx.font=cf(600,30);ctx.fillText("+"+more+" more exercise"+(more===1?"":"s"),PAD+84,end+10)}
   cardEnd(ctx,H);
   return toBlob(c);
 }
