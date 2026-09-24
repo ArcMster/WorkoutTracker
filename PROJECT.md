@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning and admin (cache `infinity-v23`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v24`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v23` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v24` |
 
 ## Files
 
@@ -31,6 +31,12 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
 ## Features
+
+### Exercise tutorials
+- Admins attach a YouTube video to any exercise in **Admin > Exercise tutorials**: every exercise in the ready-made plans, the admin's own plans and log, anything that already has a video, plus an "Another exercise" row for custom names. Watch links, youtu.be links, Shorts, embed links and bare ids are accepted; only the 11-character id is stored, and it's validated before saving.
+- On the Workout screen (and a trainer's view of a trainee's workout) an exercise with a video shows a **Watch** button in its header. Tapping opens an inline 16:9 `youtube-nocookie.com` player; tapping again closes it. One video at a time, never autoplayed, and no player is created until asked.
+- Videos are keyed by `slug(exercise name)`, the same helper used for file names, so "Pull-ups / Lat Pulldown" always maps to `pull-ups-lat-pulldown` and a video follows the exercise across plans, like history does.
+- Loaded once per sign-in into the `VIDS` map. Guests (no Firebase) see no Watch buttons.
 
 ### Admin
 - **Progress > Account > Admin**, visible only when `admins/{myUid}` exists.
@@ -108,6 +114,7 @@ coaching/{uid}                      { trainers: [uid, ...] }, max 10
 admins/{uid}                        { by, at }: presence means admin
 accounts/{uid}                      { disabled, by, at }: set by admins
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
+exercises/{slug}                    { name, youtube, updatedBy, updatedAt }: tutorial video id per exercise
 shared/{uid}                        progress summary for buddies, or { sharing: false }:
                                     { sharing, name, photo, ig, planName, weekStart, weekDays, weekTypes, volumeWeek,
                                       monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated }
@@ -129,6 +136,7 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
 | `accounts/{uid}` | Owner and admins | Admins, never for themselves |
 | `audit/{id}` | Admins | Admins create; no changes or deletes |
+| `exercises/{slug}` | Any signed-in user | Admins, with a valid 11-character video id |
 
 Every write of a user's own data (log, profile, directory, email, requests, coaching, shared) also needs `active()`: the writer's `accounts` document is absent or not disabled. `isAdmin()` checks that `admins/{auth.uid}` exists.
 

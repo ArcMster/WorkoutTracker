@@ -183,6 +183,20 @@ tr.isdone input{opacity:.7}
 .gl:last-child{margin-bottom:0}
 .gl .seg{align-self:flex-start}
 .tag.warn{background:var(--push)}
+.ex-head h2{min-width:0}
+.ex-r{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.watch{border:0;background:var(--field);color:var(--ink);border-radius:999px;padding:5px 12px 5px 10px;font:600 13px var(--body);display:inline-flex;align-items:center;gap:6px}
+.watch::before{content:"";width:0;height:0;border-style:solid;border-width:5px 0 5px 8px;border-color:transparent transparent transparent currentColor}
+.watch[aria-expanded="true"]::before{width:8px;height:10px;border:0;border-left:3px solid;border-right:3px solid;box-sizing:border-box}
+.vid.on{position:relative;aspect-ratio:16/9;margin:10px 0 4px;border-radius:12px;overflow:hidden;background:var(--field)}
+.vid.on iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.dex-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.dex-h h3{min-width:0}
+.vids{list-style:none;margin:10px 0 0;padding:0}
+.vids li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:12px 0;border-top:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.vids li b{grid-column:1/-1;font-weight:600}
+.vids li small{grid-column:1/-1;color:var(--muted);font-size:13px}
+.vids .field{width:100%}
 .tag.plain{background:var(--field);color:var(--ink)}
 .people .adm-acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;padding:0 0 0 48px}
 .calm{max-width:440px;margin:12vh auto 0;text-align:center}
@@ -567,7 +581,7 @@ const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:nu
 /* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
 const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:""};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:""};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -787,7 +801,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
   BOARD.tr={};
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:""});
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:""});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -1087,7 +1101,7 @@ function renderTDay(){
   const m=metaIn(s,tPlan);const u=S.settings.unit;const rows=exList(s,m);const vol=sessVolume(s);
   const skipped=m.d?m.d.ex.filter(x=>!rows.some(r=>r.n===x.n)):[];
   const older=list[i+1],newer=list[i-1];
-  const exHtml=rows.map(x=>`<div class="dex"><h3>${esc(x.n)}</h3>
+  const exHtml=rows.map(x=>`<div class="dex"><div class="dex-h"><h3>${esc(x.n)}</h3>${watchBtn(x.n)}</div><div class="vid"></div>
     <small>${x.ex?"Planned "+esc(target(x.ex,setsFor(x.ex,s.deload))):"Not in the plan"}</small>
     <table class="dtable"><thead><tr><th>Set</th><th>Weight (${u})</th><th>${x.ex?repLabel(x.ex):"Reps"}</th><th>Done</th></tr></thead><tbody>
     ${x.f.map((z,k)=>`<tr><td>${k+1}</td><td>${wOf(z,s)??"-"}</td><td>${z.r}</td><td class="ok">${z.done?"&#10003;":""}</td></tr>`).join("")}
@@ -1118,6 +1132,51 @@ function inRange(list){
   if(!d)return list;const from=addDays(today(),-d+1);return list.filter(s=>s.date>=from);
 }
 function slug(t){return String(t||"workouts").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"workouts"}
+
+/* ---------- exercise tutorials ----------
+   exercises/{slug(name)} holds a YouTube video id, set by admins. Loaded once per session;
+   the player is only created when someone taps Watch, and never autoplays. */
+const VIDS={};let vidsLoaded=false;
+const YT_ID=/^[A-Za-z0-9_-]{11}$/;
+/* a full watch URL, youtu.be link, shorts/embed link or bare id -> the 11-character id; "" for blank, null if unreadable */
+function ytId(v){
+  v=String(v||"").trim();if(!v)return "";
+  if(YT_ID.test(v))return v;
+  const ok=x=>YT_ID.test(x||"")?x:null;
+  try{
+    const u=new URL(/^https?:\/\//i.test(v)?v:"https://"+v);const h=u.hostname.replace(/^(www|m|music)\./,"");
+    if(h==="youtu.be")return ok(u.pathname.split("/")[1]);
+    if(h==="youtube.com"||h==="youtube-nocookie.com"){
+      if(u.searchParams.get("v"))return ok(u.searchParams.get("v"));
+      const m=u.pathname.match(/^\/(embed|shorts|live|v)\/([^/]+)/);if(m)return ok(m[2]);
+    }
+  }catch(e){}
+  return null;
+}
+function vidFor(name){const v=VIDS[slug(name)];return v?v.id:""}
+async function loadVids(force){
+  if(S.mode!=="db"||(vidsLoaded&&!force))return;
+  vidsLoaded=true;
+  try{
+    const snap=await getDocs(collection(fs,"exercises"));
+    Object.keys(VIDS).forEach(k=>delete VIDS[k]);
+    snap.forEach(d=>{const v=d.data();if(v&&YT_ID.test(v.youtube||""))VIDS[d.id]={id:v.youtube,name:v.name||d.id}});
+    if(["log","tday","admin"].includes(S.view))render();
+  }catch(e){vidsLoaded=false;console.warn("tutorials",e)}
+}
+function watchBtn(name){const id=vidFor(name);return id?`<button class="watch" data-watch="${id}" data-wname="${esc(name)}" aria-expanded="false">Watch</button>`:""}
+/* one video open at a time; the iframe only exists while it's open */
+function toggleVid(btn){
+  const box=btn.closest("section,.dex").querySelector(".vid");
+  const wasOpen=btn.getAttribute("aria-expanded")==="true";
+  document.querySelectorAll(".vid").forEach(v=>{v.innerHTML="";v.classList.remove("on")});
+  document.querySelectorAll("[data-watch]").forEach(b=>{b.setAttribute("aria-expanded","false");b.textContent="Watch"});
+  if(wasOpen||!box||!YT_ID.test(btn.dataset.watch))return;
+  box.classList.add("on");
+  box.innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${btn.dataset.watch}?rel=0&playsinline=1" title="${esc(btn.dataset.wname)} tutorial" loading="lazy"
+    allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  btn.setAttribute("aria-expanded","true");btn.textContent="Hide video";
+}
 function downloadText(name,text,type){
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
@@ -1543,7 +1602,8 @@ function renderLog(){
         </tr>`;
       }).join("");
       return `<section class="ex">
-        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="target">${esc(target(ex,n))}</span></div>
+        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="ex-r"><span class="target">${esc(target(ex,n))}</span>${watchBtn(ex.n)}</span></div>
+        <div class="vid"></div>
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
         ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
         <table class="sets"><thead><tr><th></th><th>Weight (${u})</th><th>${repLabel(ex)}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
@@ -2475,7 +2535,7 @@ function renderDisabled(){
    They get no access to anyone's workout log. Disabling is enforced by the rules, not Firebase Auth. */
 function admStart(){
   if(ADM.started||!ADM.is||S.mode!=="db")return;
-  ADM.started=true;admCounts();admLoad();admLog();
+  ADM.started=true;admCounts();admLoad();admLog();loadVids(true);
 }
 async function admCounts(){
   try{
@@ -2505,7 +2565,48 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from"};
+const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from"};
+/* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
+function vidNames(){
+  const m=new Map();
+  [...BUILTIN.flatMap(p=>p.days.flatMap(d=>d.ex.map(x=>x.n))),...knownNames(),...Object.values(VIDS).map(v=>v.name)]
+    .forEach(n=>{n=String(n||"").trim();if(n&&!m.has(slug(n)))m.set(slug(n),n)});
+  return [...m.values()].sort((a,b)=>a.localeCompare(b));
+}
+/* save or clear one exercise's video; key is the exercise name, or "" for the "another exercise" row */
+async function admVideo(key){
+  const name=(key||$("#vNew")?.value||"").trim().slice(0,80);
+  const k=slug(name);
+  const inp=document.querySelector(`[data-vurl="${CSS.escape(key)}"]`);
+  const id=ytId(inp?inp.value:"");
+  if(!name){say("Type the exercise name exactly as it appears in the plan.");return}
+  /* show a problem next to the field without redrawing, so what was typed stays */
+  const note=t=>{ADM.vmsg[k]=t;const li=inp&&inp.closest("li");let sm=li&&li.querySelector("small");
+    if(li&&!sm){sm=document.createElement("small");li.appendChild(sm)}if(sm)sm.textContent=t;else render()};
+  if(id===null){note("That doesn't look like a YouTube link or video id.");return}
+  if(id===""&&!VIDS[k]){note("Paste a YouTube link first.");return}
+  try{
+    if(id)await setDoc(doc(fs,"exercises",k),{name,youtube:id,updatedBy:uid,updatedAt:serverTimestamp()});
+    else await deleteDoc(doc(fs,"exercises",k));
+  }catch(e){note(fbError(e,"save the video"));return}
+  if(id)VIDS[k]={id,name};else delete VIDS[k];
+  ADM.vmsg[k]=id?"Saved. Video id "+id+".":"Video removed.";
+  if(!key)ADM.newName="";
+  const entry={action:id?"video":"unvideo",target:k,name,by:uid,at:serverTimestamp()};
+  ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
+  setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
+  render();
+}
+function vidRows(){
+  const q=ADM.vq.trim().toLowerCase();
+  const names=vidNames().filter(n=>!q||n.toLowerCase().includes(q));
+  if(!names.length)return `<li class="muted" style="display:block">No exercise matches that.</li>`;
+  return names.map(n=>{const k=slug(n),v=VIDS[k],m=ADM.vmsg[k];
+    return `<li><b>${esc(n)}</b>
+      <input class="field" data-vurl="${esc(n)}" inputmode="url" autocomplete="off" placeholder="YouTube link" value="${v?"https://youtu.be/"+v.id:""}" aria-label="YouTube link for ${esc(n)}">
+      <button class="btn small" data-vsave="${esc(n)}">Save</button>
+      <small>${m?esc(m):v?"Video id "+v.id:"No video yet"}</small></li>`}).join("");
+}
 async function admAct(kind,u){
   if(u===uid)return;
   const p=ADM.list.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
@@ -2557,6 +2658,16 @@ function renderAdmin(){
     ${ADM.done?"":`<div class="row" style="margin-top:12px"><button class="btn" id="admMore" ${ADM.loading?"disabled":""}>${ADM.loading?"Loading...":"Load more"}</button></div>`}
     <p class="small muted" style="margin:12px 0 0">Search checks the users loaded so far. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
   </div>
+  <div class="panel"><h2>Exercise tutorials</h2>
+    <p class="small muted" style="margin:0 0 10px">Paste a YouTube link (a watch link, youtu.be link or video id). Everyone sees a Watch button on that exercise while they log it. Clear the link and save to remove it.</p>
+    <input class="field" id="vQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(ADM.vq)}" style="width:100%">
+    <ul class="vids" id="vList">${vidRows()}</ul>
+    <h2 style="margin-top:14px">Another exercise</h2>
+    <p class="small muted" style="margin:0 0 10px">For an exercise that isn't listed, type its name exactly as it appears in the plan.</p>
+    <ul class="vids"><li><input class="field" id="vNew" autocomplete="off" placeholder="Exercise name" value="${esc(ADM.newName)}" style="grid-column:1/-1" aria-label="Exercise name">
+      <input class="field" data-vurl="" inputmode="url" autocomplete="off" placeholder="YouTube link" aria-label="YouTube link"><button class="btn small" data-vsave="">Save</button>
+      ${ADM.newName&&ADM.vmsg[slug(ADM.newName)]?`<small>${esc(ADM.vmsg[slug(ADM.newName)])}</small>`:""}</li></ul>
+  </div>
   ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}</span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
 }
 
@@ -2587,6 +2698,8 @@ document.addEventListener("click",async e=>{
   if(ds.ggoal){GEN.goal=ds.ggoal;render();return}
   if(ds.gdays){GEN.days=+ds.gdays;render();return}
   if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
+  if(ds.watch){toggleVid(t);return}
+  if(ds.vsave!=null){admVideo(ds.vsave);return}
   if(ds.adm){admAct(ds.adm,ds.u);return}
   if(t.id==="admMore"){admLoad();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
@@ -2672,6 +2785,8 @@ document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
   if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
+  if(el.id==="vQ"){ADM.vq=el.value;const l=$("#vList");if(l)l.innerHTML=vidRows();return}
+  if(el.id==="vNew"){ADM.newName=el.value;return}
   if(el.id==="admQ"){ADM.q=el.value;const l=$("#admList");if(l)l.innerHTML=admRows();return}
   if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
   /* plan editor fields: update the draft without re-rendering */
@@ -2783,7 +2898,7 @@ if(CONFIGURED){
       const prof=loadMyProfile();
       if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();prof.then(()=>{publishNow();syncDirectory()});
+      startSocial();loadVids();prof.then(()=>{publishNow();syncDirectory()});
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}

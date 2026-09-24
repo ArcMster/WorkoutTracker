@@ -82,6 +82,8 @@ Admins can't read anyone's workout log. Only trainers someone chose can do that.
 
 **What "disabled" means.** A browser app can't disable a Firebase Authentication account (that needs the Admin SDK on a server). So disabling is an app-level flag, `accounts/{uid}.disabled`, enforced by the security rules. The person can still sign in with Google, but the app shows only a "This account has been disabled" screen, loads nothing, and the rules refuse every write of their data. It doesn't delete anything, and **Enable** restores the account as it was. The rules don't block reads, so a disabled person with their own tools could still read what they could read before.
 
+**Exercise tutorials.** The admin screen also lists every exercise with a field for a YouTube link. Paste a watch link, youtu.be link or video id and tap Save; everyone then sees a **Watch** button on that exercise while logging, which plays the video inline. Clear the field and save to remove it. For an exercise that isn't listed (from someone's custom plan), use **Another exercise** and type its name exactly as it appears in the plan.
+
 **Making the first admin** (the app can't do this for itself):
 
 1. Publish the latest `firestore.rules` first (Firestore > Rules > paste > Publish).
@@ -122,6 +124,7 @@ emails/{email}                     uid, for add-by-email
 admins/{uid}                       { by, at }: presence means admin
 accounts/{uid}                     { disabled, by, at }: disabled true blocks the account
 audit/{id}                         { action, target, name, by, at }: admin actions
+exercises/{slug}                   { name, youtube, updatedBy, updatedAt }: tutorial video per exercise
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
 shared/{uid}                       progress summary buddies can see
 ```
