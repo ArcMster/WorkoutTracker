@@ -190,6 +190,7 @@ tr.isdone input{opacity:.7}
 .watch[aria-expanded="true"]::before{width:8px;height:10px;border:0;border-left:3px solid;border-right:3px solid;box-sizing:border-box}
 .vid.on{position:relative;aspect-ratio:16/9;margin:10px 0 4px;border-radius:12px;overflow:hidden;background:var(--field)}
 .vid.on iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.watches{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 2px}
 .dex-h{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .dex-h h3{min-width:0}
 .vids{list-style:none;margin:10px 0 0;padding:0}
@@ -1101,7 +1102,7 @@ function renderTDay(){
   const m=metaIn(s,tPlan);const u=S.settings.unit;const rows=exList(s,m);const vol=sessVolume(s);
   const skipped=m.d?m.d.ex.filter(x=>!rows.some(r=>r.n===x.n)):[];
   const older=list[i+1],newer=list[i-1];
-  const exHtml=rows.map(x=>`<div class="dex"><div class="dex-h"><h3>${esc(x.n)}</h3>${watchBtn(x.n)}</div><div class="vid"></div>
+  const exHtml=rows.map(x=>`<div class="dex"><div class="dex-h"><h3>${esc(x.n)}</h3>${watchHead(x.n)}</div>${watchRow(x.n)}<div class="vid"></div>
     <small>${x.ex?"Planned "+esc(target(x.ex,setsFor(x.ex,s.deload))):"Not in the plan"}</small>
     <table class="dtable"><thead><tr><th>Set</th><th>Weight (${u})</th><th>${x.ex?repLabel(x.ex):"Reps"}</th><th>Done</th></tr></thead><tbody>
     ${x.f.map((z,k)=>`<tr><td>${k+1}</td><td>${wOf(z,s)??"-"}</td><td>${z.r}</td><td class="ok">${z.done?"&#10003;":""}</td></tr>`).join("")}
@@ -1164,13 +1165,41 @@ async function loadVids(force){
     if(["log","tday","admin"].includes(S.view))render();
   }catch(e){vidsLoaded=false;console.warn("tutorials",e)}
 }
-function watchBtn(name){const id=vidFor(name);return id?`<button class="watch" data-watch="${id}" data-wname="${esc(name)}" aria-expanded="false">Watch</button>`:""}
+/* A plan entry can offer options ("Barbell or Dumbbell Curl", "Pull-ups / Lat Pulldown"). Each option is its own
+   exercise for tutorials, while the plan entry (and so the logged history) keeps the combined name.
+   A leading equipment or angle word borrows the shared ending: "Barbell or Dumbbell Curl" -> Barbell Curl, Dumbbell Curl. */
+const VID_MODS=new Set(["barbell","dumbbell","dumbbells","cable","machine","smith","kettlebell","ez-bar","flat","incline","decline","seated","standing","single-arm","close-grip","wide-grip"]);
+const VID_SPLIT={"triceps dips or pushdowns":["Triceps Dips","Triceps Pushdowns"]};
+function vidParts(name){
+  const n=String(name||"").trim();
+  const o=VID_SPLIT[n.toLowerCase()];if(o)return o;
+  const parts=n.split(/\s+or\s+|\s*\/\s*/i).map(x=>x.trim()).filter(Boolean);
+  if(parts.length<2)return [n];
+  const last=parts[parts.length-1].split(/\s+/),tail=last.length>1?last.slice(1).join(" "):"";
+  const share=tail&&VID_MODS.has(last[0].toLowerCase());
+  return parts.map((q,i)=>i<parts.length-1&&share&&!/\s/.test(q)&&VID_MODS.has(q.toLowerCase())?q+" "+tail:q);
+}
+/* videos for a plan entry: one per option that has one, plus any saved under the combined name */
+function vidOpts(name){
+  const parts=vidParts(name);
+  const out=parts.map(n=>({n,id:vidFor(n)})).filter(x=>x.id);
+  if(parts.length>1&&vidFor(name))out.push({n:name,id:vidFor(name)});
+  return {multi:parts.length>1,list:out};
+}
+function watchBtns(name){
+  const {multi,list}=vidOpts(name);
+  return list.map(x=>{const label=multi?x.n:"Watch";
+    return `<button class="watch" data-watch="${x.id}" data-wname="${esc(x.n)}" data-label="${esc(label)}" aria-expanded="false">${esc(label)}</button>`}).join("");
+}
+/* the Watch control for an exercise header: one plain button, or a row of labelled buttons for options */
+function watchHead(name){return vidOpts(name).multi?"":watchBtns(name)}
+function watchRow(name){const o=vidOpts(name);return o.multi&&o.list.length?`<div class="watches">${watchBtns(name)}</div>`:""}
 /* one video open at a time; the iframe only exists while it's open */
 function toggleVid(btn){
   const box=btn.closest("section,.dex").querySelector(".vid");
   const wasOpen=btn.getAttribute("aria-expanded")==="true";
   document.querySelectorAll(".vid").forEach(v=>{v.innerHTML="";v.classList.remove("on")});
-  document.querySelectorAll("[data-watch]").forEach(b=>{b.setAttribute("aria-expanded","false");b.textContent="Watch"});
+  document.querySelectorAll("[data-watch]").forEach(b=>{b.setAttribute("aria-expanded","false");b.textContent=b.dataset.label||"Watch"});
   if(wasOpen||!box||!YT_ID.test(btn.dataset.watch))return;
   box.classList.add("on");
   box.innerHTML=`<iframe src="https://www.youtube-nocookie.com/embed/${btn.dataset.watch}?rel=0&playsinline=1" title="${esc(btn.dataset.wname)} tutorial" loading="lazy"
@@ -1490,14 +1519,14 @@ function render(){
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
   const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,admin:renderAdmin};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView","gen"].includes(S.view))||(v==="history"&&S.view==="admin");
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView","gen"].includes(S.view));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
   if(S.view==="disabled"){app.innerHTML=renderDisabled();return}
   app.innerHTML=`
   <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
-  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</nav>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   if(at&&at.scrollIntoView)at.scrollIntoView({block:"nearest",inline:"nearest"});
@@ -1602,7 +1631,8 @@ function renderLog(){
         </tr>`;
       }).join("");
       return `<section class="ex">
-        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="ex-r"><span class="target">${esc(target(ex,n))}</span>${watchBtn(ex.n)}</span></div>
+        <div class="ex-head"><h2>${esc(ex.n)}</h2><span class="ex-r"><span class="target">${esc(target(ex,n))}</span>${watchHead(ex.n)}</span></div>
+        ${watchRow(ex.n)}
         <div class="vid"></div>
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
         ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
@@ -2432,7 +2462,7 @@ function renderHistory(){
   <div class="panel"><h2>Account</h2>
     ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
       :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}${ME.bio?`<br><span class="bio muted" style="font-size:14px">${esc(ME.bio)}</span>`:""}</span></div>
-        <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button>${ADM.is?`<button class="btn" data-view="admin">Admin</button>`:""}<button class="btn" id="signout">Sign out</button></div>`
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button><button class="btn" id="signout">Sign out</button></div>`
       :`<button class="btn primary" id="signin">Sign in with Google</button>`}
   </div>
   <div class="panel"><h2>How to progress</h2><ul class="rules">
@@ -2569,7 +2599,7 @@ const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadm
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
-  [...BUILTIN.flatMap(p=>p.days.flatMap(d=>d.ex.map(x=>x.n))),...knownNames(),...Object.values(VIDS).map(v=>v.name)]
+  [...BUILTIN.flatMap(p=>p.days.flatMap(d=>d.ex.map(x=>x.n))),...knownNames()].flatMap(vidParts).concat(Object.values(VIDS).map(v=>v.name))
     .forEach(n=>{n=String(n||"").trim();if(n&&!m.has(slug(n)))m.set(slug(n),n)});
   return [...m.values()].sort((a,b)=>a.localeCompare(b));
 }
@@ -2642,13 +2672,12 @@ function admRows(){
   }).join("");
 }
 function renderAdmin(){
-  const back=`<p><button class="link" data-view="history">Back to progress</button></p>`;
-  if(!ADM.is||S.mode!=="db")return back+`<div class="panel"><p class="muted" style="margin:0">This page isn't available.</p></div>`;
+  if(!ADM.is||S.mode!=="db")return `<div class="panel"><p class="muted" style="margin:0">This page isn't available.</p></div>`;
   admStart();
   const c=ADM.counts;const n=v=>c?v:"-";
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const when=a=>a&&a.toDate?a.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):"Just now";
-  return back+`<header class="greet"><h1>Admin</h1><p>Users, admins and disabled accounts.</p></header>
+  return `<header class="greet"><h1>Admin</h1><p>Users, admins and disabled accounts.</p></header>
   <section class="sec"><div class="nums3"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
   ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
   <div class="panel"><h2>Users</h2>
@@ -2663,7 +2692,7 @@ function renderAdmin(){
     <input class="field" id="vQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(ADM.vq)}" style="width:100%">
     <ul class="vids" id="vList">${vidRows()}</ul>
     <h2 style="margin-top:14px">Another exercise</h2>
-    <p class="small muted" style="margin:0 0 10px">For an exercise that isn't listed, type its name exactly as it appears in the plan.</p>
+    <p class="small muted" style="margin:0 0 10px">For an exercise that isn't listed, type its name. Entries with options, like "Barbell or Dumbbell Curl", are listed as separate exercises, each with its own video.</p>
     <ul class="vids"><li><input class="field" id="vNew" autocomplete="off" placeholder="Exercise name" value="${esc(ADM.newName)}" style="grid-column:1/-1" aria-label="Exercise name">
       <input class="field" data-vurl="" inputmode="url" autocomplete="off" placeholder="YouTube link" aria-label="YouTube link"><button class="btn small" data-vsave="">Save</button>
       ${ADM.newName&&ADM.vmsg[slug(ADM.newName)]?`<small>${esc(ADM.vmsg[slug(ADM.newName)])}</small>`:""}</li></ul>
