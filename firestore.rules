@@ -5,6 +5,47 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isMe(uid) { return signedIn() && request.auth.uid == uid; }
 
+    // Admins: presence of admins/{uid} makes that user an admin.
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    // An account is active unless an admin has set accounts/{uid}.disabled to true.
+    function isActive(uid) {
+      let p = /databases/$(database)/documents/accounts/$(uid);
+      return !exists(p) || get(p).data.get('disabled', false) != true;
+    }
+    // The signed-in user writing is not disabled. Added to every write of a user's own data.
+    function active() { return signedIn() && isActive(request.auth.uid); }
+
+    // Who is an admin. Anyone signed in can read it, so the app knows its own status.
+    // Only an existing admin can add or remove admins, and nobody can remove themselves,
+    // so the last admin can't lock everyone out. The first admin is created in the console.
+    match /admins/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['by', 'at'])
+        && request.resource.data.by == request.auth.uid;
+      allow delete: if isAdmin() && uid != request.auth.uid;
+    }
+
+    // Disabled accounts. The owner can read their own status; only admins can change it,
+    // and an admin can't disable themselves.
+    match /accounts/{uid} {
+      allow read: if isMe(uid) || isAdmin();
+      allow write: if isAdmin() && uid != request.auth.uid
+        && request.resource.data.keys().hasOnly(['disabled', 'by', 'at'])
+        && request.resource.data.disabled is bool
+        && request.resource.data.by == request.auth.uid;
+    }
+
+    // Record of admin actions. Admins can add entries and read them; nobody can change or delete them.
+    match /audit/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['action', 'target', 'name', 'by', 'at'])
+        && request.resource.data.by == request.auth.uid;
+    }
+
     // A buddy link is an accepted request in either direction.
     function accepted(a, b) {
       let p = /databases/$(database)/documents/requests/$(a + '_' + b);
@@ -17,7 +58,7 @@ service cloud.firestore {
     // Who may act as my trainer. Only I can change my own list.
     match /coaching/{uid} {
       allow read: if isMe(uid) || (signedIn() && request.auth.uid in resource.data.trainers);
-      allow write: if isMe(uid)
+      allow write: if isMe(uid) && active()
         && request.resource.data.trainers is list
         && request.resource.data.trainers.size() <= 10;
     }
@@ -30,17 +71,18 @@ service cloud.firestore {
     // Workout log. The owner has full access.
     // A trainer they chose can read it and write plans, never logged sets.
     match /users/{uid}/log/{docId} {
-      allow read, write: if isMe(uid);
-      allow read: if isTrainerOf(uid);
-      allow write: if isTrainerOf(uid) && (docId.matches('plan_.*') || docId == 'coach');
+      allow read: if isMe(uid) || isTrainerOf(uid);
+      // Writes also need the writer's account to be active (not disabled by an admin).
+      allow write: if isMe(uid) && active();
+      allow write: if isTrainerOf(uid) && active() && (docId.matches('plan_.*') || docId == 'coach');
     }
 
-    // Name, nickname, photo, Instagram handle and bio. Anyone signed in can look up one profile by id,
-    // but nobody can list or browse all profiles.
+    // Name, nickname, photo, Instagram handle and bio. Anyone signed in can look up one profile by id.
+    // Only admins can list profiles, for the admin screen's user list.
     match /profiles/{uid} {
       allow get: if signedIn();
-      allow list: if false;
-      allow write: if isMe(uid)
+      allow list: if isAdmin();
+      allow write: if isMe(uid) && active()
         && request.resource.data.keys().hasOnly(['name', 'photo', 'nick', 'ig', 'bio', 'custom', 'updated'])
         && (!('bio' in request.resource.data) || (request.resource.data.bio is string && request.resource.data.bio.size() <= 160));
     }
@@ -50,21 +92,21 @@ service cloud.firestore {
     match /directory/{uid} {
       allow get: if signedIn();
       allow list: if signedIn() && request.query.limit <= 50;
-      allow create, update: if isMe(uid)
+      allow create, update: if isMe(uid) && active()
         && request.resource.data.keys().hasOnly(['name', 'nick', 'bio', 'photo', 'seen'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.nick is string && request.resource.data.nick.size() <= 40
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 80
         && request.resource.data.photo is string && request.resource.data.photo.size() <= 20000
         && request.resource.data.seen is string && request.resource.data.seen.size() == 10;
-      allow delete: if isMe(uid);
+      allow delete: if isMe(uid) && active();
     }
 
     // Email lookup for "add by email". Exact match only, no listing.
     match /emails/{email} {
       allow get: if signedIn();
       allow list: if false;
-      allow create, update: if signedIn()
+      allow create, update: if active()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly(['uid'])
         && request.auth.token.email.lower() == email;
@@ -75,19 +117,19 @@ service cloud.firestore {
     match /requests/{id} {
       allow read: if signedIn()
         && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
-      allow create: if signedIn()
+      allow create: if active()
         && request.resource.data.from == request.auth.uid
         && request.resource.data.to != request.auth.uid
         && id == request.auth.uid + '_' + request.resource.data.to
         && request.resource.data.status == 'pending'
         && request.resource.data.keys().hasOnly(['from', 'to', 'status', 'created']);
       // Only the receiver can accept, and only the status can change.
-      allow update: if signedIn()
+      allow update: if active()
         && resource.data.to == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && request.resource.data.status == 'accepted';
       // Either side can cancel, decline or unfriend.
-      allow delete: if signedIn()
+      allow delete: if active()
         && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
     }
 
@@ -95,7 +137,7 @@ service cloud.firestore {
     // turning sharing off overwrites it with { sharing: false }.
     match /shared/{uid} {
       allow read: if isMe(uid) || isBuddy(uid);
-      allow write: if isMe(uid);
+      allow write: if isMe(uid) && active();
     }
   }
 }

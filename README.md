@@ -74,6 +74,24 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - It gives training suggestions only: no calorie targets, diets or nutrition advice. It's a general plan, not medical advice.
 - Inside an installed iPhone app, **Save as image** is offered as well, in case printing to PDF doesn't work there.
 
+## Admin
+
+Admins see an **Admin** button in **Progress > Account**. It's hidden completely for everyone else. The admin screen shows counts (users, admins, disabled) and a list of users, 50 at a time, with name search over the loaded pages. For each user an admin can **Disable** / **Enable** the account and **Make admin** / **Remove admin**, each after a confirmation. Every action records who did it and when, in the changed document and in `audit/{id}`.
+
+Admins can't read anyone's workout log. Only trainers someone chose can do that.
+
+**What "disabled" means.** A browser app can't disable a Firebase Authentication account (that needs the Admin SDK on a server). So disabling is an app-level flag, `accounts/{uid}.disabled`, enforced by the security rules. The person can still sign in with Google, but the app shows only a "This account has been disabled" screen, loads nothing, and the rules refuse every write of their data. It doesn't delete anything, and **Enable** restores the account as it was. The rules don't block reads, so a disabled person with their own tools could still read what they could read before.
+
+**Making the first admin** (the app can't do this for itself):
+
+1. Publish the latest `firestore.rules` first (Firestore > Rules > paste > Publish).
+2. Firebase console > **Authentication** > **Users**. Find the account (for this app, psnathsrt@gmail.com) and copy its **User UID**.
+3. **Firestore Database** > **Data** > **Start collection** (or open `admins` if it exists). Collection ID: `admins`.
+4. Document ID: paste the UID. Add two fields: `by` (string, for example `console`) and `at` (timestamp, now). Save.
+5. Reopen the app and go to **Progress > Account > Admin**.
+
+After that, admins make other admins from the app. Nobody can remove their own admin rights or disable themselves, so there's always at least one admin.
+
 ## Importing a plan
 
 **Plans > Import from PDF or Excel** reads `.pdf`, `.xlsx`, `.xls` and `.csv` files, then opens the result in the plan editor for you to check before saving.
@@ -101,6 +119,9 @@ users/{uid}/log/{date}_d{day}...   one workout session
 profiles/{uid}                     name, nickname, photo, Instagram, bio
 directory/{uid}                    public card for Find New Buddies
 emails/{email}                     uid, for add-by-email
+admins/{uid}                       { by, at }: presence means admin
+accounts/{uid}                     { disabled, by, at }: disabled true blocks the account
+audit/{id}                         { action, target, name, by, at }: admin actions
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
 shared/{uid}                       progress summary buddies can see
 ```

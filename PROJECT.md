@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard and Advanced Planning (cache `infinity-v21`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning and admin (cache `infinity-v22`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v21` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v22` |
 
 ## Files
 
@@ -31,6 +31,14 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
 ## Features
+
+### Admin
+- **Progress > Account > Admin**, visible only when `admins/{myUid}` exists.
+- Counts of users, admins and disabled accounts; user list from `profiles`, 50 per page, with name search over loaded pages; admin, disabled and "You" badges.
+- Per user, behind a confirmation: **Disable** / **Enable** and **Make admin** / **Remove admin**. Your own row has no actions. Each action stores `by` and `at` and adds an `audit` entry; the last 10 show under Recent actions.
+- Disabling is an app flag enforced by the rules, not a Firebase Auth disable. On sign-in the app reads `accounts/{myUid}` first; if disabled it shows one calm screen and loads nothing else, with no listeners and no writes.
+- Admins get no access to workout logs.
+- The first admin is created by hand in the Firebase console (steps in README).
 
 ### Workouts and plans
 - Three ready-made plans: Push / Pull / Legs (6 days), Upper / Lower (4 days), Full body (3 days).
@@ -97,6 +105,9 @@ directory/{uid}                     Find Buddies card: name, nick, bio (80), pho
 emails/{email}                      { uid }, for add by email
 requests/{fromUid}_{toUid}          { from, to, status: pending | accepted, created }
 coaching/{uid}                      { trainers: [uid, ...] }, max 10
+admins/{uid}                        { by, at }: presence means admin
+accounts/{uid}                      { disabled, by, at }: set by admins
+audit/{id}                          { action, target, name, by, at }: admin actions, create only
 shared/{uid}                        progress summary for buddies, or { sharing: false }:
                                     { sharing, name, photo, ig, planName, weekStart, weekDays, weekTypes, volumeWeek,
                                       monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated }
@@ -109,12 +120,17 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | Path | Read | Write |
 | --- | --- | --- |
 | `users/{uid}/log/*` | Owner; trainers listed in `coaching/{uid}` | Owner; trainers only for `plan_*` and `coach` |
-| `profiles/{uid}` | Any signed-in user, one document at a time (no listing) | Owner, with a fixed set of fields |
+| `profiles/{uid}` | Any signed-in user, one document at a time; only admins can list | Owner, with a fixed set of fields |
 | `directory/{uid}` | Any signed-in user; lists capped at 50 | Owner, with fixed fields and size limits |
 | `emails/{email}` | Any signed-in user, exact match only | Owner, only for the email on their Google sign-in |
 | `requests/{id}` | The two people involved | Sender creates as pending; receiver accepts; either side deletes |
 | `coaching/{uid}` | Owner and listed trainers | Owner |
 | `shared/{uid}` | Owner and accepted buddies | Owner |
+| `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
+| `accounts/{uid}` | Owner and admins | Admins, never for themselves |
+| `audit/{id}` | Admins | Admins create; no changes or deletes |
+
+Every write of a user's own data (log, profile, directory, email, requests, coaching, shared) also needs `active()`: the writer's `accounts` document is absent or not disabled. `isAdmin()` checks that `admins/{auth.uid}` exists.
 
 ## Code structure (`index.html`)
 
@@ -127,6 +143,7 @@ The whole script is one ES module inside `<script type="module">`.
   - `TR`: the trainee a trainer has open
   - `FIND`: the Find Buddies list and paging
   - `GEN`: Advanced Planning answers and the generated plan (not saved until the user saves it)
+  - `ADM`: admin status, user list and paging, admin and disabled sets, counts, recent actions
   - `BOARD`: leaderboard metric and period, where it was opened from, and trainee counts loaded from their logs
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
   - main tabs: `dash` (Home), `log` (Workout), `plans`, `buddies`, `history` (Progress)
@@ -134,6 +151,7 @@ The whole script is one ES module inside `<script type="module">`.
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
   - trainer screens: `trainee`, `tday` (a trainee's single workout)
+  - `admin` (admins only) and `disabled` (the only screen a disabled account sees)
 - **Events:** single document-level `click`, `input`, `change` and `keydown` handlers dispatch on element ids and `data-*` attributes.
 - **Sync:** `writeDoc` / `scheduleSave` write to Firestore with offline persistence. Guest mode stores everything in `localStorage` (`ppl-log-v1`).
 - **Live data:** `onSnapshot` listeners for requests, coaching and each buddy's `shared` document.

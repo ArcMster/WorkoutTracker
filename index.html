@@ -182,6 +182,12 @@ tr.isdone input{opacity:.7}
 .gl{display:flex;flex-direction:column;gap:8px;font-weight:600;font-size:14px;margin-bottom:14px}
 .gl:last-child{margin-bottom:0}
 .gl .seg{align-self:flex-start}
+.tag.warn{background:var(--push)}
+.tag.plain{background:var(--field);color:var(--ink)}
+.people .adm-acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;padding:0 0 0 48px}
+.calm{max-width:440px;margin:12vh auto 0;text-align:center}
+.calm h1{margin:0 0 12px;font:800 32px/1.1 var(--display)}
+.calm p{margin:0 0 16px;color:var(--muted)}
 .gen-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .gen-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .gen-opts button{border:0;background:var(--field);border-radius:10px;padding:12px 10px;font-weight:600;color:var(--muted)}
@@ -453,7 +459,7 @@ const CONFIGURED=!!(firebaseConfig&&firebaseConfig.apiKey&&!String(firebaseConfi
 const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
 const FB=CONFIGURED?Object.assign({},...await Promise.all(["firebase-app.js","firebase-auth.js","firebase-firestore.js"].map(f=>import(SDK+f)))):{};
 const {initializeApp,getAuth,onAuthStateChanged,GoogleAuthProvider,signInWithPopup,signInWithRedirect,signOut,
-  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp,orderBy,limit,startAfter}=FB;
+  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp,orderBy,limit,startAfter,getCountFromServer}=FB;
 
 (function(){
 "use strict";
@@ -560,6 +566,8 @@ const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
 /* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
 const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
+/* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:""};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -779,6 +787,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
   BOARD.tr={};
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:""});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -1379,16 +1388,17 @@ function closeShare(){
 
 /* ---------- render ---------- */
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-function softRender(force){if(force||["dash","buddies","buddy","person","find","board"].includes(S.view))render()}
+function softRender(force){if(force||["dash","buddies","buddy","person","find","board","admin"].includes(S.view))render()}
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard,gen:renderGen};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,admin:renderAdmin};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView","gen"].includes(S.view));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView","gen"].includes(S.view))||(v==="history"&&S.view==="admin");
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
+  if(S.view==="disabled"){app.innerHTML=renderDisabled();return}
   app.innerHTML=`
   <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
   <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}</nav>
@@ -2177,8 +2187,8 @@ function renderPerson(){
     +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"")
     +(!bud&&!inc&&!out&&u!==uid?`<button class="btn primary" data-add="${u}">Send buddy request</button>`:"");
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
-  const from=["find","board"].includes(S.personFrom)?S.personFrom:"buddies";
-  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":from==="board"?"leaderboard":"buddies"}</button></p>
+  const from=["find","board","admin"].includes(S.personFrom)?S.personFrom:"buddies";
+  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":from==="board"?"leaderboard":from==="admin"?"admin":"buddies"}</button></p>
   <div class="panel profile">
     ${avatar(p,"xl")}
     <h1 class="pf-name">${esc(nm||"Loading...")}</h1>
@@ -2325,7 +2335,7 @@ function renderHistory(){
   <div class="panel"><h2>Account</h2>
     ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
       :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}${ME.bio?`<br><span class="bio muted" style="font-size:14px">${esc(ME.bio)}</span>`:""}</span></div>
-        <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button><button class="btn" id="signout">Sign out</button></div>`
+        <div class="row" style="margin-top:12px"><button class="btn primary" data-view="profile">Edit profile</button>${ADM.is?`<button class="btn" data-view="admin">Admin</button>`:""}<button class="btn" id="signout">Sign out</button></div>`
       :`<button class="btn primary" id="signin">Sign in with Google</button>`}
   </div>
   <div class="panel"><h2>How to progress</h2><ul class="rules">
@@ -2414,6 +2424,105 @@ function renderBoard(){
   </div>`;
 }
 
+/* ---------- disabled account ---------- */
+function renderDisabled(){
+  return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
+  <div class="calm"><h1>This account has been disabled</h1>
+    <p>You can't use ${APP_NAME} with this account right now. If you think this is a mistake, contact the person who runs the app.</p>
+    ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
+    <button class="btn" id="signout">Sign out</button></div>`;
+}
+
+/* ---------- admin ----------
+   Admins can list profiles, disable or enable accounts and grant or remove admin rights.
+   They get no access to anyone's workout log. Disabling is enforced by the rules, not Firebase Auth. */
+function admStart(){
+  if(ADM.started||!ADM.is||S.mode!=="db")return;
+  ADM.started=true;admCounts();admLoad();admLog();
+}
+async function admCounts(){
+  try{
+    const [u,a,d]=await Promise.all([getCountFromServer(collection(fs,"profiles")),getDocs(collection(fs,"admins")),
+      getDocs(query(collection(fs,"accounts"),where("disabled","==",true)))]);
+    ADM.admins=new Set(a.docs.map(x=>x.id));ADM.disabled=new Set(d.docs.map(x=>x.id));
+    ADM.counts={users:u.data().count};
+  }catch(e){console.warn("admin counts",e);ADM.err=fbError(e,"load the counts")}
+  softRender();
+}
+async function admLoad(){
+  if(ADM.loading||ADM.done)return;
+  ADM.loading=true;softRender();
+  try{
+    const base=[collection(fs,"profiles"),orderBy("name")];
+    const snap=await getDocs(query(...base,...(ADM.last?[startAfter(ADM.last)]:[]),limit(50)));
+    snap.forEach(d=>ADM.list.push({uid:d.id,...d.data()}));
+    if(snap.docs.length)ADM.last=snap.docs[snap.docs.length-1];
+    ADM.done=snap.docs.length<50;
+  }catch(e){console.warn("admin users",e);ADM.err=fbError(e,"load users")}
+  ADM.loading=false;softRender();
+}
+async function admLog(){
+  try{
+    const snap=await getDocs(query(collection(fs,"audit"),orderBy("at","desc"),limit(10)));
+    ADM.log=snap.docs.map(d=>d.data());
+  }catch(e){console.warn("admin log",e)}
+  softRender();
+}
+const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from"};
+async function admAct(kind,u){
+  if(u===uid)return;
+  const p=ADM.list.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
+  const ask={disable:"Disable "+nm+"? They can still sign in, but can't use the app or change any of their data until you enable them again.",
+    enable:"Enable "+nm+" again?",
+    makeadmin:"Make "+nm+" an admin? They'll be able to see every user, disable accounts and change who is an admin.",
+    unadmin:"Remove admin rights from "+nm+"?"}[kind];
+  if(!ask||!confirm(ask))return;
+  const stamp={by:uid,at:serverTimestamp()};
+  try{
+    if(kind==="disable"||kind==="enable")await setDoc(doc(fs,"accounts",u),{disabled:kind==="disable",...stamp});
+    else if(kind==="makeadmin")await setDoc(doc(fs,"admins",u),stamp);
+    else await deleteDoc(doc(fs,"admins",u));
+  }catch(e){say(fbError(e,"change that account"));return}
+  if(kind==="disable")ADM.disabled.add(u);if(kind==="enable")ADM.disabled.delete(u);
+  if(kind==="makeadmin")ADM.admins.add(u);if(kind==="unadmin")ADM.admins.delete(u);
+  const entry={action:kind,target:u,name:nm.slice(0,80),...stamp};
+  ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
+  setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
+  say(ADM_ACTS[kind]+" "+nm+".",true);
+}
+function admRows(){
+  const q=ADM.q.trim().toLowerCase();
+  const list=q?ADM.list.filter(p=>(p.name||"").toLowerCase().includes(q)||(p.nick||"").toLowerCase().includes(q)):ADM.list;
+  if(!list.length)return `<li class="muted" style="display:block">${ADM.loading?"Loading...":q?"No one loaded matches that name.":"No users yet."}</li>`;
+  return list.map(p=>{
+    const u=p.uid,self=u===uid,isA=ADM.admins.has(u),off=ADM.disabled.has(u);
+    const badges=(self?` <span class="tag plain">You</span>`:"")+(isA?` <span class="tag">Admin</span>`:"")+(off?` <span class="tag warn">Disabled</span>`:"");
+    return `<li><button class="avbtn" data-person="${u}" aria-label="View profile">${avatar(p)}</button>
+      <span class="nm"><button class="pbtn" data-person="${u}">${esc(pname(p)||"Unnamed")}</button>${badges}${p.nick&&p.name&&p.nick!==p.name?`<small class="one">${esc(p.name)}</small>`:""}</span><span></span>
+      ${self?"":`<div class="adm-acts"><button class="btn small ${off?"":"danger"}" data-adm="${off?"enable":"disable"}" data-u="${u}">${off?"Enable":"Disable"}</button>
+        <button class="btn small" data-adm="${isA?"unadmin":"makeadmin"}" data-u="${u}">${isA?"Remove admin":"Make admin"}</button></div>`}</li>`;
+  }).join("");
+}
+function renderAdmin(){
+  const back=`<p><button class="link" data-view="history">Back to progress</button></p>`;
+  if(!ADM.is||S.mode!=="db")return back+`<div class="panel"><p class="muted" style="margin:0">This page isn't available.</p></div>`;
+  admStart();
+  const c=ADM.counts;const n=v=>c?v:"-";
+  const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
+  const when=a=>a&&a.toDate?a.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):"Just now";
+  return back+`<header class="greet"><h1>Admin</h1><p>Users, admins and disabled accounts.</p></header>
+  <section class="sec"><div class="nums3"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
+  ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
+  <div class="panel"><h2>Users</h2>
+    <input class="field" id="admQ" type="search" placeholder="Search by name" autocomplete="off" value="${esc(ADM.q)}" style="width:100%;margin-bottom:6px">
+    ${msg}
+    <ul class="people" id="admList">${admRows()}</ul>
+    ${ADM.done?"":`<div class="row" style="margin-top:12px"><button class="btn" id="admMore" ${ADM.loading?"disabled":""}>${ADM.loading?"Loading...":"Load more"}</button></div>`}
+    <p class="small muted" style="margin:12px 0 0">Search checks the users loaded so far. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
+  </div>
+  ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}</span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
+}
+
 function leaveEditor(){
   if(S.draft&&!confirm("Leave without saving your changes to this plan?"))return false;
   S.draft=null;S.draftId=null;S.coachFor=null;return true;
@@ -2441,6 +2550,8 @@ document.addEventListener("click",async e=>{
   if(ds.ggoal){GEN.goal=ds.ggoal;render();return}
   if(ds.gdays){GEN.days=+ds.gdays;render();return}
   if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
+  if(ds.adm){admAct(ds.adm,ds.u);return}
+  if(t.id==="admMore"){admLoad();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
   if(t.id==="tMore"){TR.showN+=20;render();return}
@@ -2524,6 +2635,7 @@ document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
   if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
+  if(el.id==="admQ"){ADM.q=el.value;const l=$("#admList");if(l)l.innerHTML=admRows();return}
   if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
   /* plan editor fields: update the draft without re-rendering */
   if(S.view==="planEdit"&&S.draft){
@@ -2624,6 +2736,10 @@ if(CONFIGURED){
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
     const hadMe=restoreMe();
     if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
+    /* A disabled account gets one calm screen: no log, no listeners, no writes. */
+    const [acct,adm]=await Promise.all([getDoc(doc(fs,"accounts",uid)).catch(()=>null),getDoc(doc(fs,"admins",uid)).catch(()=>null)]);
+    if(acct&&acct.exists()&&acct.data().disabled===true){S.view="disabled";render();return}
+    ADM.is=!!(adm&&adm.exists());
     try{await initStore()}catch(e){S.mode="local"}
     if(S.mode==="db"){
       /* First sign-in on this device: wait briefly for the nickname rather than flash the Google name. */
