@@ -58,6 +58,13 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Everyone is listed by default. Turning off **Show me in Find Buddies** on the Buddies tab deletes your card.
 - Existing users appear once they open the updated app.
 
+## Leaderboard
+
+- **Leaderboard** on Home or the Buddies tab ranks you and your buddies by workouts, volume or week streak, this week or this month.
+- Only buddies with **Share my progress** on are ranked. The rest are counted in one line below the table.
+- Trainers also see their trainees there, worked out from the log they can already read. Only the trainer sees those rows.
+- It uses the existing `shared/{uid}` summary, which now also carries `monthStart`, `monthWorkouts` and `volumeMonth`. No new collections or rules.
+
 ## Importing a plan
 
 **Plans > Import from PDF or Excel** reads `.pdf`, `.xlsx`, `.xls` and `.csv` files, then opens the result in the plan editor for you to check before saving.
@@ -72,7 +79,7 @@ The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline 
 ## How sharing works
 
 - Your full workout log (`users/{uid}/log`) is private to you. Nobody else can read it.
-- When **Share my progress** is on, the app publishes a summary to `shared/{uid}`: weekly workouts, streak, total workouts, top set per lift and recent workout days.
+- When **Share my progress** is on, the app publishes a summary to `shared/{uid}`: weekly and monthly workouts and volume, streak, total workouts, top set per lift and recent workout days.
 - Only your accepted buddies can read that summary. Turning sharing off replaces it with `{ sharing: false }`.
 - Buddies are added by Google email or invite link. The other person has to accept.
 

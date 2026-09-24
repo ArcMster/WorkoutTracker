@@ -167,9 +167,18 @@ tr.isdone input{opacity:.7}
 .board{list-style:none;margin:0;padding:0}
 .board li{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
 .board li:first-child{border-top:0}
-.board .rk{font:800 24px/1 var(--display);width:24px;color:var(--muted)}
-.board .nm{flex:1;font-weight:600}
-.board .v{text-align:right;font-variant-numeric:tabular-nums}
+.board .rk{font:800 22px/1 var(--display);width:26px;flex:none;text-align:center;color:var(--muted)}
+.board .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board .nm small{display:block;font-weight:400;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.board .v{flex:none;text-align:right;font-variant-numeric:tabular-nums}
+.board .v b{font:800 22px/1 var(--display)}
+.board li.me{background:var(--field);border-radius:12px;padding:10px;margin:0 -10px;border-top-color:transparent}
+.board li.me .rk{color:var(--ink)}
+.board li.me+li{border-top-color:transparent}
+.bd-p{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:none;padding:0;text-align:left;color:inherit;font:inherit}
+.bd-ctl{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 16px}
+.sec-h .links{display:inline-flex;gap:16px}
+.panel .sec-h h2{margin:0}
 .board .v small{display:block;color:var(--muted);font-size:12px}
 .people{list-style:none;margin:0;padding:0}
 .people li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
@@ -539,6 +548,8 @@ const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],b
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false};
 const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
+/* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
+const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -685,15 +696,32 @@ function setStatus(t){const el=$("#status");if(el)el.textContent=t}
 /* ---------- shared progress summary ---------- */
 function filled(sets){return (sets||[]).filter(x=>x&&x.r!=null)}
 function hasSets(s){return Object.values(s.entries||{}).some(a=>filled(a).length)}
+function monthOf(s){return s.slice(0,8)+"01"}
+function volKg(s){const u=s.unit||"kg";let v=0;Object.values(s.entries||{}).forEach(a=>filled(a).forEach(x=>v+=(toKg(x.w,u)||0)*(x.r||0)));return v}
+/* Counts for the leaderboard and buddies: this week, this month, streak and total.
+   list: sessions with sets, oldest first. Volume is in kg. */
+function tally(list){
+  const td=today(),wk=mondayOf(td),mo=monthOf(td);
+  const weeks=new Set(list.map(s=>mondayOf(s.date)));
+  let streak=0,w=weeks.has(wk)?wk:addDays(wk,-7);
+  while(weeks.has(w)){streak++;w=addDays(w,-7)}
+  const wDays=new Set(),mDates=new Set();let volumeWeek=0,volumeMonth=0;
+  list.forEach(s=>{
+    const inW=mondayOf(s.date)===wk,inM=monthOf(s.date)===mo;
+    if(!inW&&!inM)return;
+    const v=volKg(s);
+    if(inW){volumeWeek+=v;wDays.add(s.day)}
+    if(inM){volumeMonth+=v;mDates.add(s.date)}
+  });
+  return {weekStart:wk,weekDays:[...wDays],volumeWeek:Math.round(volumeWeek),monthStart:mo,monthWorkouts:mDates.size,volumeMonth:Math.round(volumeMonth),
+    streak,total:list.length,lastDate:list.length?list[list.length-1].date:null};
+}
 function computeSummary(){
   const list=Object.values(S.sessions).filter(s=>s.date&&hasSets(s)).sort((a,b)=>a.date<b.date?-1:1);
   const wk=mondayOf(today());
   const weekTypes={};
   list.filter(s=>mondayOf(s.date)===wk).forEach(s=>{weekTypes[String(s.day)]=sessionMeta(s).t});
-  const weeks=new Set(list.map(s=>mondayOf(s.date)));
-  let streak=0,w=weeks.has(wk)?wk:addDays(wk,-7);
-  while(weeks.has(w)){streak++;w=addDays(w,-7)}
-  let volumeWeek=0;const lifts={};
+  const lifts={};
   list.forEach(s=>{
     const u=s.unit||"kg";
     Object.entries(s.entries||{}).forEach(([name,arr])=>{
@@ -701,7 +729,6 @@ function computeSummary(){
       let top=null;
       f.forEach(x=>{
         const kg=toKg(x.w,u)||0;
-        if(mondayOf(s.date)===wk)volumeWeek+=kg*(x.r||0);
         if(!top||kg>top.w||(kg===top.w&&x.r>top.r))top={d:s.date,w:Math.round(kg*10)/10,r:x.r};
       });
       (lifts[name]||(lifts[name]=[])).push(top);
@@ -712,8 +739,8 @@ function computeSummary(){
     return {n,pr,h:h.slice(-24)};
   });
   const recent=list.slice(-6).reverse().map(s=>{let c=0;Object.values(s.entries||{}).forEach(a=>c+=filled(a).length);const m=sessionMeta(s);return {d:s.date,day:s.day,t:m.t,title:m.title,sets:c}});
-  return {sharing:true,name:myName(),photo:myPhoto(),ig:ME.ig,planName:activePlan().name,weekStart:wk,weekDays:Object.keys(weekTypes).map(Number),weekTypes,streak,
-    volumeWeek:Math.round(volumeWeek),total:list.length,lastDate:list.length?list[list.length-1].date:null,lifts:liftArr,recent,updated:Date.now()};
+  return {sharing:true,name:myName(),photo:myPhoto(),ig:ME.ig,planName:activePlan().name,...tally(list),weekDays:Object.keys(weekTypes).map(Number),weekTypes,
+    lifts:liftArr,recent,updated:Date.now()};
 }
 let pubTimer=null;
 function schedulePublish(){
@@ -725,11 +752,15 @@ function publishNow(){
   const data=S.settings.sharing?computeSummary():{sharing:false,name:myName(),photo:myPhoto(),updated:Date.now()};
   return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
 }
+/* Zero out a summary's week or month once it's out of date. Summaries from older
+   versions have no month fields, so their month counts read as zero. */
 function live(sum){
   if(!sum)return null;
-  const wk=mondayOf(today());
-  if(sum.weekStart===wk)return sum;
-  return {...sum,weekDays:[],weekTypes:{},volumeWeek:0,streak:sum.weekStart===addDays(wk,-7)?sum.streak:0};
+  const td=today(),wk=mondayOf(td);
+  let L=sum;
+  if(sum.weekStart!==wk)L={...L,weekDays:[],weekTypes:{},volumeWeek:0,streak:sum.weekStart===addDays(wk,-7)?sum.streak:0};
+  if(sum.monthStart!==monthOf(td))L={...L,monthWorkouts:0,volumeMonth:0};
+  return L;
 }
 
 /* ---------- buddies ---------- */
@@ -737,6 +768,7 @@ function stopSocial(){
   SOC.unsubs.forEach(u=>u());SOC.unsubs=[];
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
+  BOARD.tr={};
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -875,6 +907,18 @@ async function openTrainee(tid){
     TR.sessions=sess.filter(hasSets).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:b.day-a.day);
   }catch(e){say(fbError(e,"open their log")+" They may also have removed your trainer access.")}
   TR.loading=false;render();
+}
+/* trainer side: leaderboard counts for trainees who don't share, read from their log once per session */
+function loadBoardTrainees(){
+  SOC.trainees.forEach(t=>{
+    const sh=SOC.shared[t];
+    if((sh&&sh.sharing)||t in BOARD.tr)return;
+    BOARD.tr[t]=null;
+    const got=TR.uid===t&&TR.sessions.length?Promise.resolve(TR.sessions)
+      :getDocs(collection(fs,"users",t,"log")).then(snap=>{const a=[];snap.forEach(d=>{const v=d.data();if(v&&v.date&&d.id!=="coach")a.push(v)});return a});
+    got.then(list=>{BOARD.tr[t]={sharing:true,...tally(list.filter(hasSets).sort((a,b)=>a.date<b.date?-1:1))};softRender()})
+      .catch(e=>{console.warn("trainee board",e);BOARD.tr[t]=false;softRender()});
+  });
 }
 function traineePlans(){return [...BUILTIN,...Object.entries(TR.plans).map(([id,p])=>({id,...p}))]}
 function assignPlan(id){
@@ -1293,13 +1337,13 @@ function closeShare(){
 
 /* ---------- render ---------- */
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-function softRender(force){if(force||["dash","buddies","buddy","person","find"].includes(S.view))render()}
+function softRender(force){if(force||["dash","buddies","buddy","person","find","board"].includes(S.view))render()}
 function render(){
   const app=$("#app");
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,planView:renderPlanView,board:renderBoard};
   const badge=SOC.incoming.length?` (${SOC.incoming.length})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
+  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&(S.view==="planEdit"||S.view==="planView"));
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
@@ -1868,7 +1912,7 @@ function renderDash(){
     SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing)people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},isMe:false,L:live(sh)})});
     people.sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
     const hidden=SOC.accepted.length-(people.length-1);
-    buddiesHtml=SOC.accepted.length?`<section class="sec"><div class="sec-h"><span class="kicker">Buddies this week</span><button class="link" data-view="buddies">Manage</button></div>
+    buddiesHtml=SOC.accepted.length?`<section class="sec"><div class="sec-h"><span class="kicker">Buddies this week</span><span class="links"><button class="link" data-view="board">Leaderboard</button><button class="link" data-view="buddies">Manage</button></span></div>
       <ul class="blist">${people.map(x=>`<li ${x.isMe?"":`data-buddy="${x.uid}" role="button" tabindex="0"`}>${avatar(x.p)}
         <span class="nm">${x.isMe?"You":esc(pname(x.p)||"Buddy")}</span>
         ${miniWeek(x.L)}
@@ -1934,8 +1978,8 @@ function renderPerson(){
     +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"")
     +(!bud&&!inc&&!out&&u!==uid?`<button class="btn primary" data-add="${u}">Send buddy request</button>`:"");
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
-  const from=S.personFrom==="find"?"find":"buddies";
-  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":"buddies"}</button></p>
+  const from=["find","board"].includes(S.personFrom)?S.personFrom:"buddies";
+  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":from==="board"?"leaderboard":"buddies"}</button></p>
   <div class="panel profile">
     ${avatar(p,"xl")}
     <h1 class="pf-name">${esc(nm||"Loading...")}</h1>
@@ -2032,7 +2076,7 @@ function renderBuddies(){
   ${SOC.trainees.length?`<div class="panel"><h2>You're training</h2><ul class="people">
     ${SOC.trainees.map(t=>person(t,"Gave you trainer access",`<button class="btn small primary" data-trainee="${t}">Open</button>`)).join("")}
   </ul></div>`:""}
-  <div class="panel"><h2>Your buddies</h2>
+  <div class="panel"><div class="sec-h"><h2>Your buddies</h2><button class="link small" data-view="board">Leaderboard</button></div>
     ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;const isTr=SOC.trainers.includes(a.uid);
       const open=S.menuFor===a.uid;
       return person(a.uid,isTr?"Your trainer":(on?"Sharing progress":"Not sharing progress"),
@@ -2118,6 +2162,56 @@ function doSignIn(){
     else if(c!=="auth/popup-closed-by-user"&&c!=="auth/cancelled-popup-request")setStatus("Sign-in didn't finish. Try again.");
   });
 }
+/* ---------- leaderboard ---------- */
+function boardVal(L,m,p){
+  if(m==="streak")return L.streak||0;
+  if(m==="volume")return (p==="month"?L.volumeMonth:L.volumeWeek)||0;
+  return p==="month"?(L.monthWorkouts||0):(L.weekDays||[]).length;
+}
+/* me, buddies who share, and (for a trainer) trainees; ties go to volume, then name */
+function boardRows(){
+  const rows=[{uid,p:{name:myName(),photo:myPhoto()},isMe:true,L:live(computeSummary())}];
+  const seen=new Set([uid]);
+  SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing){rows.push({uid:a.uid,p:SOC.profiles[a.uid]||{},L:live(sh)});seen.add(a.uid)}});
+  SOC.trainees.forEach(t=>{
+    if(seen.has(t))return;
+    const sh=SOC.shared[t],sum=sh&&sh.sharing?sh:BOARD.tr[t];
+    if(sum){rows.push({uid:t,p:SOC.profiles[t]||{},L:live(sum),trainee:!(sh&&sh.sharing)});seen.add(t)}
+  });
+  const m=BOARD.metric,p=BOARD.period;
+  rows.forEach(r=>{r.v=boardVal(r.L,m,p);r.vol=boardVal(r.L,"volume",p);r.nm=r.isMe?"You":pname(r.p)||"Buddy"});
+  rows.sort((a,b)=>(b.v-a.v)||(b.vol-a.vol)||a.nm.localeCompare(b.nm));
+  const loading=SOC.trainees.some(t=>BOARD.tr[t]===null&&!seen.has(t));
+  const hidden=SOC.accepted.filter(a=>!seen.has(a.uid)&&!(SOC.trainees.includes(a.uid)&&BOARD.tr[a.uid]===null)).length;
+  return {rows,hidden,loading};
+}
+function renderBoard(){
+  const back=BOARD.from==="buddies"?"buddies":"dash";
+  const head=`<p><button class="link" data-view="${back}">Back to ${back==="buddies"?"buddies":"home"}</button></p>`;
+  if(S.mode!=="db")return head+`<div class="panel"><h2>Leaderboard</h2><p class="muted">${CONFIGURED?"Sign in with Google to compare progress with your buddies.":"Set up Firebase to compare progress with buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
+  if(!SOC.accepted.length&&!SOC.trainees.length)return head+`<header class="greet"><h1>Leaderboard</h1></header>
+    <div class="panel"><p class="muted" style="margin:0 0 14px">No buddies yet. Add a few and see who trains most each week.</p><button class="btn primary" id="findBtn">Find New Buddies</button></div>`;
+  loadBoardTrainees();
+  const {rows,hidden,loading}=boardRows();
+  const m=BOARD.metric,p=BOARD.period,u=S.settings.unit;
+  const seg=(key,cur,opts,label)=>`<div class="seg" role="group" aria-label="${label}">${opts.map(([v,l])=>`<button data-${key}="${v}" aria-pressed="${v===cur}">${l}</button>`).join("")}</div>`;
+  const sub=m==="streak"?"Weeks in a row with at least one workout":p==="month"?new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"}):"Week of "+fmtDate(mondayOf(today()));
+  const show=r=>m==="volume"?[fmtNum(u==="lb"?r.v/0.45359:r.v),u]:m==="streak"?[r.v,r.v===1?"week":"weeks"]:[r.v,r.v===1?"workout":"workouts"];
+  const row=(r,i)=>{
+    const [n,l]=show(r);
+    const inner=`${avatar(r.p)}<span class="nm">${esc(r.nm)}${r.trainee?`<small>Trainee, only you see this</small>`:""}</span><span class="v"><b>${n}</b><small>${l}</small></span>`;
+    return `<li class="${r.isMe?"me":""}"><span class="rk">${i+1}</span>${r.isMe?`<span class="bd-p">${inner}</span>`:`<button class="bd-p" data-person="${r.uid}" aria-label="${esc(r.nm)}, rank ${i+1}, ${n} ${l}">${inner}</button>`}</li>`;
+  };
+  return head+`<header class="greet"><h1>Leaderboard</h1><p>${esc(sub)}</p></header>
+  <div class="bd-ctl">${seg("bm",m,[["workouts","Workouts"],["volume","Volume"],["streak","Streak"]],"Rank by")}
+    ${m!=="streak"?seg("bp",p,[["week","This week"],["month","This month"]],"Period"):""}</div>
+  <div class="panel"><ol class="board">${rows.map(row).join("")}</ol>
+    ${loading?`<p class="small muted">Loading your trainees...</p>`:""}
+    ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing.</p>`:""}
+    ${!S.settings.sharing?`<p class="small muted">Your buddies can't see you here. <button class="link small" data-view="buddies">Turn on sharing</button></p>`:""}
+  </div>`;
+}
+
 function leaveEditor(){
   if(S.draft&&!confirm("Leave without saving your changes to this plan?"))return false;
   S.draft=null;S.draftId=null;S.coachFor=null;return true;
@@ -2128,7 +2222,7 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
-  if(ds.view){if(S.view==="planEdit"&&!leaveEditor())return;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
+  if(ds.view){if(S.view==="planEdit"&&!leaveEditor())return;if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);render();return}
   if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
   if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
@@ -2139,6 +2233,8 @@ document.addEventListener("click",async e=>{
   if(ds.add){sendRequest(ds.add);return}
   if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
   if(t.id==="findMore"){loadFind();return}
+  if(ds.bm){BOARD.metric=ds.bm;render();return}
+  if(ds.bp){BOARD.period=ds.bp;render();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
   if(t.id==="tMore"){TR.showN+=20;render();return}
