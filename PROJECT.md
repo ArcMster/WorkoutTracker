@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v26`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v27`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v26` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v27` |
 
 ## Files
 
@@ -31,6 +31,12 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
 ## Features
+
+### Exercise catalogue (renames and new exercises)
+- **Admin > Exercises** lists every exercise with a "name shown" field, a YouTube field and Save. Renaming (Squat to Weighted Squat) changes what everyone sees, everywhere: Workout screen, plan views, plan editor and its suggestions, Progress chart picker, reports (CSV and PDF), share images, buddy lifts, trainer views and Advanced Planning.
+- The data never changes: plans and logged sets keep the original name, so history, charts and "last time" stay connected across the rename. `dn(name)` gives the display name; `canon(name)` maps a display name typed in the plan editor back to the original on save. A combined entry ("Barbell or Dumbbell Curl") is rebuilt from its options when one is renamed ("EZ-Bar Curl or Dumbbell Curl").
+- **Add an exercise** puts a new name (optionally with a video) in the catalogue; it's suggested to everyone in the plan editor. Admin-added exercises can be removed; plans that use them keep them.
+- Stored in `exercises/{slug}` as `display` and `added` beside `youtube`. Loaded once per sign-in with the videos.
 
 ### Exercise tutorials
 - Admins attach a YouTube video to any exercise in **Admin > Exercise tutorials**: every exercise in the ready-made plans, the admin's own plans and log, anything that already has a video, plus an "Another exercise" row for custom names. Watch links, youtu.be links, Shorts, embed links and bare ids are accepted; only the 11-character id is stored, and it's validated before saving.
@@ -121,7 +127,7 @@ coaching/{uid}                      { trainers: [uid, ...] }, max 10
 admins/{uid}                        { by, at }: presence means admin
 accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, requested, by, at }
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
-exercises/{slug}                    { name, youtube, updatedBy, updatedAt }: tutorial video id per exercise
+exercises/{slug}                    { name, display?, youtube?, added?, updatedBy, updatedAt }: exercise catalogue: rename, tutorial video, admin-added
 shared/{uid}                        progress summary for buddies, or { sharing: false }:
                                     { sharing, name, photo, ig, planName, weekStart, weekDays, weekTypes, volumeWeek,
                                       monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated }
@@ -143,7 +149,7 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
 | `accounts/{uid}` | Owner and admins | Owner creates only a pending request; admins set active or disabled, never for themselves |
 | `audit/{id}` | Admins | Admins create; no changes or deletes |
-| `exercises/{slug}` | Any signed-in user | Admins, with a valid 11-character video id |
+| `exercises/{slug}` | Any signed-in user | Admins; display name up to 80 characters, video id must be 11 valid characters |
 
 Every write of a user's own data (log, profile, directory, email, requests, coaching, shared) also needs `active()`: the writer's account status is active, or they have no account document but do have a profile (members from before join approval). `isAdmin()` checks that `admins/{auth.uid}` exists.
 

@@ -65,14 +65,17 @@ service cloud.firestore {
         && request.resource.data.by == request.auth.uid;
     }
 
-    // Exercise tutorials: a YouTube video id per exercise, keyed by the exercise name as a slug.
-    // Everyone signed in can read them; only admins can set or remove one, and only a valid 11-character id.
+    // Exercise catalogue, keyed by the exercise name as a slug. Each entry can carry a display name
+    // (an admin rename; the data keeps the original name), a YouTube video id, and whether an admin
+    // added the exercise. Everyone signed in can read it; only admins can change it.
     match /exercises/{slug} {
       allow read: if signedIn();
       allow create, update: if isAdmin() && active()
-        && request.resource.data.keys().hasOnly(['name', 'youtube', 'updatedBy', 'updatedAt'])
-        && request.resource.data.name is string && request.resource.data.name.size() <= 80
-        && request.resource.data.youtube is string && request.resource.data.youtube.matches('[A-Za-z0-9_-]{11}')
+        && request.resource.data.keys().hasOnly(['name', 'display', 'youtube', 'added', 'updatedBy', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
+        && (!('display' in request.resource.data) || (request.resource.data.display is string && request.resource.data.display.size() > 0 && request.resource.data.display.size() <= 80))
+        && (!('youtube' in request.resource.data) || (request.resource.data.youtube is string && request.resource.data.youtube.matches('[A-Za-z0-9_-]{11}')))
+        && (!('added' in request.resource.data) || request.resource.data.added is bool)
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if isAdmin() && active();
     }
