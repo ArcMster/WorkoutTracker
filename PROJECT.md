@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v29`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 25 Sept 2026, after the leaderboard, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v30`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -33,7 +33,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ## Features
 
 ### Exercise catalogue (renames and new exercises)
-- **Admin > Exercises** lists every exercise with a "name shown" field, a YouTube field and Save. Renaming (Squat to Weighted Squat) changes what everyone sees, everywhere: Workout screen, plan views, plan editor and its suggestions, Progress chart picker, reports (CSV and PDF), share images, buddy lifts, trainer views and Advanced Planning.
+- **Admin > Exercises** lists every exercise with a "name shown" field, a YouTube field and Save. Renaming (Squat to Weighted Squat) changes what everyone sees, everywhere: Workout screen, plan views, plan editor and its suggestions, Progress chart picker, reports (CSV and PDF), share images, buddy lifts, trainer views and the Advanced tab.
 - The data never changes: plans and logged sets keep the original name, so history, charts and "last time" stay connected across the rename. `dn(name)` gives the display name; `canon(name)` maps a display name typed in the plan editor back to the original on save. A combined entry ("Barbell or Dumbbell Curl") is rebuilt from its options when one is renamed ("EZ-Bar Curl or Dumbbell Curl").
 - **Add an exercise** puts a new name (optionally with a video) in the catalogue; it's suggested to everyone in the plan editor. Admin-added exercises can be removed; plans that use them keep them.
 - Stored in `exercises/{slug}` as `display` and `added` beside `youtube`. Loaded once per sign-in with the videos.
@@ -69,14 +69,14 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - The logging screen shows last time's numbers, hints for beating them, and a rest timer.
 - Exercises with the same name share history across plans.
 
-### Advanced Planning
-- **Plans > Advanced Planning > Generate a plan** builds a starting plan from body weight, height (cm, or ft and in), goal (Build muscle, Get stronger, Lose fat, General fitness), days per week (3 to 6) and strength (Beginner, or best sets of bench press, squat, leg press and overhead press).
-- Templates come from the ready-made plans: 3 days full body, 4 upper/lower, 5 upper/lower then push/pull/legs, 6 push/pull/legs twice.
-- Goal sets the rep ranges: strength 3 to 6 on the main lifts, muscle 6 to 12, fat loss and general fitness 10 to 15 with an extra accessory (fat loss also gets a 10 to 15 minute cardio finisher).
-- With best lifts, each day's note suggests a starting weight: the Epley one-rep max, the weight for the top of the rep range, less 10%, rounded down to 2.5 kg or 5 lb, never above the lift entered. Beginner plans say to start light and add weight weekly.
-- Body weight and height only choose between easier and harder bodyweight moves (lat pulldown or pull-ups, pushdowns or dips, lying or hanging leg raises) and fill in a summary line. No calorie targets, diets or nutrition advice, by design.
-- Read-only preview, **Download PDF** through the printable-report path (overview page, then one page per training day), and **Save to my plans**. Nothing is written until Save is pressed. Preview and PDF both carry a one-line "not medical advice" note.
-- In an installed iOS app a **Save as image** button is also shown, drawing the plan with the share-as-image code, because printing there is still unverified.
+### Advanced (AI planning)
+- Its own top tab, **Advanced** (view `gen`), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
+- Inputs: body weight, height (cm, or ft and in), a free-text goal (up to 1500 characters), days per week (2 to 6), Beginner or best sets (bench, squat, deadlift, overhead press) and an optional photo, scaled to 1024 px on the long edge as JPEG.
+- `genPlan()` POSTs these to `AI_PROXY_URL` (a named export of `firebase-config.js`) with the Firebase ID token, plus `knownNames()` so Claude reuses existing exercise names.
+- The proxy (`proxy/workout_ai`, Django, runs on PythonAnywhere) verifies the token, checks the account is active the same way as `isActive()` in the rules (reading Firestore with the user's own token), enforces `AI_DAILY_LIMIT` per 24 hours, calls Claude (`claude-opus-5`, adaptive thinking, medium effort, JSON-schema output, server-side refusal fallback) and normalizes the reply to 7 days in the app's plan shape. It stores no inputs or photos. Setup and settings: `PROXY_SETUP.md`.
+- The result screen shows insights (summary, photo, how the week works, strengths, focus, cautions), then the read-only plan. **Save to my plans**, **Download PDF** (insights, then an overview page, then a page per training day), and **Save as image** in installed iOS apps. Nothing is written until Save is pressed.
+- The system prompt keeps it to training advice (no calorie targets or diets) and keeps photo comments to training-relevant, respectful observations.
+- Signed out, guest mode, or `AI_PROXY_URL` empty: the tab says so instead of showing the form.
 
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
@@ -163,12 +163,12 @@ The whole script is one ES module inside `<script type="module">`.
   - `ME`: your own nickname, photo, Instagram and bio
   - `TR`: the trainee a trainer has open
   - `FIND`: the Find Buddies list and paging
-  - `GEN`: Advanced Planning answers and the generated plan (not saved until the user saves it)
+  - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
   - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
   - `BOARD`: leaderboard metric and period, where it was opened from, and trainee counts loaded from their logs
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
-  - main tabs: `dash` (Home), `log` (Workout), `plans`, `buddies`, `history` (Progress)
-  - plan screens: `planView`, `planEdit`, `gen` (Advanced Planning)
+  - main tabs: `dash` (Home), `log` (Workout), `plans`, `gen` (Advanced, AI planning), `buddies`, `history` (Progress)
+  - plan screens: `planView`, `planEdit`
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
   - trainer screens: `trainee`, `tday` (a trainee's single workout)

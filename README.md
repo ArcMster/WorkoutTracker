@@ -15,6 +15,8 @@ A workout tracker with ready-made and custom weekly plans. Sign in with Google, 
 | `lib/` | Bundled readers for Excel and PDF import |
 | `check.html` | Opens in a browser and checks that the app can be installed |
 | `firestore.rules` | Firestore security rules |
+| `proxy/` | Django app for the AI planning proxy (see `PROXY_SETUP.md`) |
+| `PROXY_SETUP.md` | How to run the AI planning proxy on PythonAnywhere |
 
 ## Firebase setup
 
@@ -65,14 +67,17 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Trainers also see their trainees there, worked out from the log they can already read. Only the trainer sees those rows.
 - It uses the existing `shared/{uid}` summary, which now also carries `monthStart`, `monthWorkouts` and `volumeMonth`. No new collections or rules.
 
-## Advanced Planning
+## Advanced (AI planning)
 
-**Plans > Advanced Planning** asks for body weight, height, goal, days per week and either Beginner or your best lifts, then builds a starting plan from the ready-made ones. It runs entirely on the device, with no AI and no network needed.
+The **Advanced** tab in the top menu makes a plan with Claude. (It replaces Plans > Advanced Planning, which built plans on the device from fixed rules.)
 
-- Review it, **Download PDF** (the browser's Save as PDF), or **Save to my plans**. Nothing is saved until you tap Save.
-- With best lifts entered, each day suggests starting weights (Epley estimate, rounded down, never above your lift).
-- It gives training suggestions only: no calorie targets, diets or nutrition advice. It's a general plan, not medical advice.
-- Inside an installed iPhone app, **Save as image** is offered as well, in case printing to PDF doesn't work there.
+- Asks for body weight, height, **your goal in your own words** (what you want, your equipment, anything to work around), days per week (2 to 6), Beginner or your best lifts, and an optional **photo**.
+- Claude returns **insights** (a summary, what the photo shows that matters for training, strengths, what to focus on, what to be careful with) and a **7-day plan**. Where it can, it uses exercise names you already have, so your history carries over.
+- Review it, **Save to my plans**, **Download PDF** (with the insights), or, in an installed iPhone app, **Save as image**. Nothing is saved until you tap Save.
+- It needs you signed in and approved. It goes through your own proxy server, which keeps the Anthropic API key, checks the account and limits plans per person per day. The photo is scaled down to 1024 px, sent for that plan only and never stored.
+- Training suggestions only: no calorie targets or diets. It's a general plan, not medical advice.
+
+**Setup:** the proxy is a small Django app in `proxy/`. [PROXY_SETUP.md](PROXY_SETUP.md) walks through installing it on PythonAnywhere, its settings, and setting `AI_PROXY_URL` in `firebase-config.js`.
 
 ## Admin
 
