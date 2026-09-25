@@ -125,6 +125,10 @@ tr.isdone input{opacity:.7}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;background:var(--field);padding:9px 16px;font-weight:600;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.filters button{border:1px solid var(--line);background:var(--field);border-radius:999px;padding:7px 14px;font-weight:600;color:var(--muted);white-space:nowrap}
+.filters button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.filters .n{opacity:.65;font-weight:500;margin-left:2px}
 .muted{color:var(--muted)}
 .rules{margin:0;padding-left:20px;color:var(--muted);font-size:15px}
 .rules li{margin:4px 0}
@@ -583,7 +587,7 @@ const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:nu
 /* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
 const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -803,7 +807,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[]});
   BOARD.tr={};
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",admins:new Set(),disabled:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]});
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -2619,6 +2623,9 @@ async function admCounts(){
     ADM.pending=pend.docs.map(x=>({uid:x.id,...x.data()})).sort((x,y)=>(y.requested?.seconds||0)-(x.requested?.seconds||0));
     ADM.counts={users:u.data().count};
   }catch(e){console.warn("admin counts",e);ADM.err=fbError(e,"load the counts")}
+  /* trainers are whoever appears in someone's coaching list; kept apart so a failure here doesn't hide the counts */
+  try{const co=await getDocs(collection(fs,"coaching"));ADM.trainers=new Set(co.docs.flatMap(x=>x.data().trainers||[]))}
+  catch(e){console.warn("admin trainers",e)}
   softRender();
 }
 async function admLoad(){
@@ -2720,13 +2727,22 @@ async function admAct(kind,u){
   setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
   say(ADM_ACTS[kind]+" "+nm+".",true);
 }
+/* user list filters: key, label, test on a uid, empty message */
+const ADM_FILTERS=[["active","Active",u=>!ADM.disabled.has(u),"No active users loaded."],["all","All",()=>true,"No users yet."],
+  ["disabled","Disabled",u=>ADM.disabled.has(u),"No disabled users loaded."],["admins","Admins",u=>ADM.admins.has(u),"No admins loaded."],
+  ["trainers","Trainers",u=>ADM.trainers.has(u),"No trainers loaded."]];
+function admFilters(){
+  return `<div class="filters" role="group" aria-label="Show users">${ADM_FILTERS.map(([k,l,t])=>{
+    const n=ADM.list.filter(p=>t(p.uid)).length;
+    return `<button data-admf="${k}" aria-pressed="${k===ADM.f}">${l}${ADM.list.length?` <span class="n">${n}</span>`:""}</button>`}).join("")}</div>`;
+}
 function admRows(){
-  const q=ADM.q.trim().toLowerCase();
-  const list=q?ADM.list.filter(p=>(p.name||"").toLowerCase().includes(q)||(p.nick||"").toLowerCase().includes(q)):ADM.list;
-  if(!list.length)return `<li class="muted" style="display:block">${ADM.loading?"Loading...":q?"No one loaded matches that name.":"No users yet."}</li>`;
+  const q=ADM.q.trim().toLowerCase(),f=ADM_FILTERS.find(x=>x[0]===ADM.f)||ADM_FILTERS[0];
+  const list=ADM.list.filter(p=>f[2](p.uid)&&(!q||(p.name||"").toLowerCase().includes(q)||(p.nick||"").toLowerCase().includes(q)));
+  if(!list.length)return `<li class="muted" style="display:block">${ADM.loading?"Loading...":q?"No one loaded matches that name.":f[3]}</li>`;
   return list.map(p=>{
     const u=p.uid,self=u===uid,isA=ADM.admins.has(u),off=ADM.disabled.has(u);
-    const badges=(self?` <span class="tag plain">You</span>`:"")+(isA?` <span class="tag">Admin</span>`:"")+(off?` <span class="tag warn">Disabled</span>`:"");
+    const badges=(self?` <span class="tag plain">You</span>`:"")+(isA?` <span class="tag">Admin</span>`:"")+(ADM.trainers.has(u)?` <span class="tag plain">Trainer</span>`:"")+(off?` <span class="tag warn">Disabled</span>`:"");
     return `<li><button class="avbtn" data-person="${u}" aria-label="View profile">${avatar(p)}</button>
       <span class="nm"><button class="pbtn" data-person="${u}">${esc(pname(p)||"Unnamed")}</button>${badges}${p.nick&&p.name&&p.nick!==p.name?`<small class="one">${esc(p.name)}</small>`:""}</span><span></span>
       ${self?"":`<div class="adm-acts"><button class="btn small ${off?"":"danger"}" data-adm="${off?"enable":"disable"}" data-u="${u}">${off?"Enable":"Disable"}</button>
@@ -2746,11 +2762,12 @@ function renderAdmin(){
       <div class="adm-acts"><button class="btn small primary" data-adm="approve" data-u="${r.uid}">Approve</button><button class="btn small danger" data-adm="decline" data-u="${r.uid}">Decline</button></div></li>`).join("")}</ul></div>`:""}
   ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
   <div class="panel"><h2>Users</h2>
-    <input class="field" id="admQ" type="search" placeholder="Search by name" autocomplete="off" value="${esc(ADM.q)}" style="width:100%;margin-bottom:6px">
+    <input class="field" id="admQ" type="search" placeholder="Search by name" autocomplete="off" value="${esc(ADM.q)}" style="width:100%;margin-bottom:10px">
+    ${admFilters()}
     ${msg}
     <ul class="people" id="admList">${admRows()}</ul>
     ${ADM.done?"":`<div class="row" style="margin-top:12px"><button class="btn" id="admMore" ${ADM.loading?"disabled":""}>${ADM.loading?"Loading...":"Load more"}</button></div>`}
-    <p class="small muted" style="margin:12px 0 0">Search checks the users loaded so far. New people who sign in appear under Requested to join and can't use the app until an admin approves them. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
+    <p class="small muted" style="margin:12px 0 0">Search and the filters check the users loaded so far. New people who sign in appear under Requested to join and can't use the app until an admin approves them. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
   </div>
   <div class="panel"><h2>Exercises</h2>
     <p class="small muted" style="margin:0 0 10px">Change the name everyone sees for an exercise, for example Squat to Weighted Squat, and attach a YouTube tutorial (a watch link, youtu.be link or video id). A new name shows everywhere, in every plan and report, and logged history stays connected. Clear a link and save to remove the video.</p>
@@ -2787,6 +2804,7 @@ document.addEventListener("click",async e=>{
   if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
   if(t.id==="findMore"){loadFind();return}
   if(ds.bm){BOARD.metric=ds.bm;render();return}
+  if(ds.admf){ADM.f=ds.admf;render();return}
   if(ds.bp){BOARD.period=ds.bp;render();return}
   if(ds.ghu){GEN.hu=ds.ghu;render();return}
   if(ds.ggoal){GEN.goal=ds.ggoal;render();return}

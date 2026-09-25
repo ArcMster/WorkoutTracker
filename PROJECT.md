@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v28`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 24 Sept 2026, after the leaderboard, Advanced Planning, admin and exercise tutorials (cache `infinity-v29`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v28` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v29` |
 
 ## Files
 
@@ -53,7 +53,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 
 ### Admin
 - **Admin** tab in the top menu, shown only when `admins/{myUid}` exists.
-- Counts of users, admins and disabled accounts; user list from `profiles`, 50 per page, with name search over loaded pages; admin, disabled and "You" badges.
+- Counts of users, admins and disabled accounts; user list from `profiles`, 50 per page, with name search over loaded pages and filter chips (Active by default, All, Disabled, Admins, Trainers); admin, trainer, disabled and "You" badges. Trainers come from the `coaching` lists, which admins can only read once the rules allow it.
 - Per user, behind a confirmation: **Disable** / **Enable** and **Make admin** / **Remove admin**. Your own row has no actions. Each action stores `by` and `at` and adds an `audit` entry; the last 10 show under Recent actions.
 - Disabling is an app flag enforced by the rules, not a Firebase Auth disable. On sign-in the app reads `accounts/{myUid}` first; if disabled it shows one calm screen and loads nothing else, with no listeners and no writes.
 - Admins get no access to workout logs.
@@ -164,7 +164,7 @@ The whole script is one ES module inside `<script type="module">`.
   - `TR`: the trainee a trainer has open
   - `FIND`: the Find Buddies list and paging
   - `GEN`: Advanced Planning answers and the generated plan (not saved until the user saves it)
-  - `ADM`: admin status, user list and paging, admin and disabled sets, counts, recent actions
+  - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
   - `BOARD`: leaderboard metric and period, where it was opened from, and trainee counts loaded from their logs
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
   - main tabs: `dash` (Home), `log` (Workout), `plans`, `buddies`, `history` (Progress)
