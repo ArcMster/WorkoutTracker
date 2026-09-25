@@ -1410,9 +1410,11 @@ function fmtCardSet(x,from,ex){
 }
 /* a soft glow in the workout's colour behind the header */
 function glow(ctx,col){
-  const g=ctx.createRadialGradient(CW-140,190,0,CW-140,190,520);
-  g.addColorStop(0,col);g.addColorStop(1,"transparent");
-  ctx.save();ctx.globalAlpha=.2;ctx.fillStyle=g;ctx.fillRect(0,10,CW,760);ctx.restore();
+  /* fade to the same colour at zero alpha: "transparent" is transparent black and muddies the colour into a brown smudge */
+  const n=parseInt(col.slice(1),16),rgb=`${n>>16},${n>>8&255},${n&255}`;
+  const g=ctx.createRadialGradient(CW,0,0,CW,0,760);
+  g.addColorStop(0,`rgba(${rgb},.26)`);g.addColorStop(.45,`rgba(${rgb},.1)`);g.addColorStop(1,`rgba(${rgb},0)`);
+  ctx.fillStyle=g;ctx.fillRect(0,10,CW,770);
 }
 /* exercise rows: a number, the name, then every set as a pill that wraps; the best set is filled in the day colour.
    Laid out twice like the plan card: once to measure, once to draw. */
