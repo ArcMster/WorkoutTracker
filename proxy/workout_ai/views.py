@@ -4,19 +4,20 @@ The web app posts the Advanced form (body stats, goal text, days, strength, opti
 user's Firebase ID token. This view:
   1. checks the token and that the account is approved (same rule as firestore.rules isActive()),
   2. enforces a daily limit per user,
-  3. asks Claude for insights and a 7-day plan as JSON,
+  3. asks the AI (Google Gemini by default, or Claude) for insights and a 7-day plan as JSON,
   4. tidies the plan into the shape the app stores and returns it.
 
-Nothing the user sends (photo included) is stored. The Anthropic API key never leaves this server.
+Nothing the user sends (photo included) is stored. The AI API key never leaves this server.
 Settings are read from Django settings first, then environment variables (see PROXY_SETUP.md).
 """
+import base64
+import binascii
 import json
 import logging
 import os
 import re
 from datetime import timedelta
 
-import anthropic
 import requests
 from django.conf import settings
 from django.core.exceptions import RequestDataTooBig
@@ -38,8 +39,11 @@ def conf(name, default=None):
 FIREBASE_PROJECT_ID = conf("FIREBASE_PROJECT_ID", "")
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in conf("AI_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 DAILY_LIMIT = int(conf("AI_DAILY_LIMIT", "5"))
-MODEL = conf("AI_MODEL", "claude-opus-5")
-EFFORT = conf("AI_EFFORT", "medium")
+PROVIDER = conf("AI_PROVIDER", "gemini").lower()  # "gemini" or "claude"
+API_KEY = (conf("GEMINI_API_KEY") or conf("GOOGLE_API_KEY")) if PROVIDER == "gemini" else conf("ANTHROPIC_API_KEY")
+MODEL = conf("AI_MODEL", "gemini-3.8-flash" if PROVIDER == "gemini" else "claude-opus-5")
+EFFORT = conf("AI_EFFORT", "medium")  # Claude only
+TIMEOUT = 170  # seconds: photos plus thinking can take a minute or two; stay under PythonAnywhere's request limit
 REQUIRE_ACTIVE = str(conf("AI_REQUIRE_ACTIVE", "1")) != "0"
 MAX_PHOTO_CHARS = 2_000_000  # base64 characters; the app sends about 300 KB
 
@@ -53,12 +57,11 @@ _google_request = google_requests.Request(session=_http)
 _client = None
 
 
-def client():
-    global _client
-    if _client is None:
-        # Photos plus thinking can take a minute or two; stay under PythonAnywhere's request limit.
-        _client = anthropic.Anthropic(api_key=conf("ANTHROPIC_API_KEY"), timeout=170.0, max_retries=1)
-    return _client
+class AIError(Exception):
+    """A failed AI call, with the HTTP status and message to send back to the app."""
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
 
 
 # ---------- HTTP helpers ----------
@@ -79,7 +82,7 @@ def fail(request, status, message):
 
 
 def health(request):
-    return cors(JsonResponse({"ok": True, "model": MODEL, "configured": bool(conf("ANTHROPIC_API_KEY") and FIREBASE_PROJECT_ID)}), request)
+    return cors(JsonResponse({"ok": True, "provider": PROVIDER, "model": MODEL, "configured": bool(API_KEY and FIREBASE_PROJECT_ID)}), request)
 
 
 # ---------- who is asking ----------
@@ -222,7 +225,7 @@ def text_field(v, n):
 
 
 def describe(data):
-    """The form answers as plain text for Claude. Everything is cleaned and length-limited here."""
+    """The form answers as plain text for the AI. Everything is cleaned and length-limited here."""
     unit = "lb" if data.get("unit") == "lb" else "kg"
     days = data.get("days")
     days = days if isinstance(days, int) and 1 <= days <= 7 else 4
@@ -260,7 +263,7 @@ def clamp(v, lo, hi, default):
 
 
 def normalize(result):
-    """Claude's JSON into the app's plan shape: 7 days, Monday first, values in range."""
+    """The AI's JSON into the app's plan shape: 7 days, Monday first, values in range."""
     ins = result.get("insights") or {}
     plan = result.get("plan") or {}
     by_day = {}
@@ -300,6 +303,106 @@ def normalize(result):
     }
 
 
+# ---------- the AI call ----------
+# Each returns the reply's JSON text. Only the package for the chosen provider needs to be installed.
+
+def ask_gemini(photo, text):
+    global _client
+    from google import genai
+    from google.genai import errors, types
+    if _client is None:
+        _client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=TIMEOUT * 1000))
+    parts = []
+    if photo:
+        parts.append(types.Part.from_bytes(data=photo[1], mime_type=photo[0]))
+    parts.append(text)
+    try:
+        response = _client.models.generate_content(
+            model=MODEL,
+            contents=parts,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM,
+                response_mime_type="application/json",
+                response_json_schema=SCHEMA,
+                max_output_tokens=16000,
+            ),
+        )
+    except errors.ClientError as e:  # 4xx
+        log.warning("Gemini error %s %s: %s", e.code, e.status, e.message)
+        if e.code == 429:
+            raise AIError(503, "AI planning has reached its limit for now. Try again later.")
+        if e.code in (401, 403) or "api key" in str(e.message).lower() or "API_KEY" in str(e.details):
+            raise AIError(503, "AI planning isn't set up correctly on the server.")
+        if e.code == 404:
+            raise AIError(503, "The AI model on the server isn't available. Check AI_MODEL.")
+        raise AIError(400, "The AI couldn't read that request. If you added a photo, try a different one.")
+    except errors.APIError as e:  # 5xx
+        log.warning("Gemini error %s: %s", e.code, e.message)
+        raise AIError(502, "The AI service is having trouble right now. Try again in a minute.")
+    except Exception:  # timeouts and connection errors
+        log.exception("couldn't reach Gemini")
+        raise AIError(504, "Couldn't reach the AI service. Try again in a minute.")
+
+    feedback = response.prompt_feedback
+    if feedback and feedback.block_reason:
+        log.info("Gemini blocked the prompt: %s", feedback.block_reason)
+        raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
+    reason = str(response.candidates[0].finish_reason) if response.candidates else ""
+    if "MAX_TOKENS" in reason:
+        raise AIError(502, "The plan came back incomplete. Try again.")
+    if not response.text:
+        log.info("Gemini returned no text: %s", reason)
+        raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
+    u = response.usage_metadata
+    if u:
+        log.info("Gemini tokens: %s in, %s out", u.prompt_token_count, u.candidates_token_count)
+    return response.text
+
+
+def ask_claude(photo, text):
+    global _client
+    import anthropic
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=API_KEY, timeout=float(TIMEOUT), max_retries=1)
+    content = []
+    if photo:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": photo[0],
+                                                     "data": base64.b64encode(photo[1]).decode()}})
+    content.append({"type": "text", "text": text})
+    try:
+        response = _client.beta.messages.create(
+            model=MODEL,
+            max_tokens=16000,
+            system=SYSTEM,
+            messages=[{"role": "user", "content": content}],
+            thinking={"type": "adaptive"},
+            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+        )
+    except anthropic.BadRequestError as e:
+        log.warning("bad request: %s", e.message)
+        raise AIError(400, "The AI couldn't read that request. If you added a photo, try a different one.")
+    except anthropic.AuthenticationError:
+        log.error("Anthropic API key rejected")
+        raise AIError(503, "AI planning isn't set up correctly on the server.")
+    except anthropic.RateLimitError:
+        raise AIError(503, "AI planning is busy right now. Try again in a minute.")
+    except anthropic.APIStatusError as e:
+        log.warning("Anthropic API error %s: %s", e.status_code, e.message)
+        raise AIError(502, "The AI service is having trouble right now. Try again in a minute.")
+    except anthropic.APIConnectionError:
+        log.exception("couldn't reach Anthropic")
+        raise AIError(504, "Couldn't reach the AI service. Try again in a minute.")
+
+    if response.stop_reason == "refusal":
+        raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
+    if response.stop_reason == "max_tokens":
+        raise AIError(502, "The plan came back incomplete. Try again.")
+    log.info("Claude tokens: %s in, %s out", response.usage.input_tokens, response.usage.output_tokens)
+    return next((b.text for b in reversed(response.content) if b.type == "text"), "")
+
+
 # ---------- the endpoint ----------
 
 @csrf_exempt
@@ -308,7 +411,7 @@ def plan(request):
         return cors(JsonResponse({}), request)
     if request.method != "POST":
         return fail(request, 405, "Use POST.")
-    if not conf("ANTHROPIC_API_KEY") or not FIREBASE_PROJECT_ID:
+    if not API_KEY or not FIREBASE_PROJECT_ID or PROVIDER not in ("gemini", "claude"):
         return fail(request, 503, "AI planning isn't set up on the server yet.")
 
     try:
@@ -336,59 +439,30 @@ def plan(request):
         return fail(request, 400, "Describe your goal.")
 
     answers = describe(data)
-    content = []
-    photo = data.get("photo")
-    if isinstance(photo, dict) and photo.get("data"):
-        media = photo.get("type") if photo.get("type") in PHOTO_TYPES else "image/jpeg"
-        b64 = str(photo["data"])
-        if len(b64) > MAX_PHOTO_CHARS:
+    photo = None
+    p = data.get("photo")
+    if isinstance(p, dict) and p.get("data"):
+        if len(str(p["data"])) > MAX_PHOTO_CHARS:
             return fail(request, 413, "That photo is too large. Try a smaller one.")
-        content.append({"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}})
-        content.append({"type": "text", "text": "The image above is the person's photo, for training insights.\n\n" + answers})
-    else:
-        content.append({"type": "text", "text": "No photo was given.\n\n" + answers})
+        try:
+            photo = (p.get("type") if p.get("type") in PHOTO_TYPES else "image/jpeg",
+                     base64.b64decode(str(p["data"]), validate=True))
+        except (binascii.Error, ValueError):
+            return fail(request, 400, "Couldn't read that photo. Try a different one.")
+    text = ("The attached image is the person's photo, for training insights." if photo else "No photo was given.") + "\n\n" + answers
 
     record = PlanRequest.objects.create(uid=uid)
     try:
-        response = client().beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": content}],
-            thinking={"type": "adaptive"},
-            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-    except anthropic.BadRequestError as e:
-        log.warning("bad request: %s", e.message)
-        return fail(request, 400, "Claude couldn't read that request. If you added a photo, try a different one.")
-    except anthropic.AuthenticationError:
-        log.error("Anthropic API key rejected")
-        return fail(request, 503, "AI planning isn't set up correctly on the server.")
-    except anthropic.RateLimitError:
-        return fail(request, 503, "AI planning is busy right now. Try again in a minute.")
-    except anthropic.APIStatusError as e:
-        log.warning("Anthropic API error %s: %s", e.status_code, e.message)
-        return fail(request, 502, "Claude is having trouble right now. Try again in a minute.")
-    except anthropic.APIConnectionError:
-        log.exception("couldn't reach Anthropic")
-        return fail(request, 504, "Couldn't reach Claude. Try again in a minute.")
-
-    if response.stop_reason == "refusal":
-        return fail(request, 422, "Claude couldn't help with that request. Try rewording your goal or using a different photo.")
-    if response.stop_reason == "max_tokens":
-        return fail(request, 502, "The plan came back incomplete. Try again.")
-    text = next((b.text for b in reversed(response.content) if b.type == "text"), "")
-    try:
-        result = normalize(json.loads(text))
+        reply = (ask_gemini if PROVIDER == "gemini" else ask_claude)(photo, text)
+        result = normalize(json.loads(reply))
+    except AIError as e:
+        return fail(request, e.status, str(e))
     except (ValueError, AttributeError, TypeError):
-        log.warning("unparseable reply: %.500s", text)
+        log.warning("unparseable reply: %.500s", reply)
         return fail(request, 502, "The plan came back in a form the app couldn't read. Try again.")
 
     record.ok = True
     record.save(update_fields=["ok"])
     result["remaining"] = max(0, DAILY_LIMIT - used - 1)
-    result["model"] = response.model
-    log.info("plan for %s: %s in, %s out", uid, response.usage.input_tokens, response.usage.output_tokens)
+    result["model"] = MODEL
     return cors(JsonResponse(result), request)

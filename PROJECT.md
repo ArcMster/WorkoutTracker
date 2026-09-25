@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 25 Sept 2026, after the leaderboard, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v30`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 25 Sept 2026, after the leaderboard, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v31`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -72,8 +72,8 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Advanced (AI planning)
 - Its own top tab, **Advanced** (view `gen`), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
 - Inputs: body weight, height (cm, or ft and in), a free-text goal (up to 1500 characters), days per week (2 to 6), Beginner or best sets (bench, squat, deadlift, overhead press) and an optional photo, scaled to 1024 px on the long edge as JPEG.
-- `genPlan()` POSTs these to `AI_PROXY_URL` (a named export of `firebase-config.js`) with the Firebase ID token, plus `knownNames()` so Claude reuses existing exercise names.
-- The proxy (`proxy/workout_ai`, Django, runs on PythonAnywhere) verifies the token, checks the account is active the same way as `isActive()` in the rules (reading Firestore with the user's own token), enforces `AI_DAILY_LIMIT` per 24 hours, calls Claude (`claude-opus-5`, adaptive thinking, medium effort, JSON-schema output, server-side refusal fallback) and normalizes the reply to 7 days in the app's plan shape. It stores no inputs or photos. Setup and settings: `PROXY_SETUP.md`.
+- `genPlan()` POSTs these to `AI_PROXY_URL` (a named export of `firebase-config.js`) with the Firebase ID token, plus `knownNames()` so the AI reuses existing exercise names.
+- The proxy (`proxy/workout_ai`, Django, runs on PythonAnywhere) verifies the token, checks the account is active the same way as `isActive()` in the rules (reading Firestore with the user's own token), enforces `AI_DAILY_LIMIT` per 24 hours, calls the AI with a JSON schema: Google Gemini (`gemini-3.8-flash`, `google-genai` SDK) by default, or Claude (`claude-opus-5`, adaptive thinking, server-side refusal fallback) with `AI_PROVIDER=claude`, and normalizes the reply to 7 days in the app's plan shape. It stores no inputs or photos. Setup and settings: `PROXY_SETUP.md`.
 - The result screen shows insights (summary, photo, how the week works, strengths, focus, cautions), then the read-only plan. **Save to my plans**, **Download PDF** (insights, then an overview page, then a page per training day), and **Save as image** in installed iOS apps. Nothing is written until Save is pressed.
 - The system prompt keeps it to training advice (no calorie targets or diets) and keeps photo comments to training-relevant, respectful observations.
 - Signed out, guest mode, or `AI_PROXY_URL` empty: the tab says so instead of showing the form.

@@ -24,5 +24,5 @@ export default {
 
 /* Address of the AI planning proxy (the Advanced tab), for example
    "https://yourname.pythonanywhere.com/ai/plan/". Leave empty to switch AI planning off.
-   See PROXY_SETUP.md. This is not a secret: the Anthropic key stays on the proxy. */
+   See PROXY_SETUP.md. This is not a secret: the AI API key stays on the proxy. */
 export const AI_PROXY_URL = "https://pssreenath.pythonanywhere.com/ai/health/";

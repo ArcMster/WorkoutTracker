@@ -1,9 +1,9 @@
 # AI planning proxy on PythonAnywhere
 
-The **Advanced** tab sends the form (body weight, height, goal, days per week, best lifts and an optional photo) to Claude. The browser can't call Claude directly, because that would expose your Anthropic API key to everyone. So the app sends the request to a small proxy in your Django project on PythonAnywhere. The proxy holds the key, calls Claude and sends the plan back.
+The **Advanced** tab sends the form (body weight, height, goal, days per week, best lifts and an optional photo) to an AI model. By default that's **Google Gemini**. The browser can't call Gemini directly, because that would expose your API key to everyone. So the app sends the request to a small proxy in your Django project on PythonAnywhere. The proxy holds the key, calls Gemini and sends the plan back.
 
 ```
-App (GitHub Pages) ──POST + Firebase sign-in token──▶ Django on PythonAnywhere ──▶ Claude API
+App (GitHub Pages) ──POST + Firebase sign-in token──▶ Django on PythonAnywhere ──▶ Gemini API
                    ◀────────── insights + 7-day plan ───────────┘
 ```
 
@@ -11,11 +11,13 @@ What the proxy does on every request:
 
 1. **Checks who is asking.** It verifies the Firebase ID token the app sends (Google's public keys, no service account needed).
 2. **Checks the account is approved.** It applies the same rule as `isActive()` in `firestore.rules`, reading `accounts/{uid}` (or `profiles/{uid}` for older members) from Firestore with the user's own token. Pending and disabled accounts get a 403.
-3. **Applies a daily limit** per user (default 5 successful plans per 24 hours), so nobody can run up your bill.
-4. **Calls Claude** (`claude-opus-5`, adaptive thinking, medium effort) with a JSON schema, so the reply is always valid JSON. Server-side fallback is on (`fallbacks: "default"`): if Claude Opus 5's safety classifier declines a request, Anthropic re-runs it on its recommended fallback model instead of failing.
+3. **Applies a daily limit** per user (default 5 successful plans per 24 hours). This keeps you inside Gemini's free-tier quota and stops one person using it all.
+4. **Calls Gemini** (`gemini-3.8-flash`) with a JSON schema, so the reply is always JSON in the expected shape.
 5. **Tidies the reply** into the app's plan format: exactly 7 days from Monday, known day types and units, and sets and reps in range.
 
 The proxy stores nothing the user sends, photo included. It keeps only a row per request (user id, time, success) for the daily limit.
+
+It can use Claude instead of Gemini with one setting (`AI_PROVIDER`, below), if you get an Anthropic key later.
 
 ## Files
 
@@ -23,27 +25,29 @@ Everything is in `proxy/` in this repo:
 
 | File | What it is |
 | --- | --- |
-| `proxy/requirements.txt` | Python packages: `anthropic`, `google-auth`, `requests` |
+| `proxy/requirements.txt` | Python packages: `google-genai`, `google-auth`, `requests` |
 | `proxy/workout_ai/` | A Django app to drop into your project: `views.py` (the endpoint), `urls.py`, `models.py`, `migrations/` |
 
 ## What you need
 
-- An **Anthropic API key** with credit: https://console.anthropic.com > **API keys** > Create key. Add credit under **Billing**.
+- **A Gemini API key.** Get one at https://aistudio.google.com/apikey > **Create API key**. It starts with `AIza`.
+  - **Not the Firebase key.** The `apiKey` in `firebase-config.js` also starts with `AIza`, but it's public (it's in your website) and isn't set up for Gemini. Create a separate key in AI Studio and keep it secret.
+  - If you already have a Google Cloud API key you want to use, enable the **Generative Language API** for its project in the Google Cloud console. An AI Studio key is simpler.
 - Your **Firebase project id**. It's `projectId` in `firebase-config.js` (for this app, `fitness-tracker-472ec`).
 - Your GitHub Pages address, for example `https://arcmster.github.io` (just the origin: no path, no trailing slash).
-- Your Django web app on PythonAnywhere running **Python 3.10 or newer** (see the **Web** tab). The current `anthropic` package needs 3.10+.
+- Your Django web app on PythonAnywhere running **Python 3.10 or newer** (see the **Web** tab). The `google-genai` package needs 3.10+.
 
 ## Settings
 
 | Name | Required | Example | What it does |
 | --- | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | yes | `sk-ant-...` | Your Anthropic key. Keep it secret. |
+| `GEMINI_API_KEY` | yes | `AIza...` | Your Gemini key from AI Studio. Keep it secret. (`GOOGLE_API_KEY` is accepted too.) |
 | `FIREBASE_PROJECT_ID` | yes | `fitness-tracker-472ec` | Sign-in tokens must come from this Firebase project. |
 | `AI_ALLOWED_ORIGINS` | yes | `https://arcmster.github.io` | Sites allowed to call the proxy (CORS). Comma-separated for more than one, for example add `http://localhost:8000` for testing. |
 | `AI_DAILY_LIMIT` | no | `5` | Successful AI plans per user per 24 hours. |
-| `AI_MODEL` | no | `claude-opus-5` | Claude model. |
-| `AI_EFFORT` | no | `medium` | `low`, `medium` or `high`. Lower is faster and cheaper, higher is more thorough. |
+| `AI_MODEL` | no | `gemini-3.8-flash` | The model. `gemini-3.5-flash-lite` is cheaper and faster, and less thorough. |
 | `AI_REQUIRE_ACTIVE` | no | `1` | Set `0` to skip the approved-account check. Not recommended. |
+| `AI_PROVIDER` | no | `gemini` | `gemini` (default) or `claude`. For `claude`, also install `anthropic` and set `ANTHROPIC_API_KEY`. `AI_MODEL` then defaults to `claude-opus-5`, and `AI_EFFORT` (`low`, `medium`, `high`) applies. |
 
 The proxy reads each one from Django `settings` first, then from environment variables.
 
@@ -78,13 +82,13 @@ Open a **Bash console**. If your web app uses a virtualenv (the **Web** tab show
 
 ```bash
 workon <your-virtualenv-name>
-pip install anthropic google-auth requests
+pip install google-genai google-auth requests
 ```
 
 With no virtualenv, install for your web app's Python version, for example 3.10:
 
 ```bash
-pip3.10 install --user anthropic google-auth requests
+pip3.10 install --user google-genai google-auth requests
 ```
 
 ### 3. Register the app and its URL
@@ -126,7 +130,7 @@ Keep the API key out of `settings.py` if that file is in git. The simplest safe 
 
 ```python
 import os
-os.environ["ANTHROPIC_API_KEY"] = "sk-ant-..."
+os.environ["GEMINI_API_KEY"] = "AIza..."          # from aistudio.google.com, not the Firebase key
 os.environ["FIREBASE_PROJECT_ID"] = "fitness-tracker-472ec"
 os.environ["AI_ALLOWED_ORIGINS"] = "https://arcmster.github.io"
 os.environ["AI_DAILY_LIMIT"] = "5"
@@ -146,10 +150,10 @@ python manage.py migrate workout_ai
 On the **Web** tab, click **Reload**. Then open `https://yourname.pythonanywhere.com/ai/health/` in a browser. You should see:
 
 ```json
-{"ok": true, "model": "claude-opus-5", "configured": true}
+{"ok": true, "provider": "gemini", "model": "gemini-3.8-flash", "configured": true}
 ```
 
-`"configured": false` means `ANTHROPIC_API_KEY` or `FIREBASE_PROJECT_ID` isn't being read. Check step 4, then reload again.
+`"configured": false` means `GEMINI_API_KEY` or `FIREBASE_PROJECT_ID` isn't being read. Check step 4, then reload again.
 
 ### 7. Point the app at the proxy
 
@@ -163,9 +167,15 @@ Commit and push. (Bump `CACHE` in `sw.js` when you change files, so installed ap
 
 ## Free-account notes
 
-- **Outbound internet is limited to a whitelist** on free PythonAnywhere accounts. The proxy needs `api.anthropic.com` (Claude) and `www.googleapis.com` / `firestore.googleapis.com` (sign-in keys and account check). Check them at https://www.pythonanywhere.com/whitelist/. If one is missing, the app shows "Couldn't reach Claude" or "Couldn't check your account", and the **error log** (Web tab) shows a proxy or connection error. You can ask PythonAnywhere support to add a site. Paid accounts have no whitelist.
-- **Time limit.** A plan usually takes 30 seconds to 2 minutes (longer with a photo). The proxy stops waiting for Claude after 170 seconds. If you see timeouts, set `AI_EFFORT` to `low`.
+- **Outbound internet is limited to a whitelist** on free PythonAnywhere accounts. The proxy needs `generativelanguage.googleapis.com` (Gemini), plus `www.googleapis.com` and `firestore.googleapis.com` (sign-in keys and account check). Check them at https://www.pythonanywhere.com/whitelist/. If one is missing, the app shows "Couldn't reach the AI service" or "Couldn't check your account", and the **error log** (Web tab) shows a proxy or connection error. You can ask PythonAnywhere support to add a site. Paid accounts have no whitelist.
+- **Time limit.** A plan usually takes 15 seconds to a minute (longer with a photo). The proxy stops waiting after 170 seconds.
 - **Keep the web app alive.** Free web apps expire unless you click **Run until 3 months from today** on the Web tab now and then.
+
+## Gemini free tier: limits and privacy
+
+- **Quota.** The free tier has per-minute and per-day request limits per model (shown in AI Studio under your key's usage). When the quota runs out, users see "AI planning has reached its limit for now". Lower `AI_DAILY_LIMIT`, switch `AI_MODEL` to `gemini-3.5-flash-lite`, or turn on billing in AI Studio for higher limits.
+- **Privacy.** On the free tier, **Google may use what's sent (answers and photos) to improve its products**, and people may review it. On the paid tier, it doesn't. The Advanced tab says this next to the photo. If that's not acceptable for your users, turn on billing for the key.
+- **Cost on the paid tier.** A plan is a few thousand tokens in and out, so a fraction of a US cent to a couple of cents with Flash models. Check AI Studio for current prices.
 
 ## Testing from a console
 
@@ -183,19 +193,16 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 | --- | --- |
 | 401 | No token, or it expired or belongs to another Firebase project |
 | 403 | The account is pending or disabled |
-| 429 | The user reached the daily limit |
+| 429 | The user reached the daily limit (`AI_DAILY_LIMIT`) |
 | 413 | The photo is too large |
-| 422 | Claude declined the request |
-| 502 / 504 | Claude or Firestore couldn't be reached, or the reply was unusable |
-| 503 | The server is missing its settings, or the Anthropic key was rejected |
+| 400 | The AI couldn't read the request or photo |
+| 422 | The AI declined the request (safety filter) |
+| 502 / 504 | The AI or Firestore couldn't be reached, or the reply was unusable |
+| 503 | The server is missing settings, the key was rejected, the model name is wrong, or the Gemini quota ran out (the error log says which) |
 
-## Cost
+## Changing what the AI does
 
-The Anthropic console bills each plan: the text, the photo (if any, at about 1024 px) and Claude's thinking and reply. With `claude-opus-5` at medium effort, expect roughly US$0.10 to $0.30 per plan. **Usage** in the Anthropic console shows actual spend. You can also set a monthly spend limit there. `AI_DAILY_LIMIT` caps each user.
-
-## Changing what Claude does
-
-The instructions are `SYSTEM` in `proxy/workout_ai/views.py`. Two choices made there that you can change:
+The instructions are `SYSTEM` in `proxy/workout_ai/views.py`. The same text is used for Gemini and Claude. Two choices made there that you can change:
 
 - **Training advice only.** No calorie targets, diets or supplements, same as before. Edit the "Training advice only" line to allow nutrition advice.
 - **Photo comments** are limited to training-relevant things (build, muscle balance, posture), without body-fat guesses or appearance judgments.

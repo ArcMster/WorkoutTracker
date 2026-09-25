@@ -2053,12 +2053,12 @@ function usePlan(id){
 
 /* ---------- Advanced (AI planning) ----------
    The Advanced tab sends body stats, a goal in the user's words, days per week, best lifts and an optional
-   photo to Claude through the proxy in AI_PROXY (firebase-config.js), with the user's Firebase ID token.
-   Claude returns insights and a 7-day plan. The proxy keeps the API key, checks the account is approved,
+   photo to an AI model (Google Gemini by default, or Claude) through the proxy in AI_PROXY (firebase-config.js),
+   with the user's Firebase ID token. The AI returns insights and a 7-day plan. The proxy keeps the API key, checks the account is approved,
    limits requests per day and stores nothing. Setup: PROXY_SETUP.md. */
 const GEN_LIFTS=[["bench","Bench press"],["squat","Squat"],["deadlift","Deadlift"],["ohp","Overhead press"]];
 const GEN_NOTE="This is a general training plan, not medical advice. If you have an injury or a health condition, check with a professional before you start.";
-const GEN_PHOTO_MAX=1024;/* long edge in px: plenty for Claude, and keeps the upload small */
+const GEN_PHOTO_MAX=1024;/* long edge in px: plenty for the AI, and keeps the upload small */
 const GEN={wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"",days:4,level:"beginner",lifts:{},photo:null,plan:null,ins:null,info:"",err:"",busy:false,left:null};
 
 function genRead(){
@@ -2153,18 +2153,18 @@ function genPrintHtml(){
     <table><thead><tr><th>Exercise</th><th>Sets</th><th>Target</th></tr></thead><tbody>
     ${d.ex.map(x=>`<tr><td>${esc(dn(x.n))}</td><td>${x.s}</td><td>${esc(genTarget(x))}</td></tr>`).join("")}</tbody></table>
     ${d.note?`<p class="gp-note">${esc(d.note)}</p>`:""}</section>`).join("");
-  return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Made with Claude ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
+  return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Made with AI ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
     ${genInsightsHtml("h3")}
     <h2>Your week</h2><table><thead><tr><th>Day</th><th>Workout</th><th>Focus</th></tr></thead><tbody>${week}</tbody></table>
     <p class="gp-note">${GEN_NOTE}</p>${days}`;
 }
 function renderGen(){
   const u=S.settings.unit;
-  const head=`<header class="greet"><h1>Advanced</h1><p>An AI plan from Claude, built around your body, your goal and your strength.</p></header>`;
+  const head=`<header class="greet"><h1>Advanced</h1><p>An AI-made plan built around your body, your goal and your strength.</p></header>`;
   if(!CONFIGURED||!uid)return head+`<div class="panel"><p class="muted" style="margin:0">Sign in with Google to make an AI plan.</p></div>`;
   if(!AI_PROXY)return head+`<div class="panel"><p class="muted" style="margin:0">AI planning isn't set up yet. The app owner needs to add the planning server address (see PROXY_SETUP.md).</p></div>`;
   if(GEN.busy)return head+`<div class="panel gen-busy" role="status" aria-live="polite"><span class="gen-spin" aria-hidden="true"></span>
-    <div><b>Claude is working on your plan</b><p class="small muted" style="margin:4px 0 0">It's reading your answers${GEN.photo?" and your photo":""}. This usually takes 30 seconds to 2 minutes. Keep this screen open.</p></div></div>`;
+    <div><b>The AI is working on your plan</b><p class="small muted" style="margin:4px 0 0">It's reading your answers${GEN.photo?" and your photo":""}. This usually takes 30 seconds to 2 minutes. Keep this screen open.</p></div></div>`;
   if(GEN.plan){
     const p=GEN.plan,iosApp=isIOS&&standalone();
     return head+`<div class="panel">
@@ -2195,7 +2195,7 @@ function renderGen(){
     ${GEN.photo?`<div class="gen-photo"><img src="${GEN.photo}" alt="Your photo"><div class="row"><button class="btn small" id="genPhotoBtn">Change photo</button><button class="btn small" id="genPhotoClear">Remove</button></div></div>`
       :`<button class="btn" id="genPhotoBtn">Add a photo</button>`}
     <input type="file" id="genPhotoFile" accept="image/*" hidden>
-    <p class="small muted" style="margin:10px 0 0">Optional. A full-body photo in fitted clothes, standing straight, in good light, lets Claude comment on your build, balance and posture. It's sent to Claude for this plan only and never saved.</p></div>
+    <p class="small muted" style="margin:10px 0 0">Optional. A full-body photo in fitted clothes, standing straight, in good light, lets the AI comment on your build, balance and posture. It's sent to Google's Gemini AI to make this plan. This app never stores it, but on Google's free tier Google may use what's sent to improve its products.</p></div>
   <div class="panel"><h2>Days per week</h2><div class="seg" role="group" aria-label="Days per week">${[2,3,4,5,6].map(n=>opt("gdays",n,GEN.days,n)).join("")}</div></div>
   <div class="panel"><h2>Strength</h2><div class="seg" role="group" aria-label="Strength">${opt("glevel","beginner",GEN.level,"Beginner")}${opt("glevel","lifts",GEN.level,"I know my best lifts")}</div>
     ${GEN.level==="lifts"?`<p class="small muted" style="margin:12px 0 10px">Your best recent set of each, in ${u}. Leave any you don't do blank.</p>
@@ -2203,8 +2203,8 @@ function renderGen(){
       :`<p class="small muted" style="margin:10px 0 0">No numbers needed. The plan starts light and adds weight week by week.</p>`}
   </div>
   ${GEN.err?`<p class="msg" style="color:var(--push)">${esc(GEN.err)}</p>`:""}
-  <div class="row"><button class="btn primary" id="genGo">Make my plan with Claude</button></div>
-  <p class="small muted">Your answers${GEN.photo?" and photo":""} are sent to Claude (Anthropic) to make the plan. ${GEN_NOTE}</p>`;
+  <div class="row"><button class="btn primary" id="genGo">Make my plan with AI</button></div>
+  <p class="small muted">Your answers${GEN.photo?" and photo":""} are sent to Google's Gemini AI to make the plan. ${GEN_NOTE}</p>`;
 }
 
 /* dashboard */
