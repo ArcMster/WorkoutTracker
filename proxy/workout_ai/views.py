@@ -4,7 +4,7 @@ The web app posts the Advanced form (body stats, goal text, days, strength, opti
 user's Firebase ID token. This view:
   1. checks the token and that the account is approved (same rule as firestore.rules isActive()),
   2. enforces a daily limit per user,
-  3. asks the AI (Google Gemini by default, or Claude) for insights and a 7-day plan as JSON,
+  3. asks the AI (Google Gemini by default, or Claude) for insights, a 7-day plan and, if asked, a diet plan as JSON,
   4. tidies the plan into the shape the app stores and returns it.
 
 Nothing the user sends (photo included) is stored. The AI API key never leaves this server.
@@ -50,6 +50,7 @@ MAX_PHOTO_CHARS = 2_000_000  # base64 characters; the app sends about 300 KB
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 DAY_TYPES = ["push", "pull", "legs", "upper", "lower", "full", "legscore", "core", "cardio", "other", "rest"]
 UNITS = ["", "sec", "min", "per leg", "per side"]
+DIETS = {"kerala": "Kerala", "south": "South Indian", "north": "North Indian"}
 PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 _http = requests.Session()
@@ -130,8 +131,8 @@ You write a one-week training plan that repeats weekly, plus short, honest insig
 How to write:
 - Plain, friendly English. Short sentences. Speak to the person as "you".
 - Insights must be specific to what they told you and, if given, what the photo shows. No generic filler.
-- Training advice only: no calorie targets, diets, supplements or nutrition plans. You may say that \
-nutrition and sleep matter, without numbers.
+- Unless the answers ask for a diet plan: training advice only, with no calorie targets, diets, \
+supplements or nutrition plans. You may say that nutrition and sleep matter, without numbers.
 - Not medical advice. If they mention an injury, pain or a health condition, adapt the plan conservatively \
 and tell them to check with a professional.
 
@@ -159,6 +160,53 @@ of their estimated max for the rep range, rounded down to 2.5 kg or 5 lb). Begin
 light and add weight once they hit the top of the range on every set.
 - Each training day gets a short focus line and a practical note (warm-up, progression, form cue).
 - Plan name: short, under 40 characters, describing the plan (for example "Upper/Lower strength, 4 days")."""
+
+# Added to SYSTEM when the person asks for a diet plan.
+SYSTEM_DIET = """
+
+The diet plan (only when the answers ask for one):
+- One day of eating that fits their goal, training and body weight, in the regional cuisine they chose. \
+Use everyday home foods from that cuisine (for Kerala, for example: puttu, appam, idiyappam, kanji, \
+matta rice, fish curry, thoran, avial, kadala curry), in portions a person can measure at home \
+(cups, pieces, grams, palm-sized servings).
+- Give an approximate daily calorie target and protein target in grams, worked out from their weight, \
+height and goal. Round sensibly and say it's a starting point to adjust by how their weight changes.
+- 4 to 6 meals (for example early morning, breakfast, lunch, evening snack, dinner, and a pre- or \
+post-workout meal). For each: a time of day and 2 or 3 interchangeable options, each a complete meal \
+with portions, so the week doesn't get repetitive.
+- If their goal mentions being vegetarian, eggetarian, vegan, allergies, foods they avoid or a budget, \
+follow it strictly. Otherwise include both vegetarian and non-vegetarian options that are common in that cuisine.
+- Whole foods first. No crash diets, no meal replacement products, no supplements beyond saying a \
+protein powder is optional if they struggle to reach the protein target.
+- 3 to 6 short practical tips: water, cooking oil (coconut oil is fine in moderation), rice portions, \
+eating out, festivals and so on, whatever helps most for this person and cuisine.
+- Not medical or dietitian advice: if they mention diabetes, a kidney or heart condition, pregnancy or \
+an eating disorder, keep the plan general and tell them to check with a doctor or dietitian."""
+
+DIET_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string", "description": "2-3 sentences: the approach and why it suits their goal."},
+        "calories": {"type": "integer", "description": "Approximate daily calories (kcal)."},
+        "protein": {"type": "integer", "description": "Daily protein target in grams."},
+        "meals": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "For example Breakfast."},
+                    "time": {"type": "string", "description": "For example 8:00 am."},
+                    "options": {"type": "array", "items": {"type": "string"}, "description": "2 or 3 complete meals with portions."},
+                },
+                "required": ["name", "time", "options"],
+                "additionalProperties": False,
+            },
+        },
+        "tips": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["summary", "calories", "protein", "meals", "tips"],
+    "additionalProperties": False,
+}
 
 SCHEMA = {
     "type": "object",
@@ -243,6 +291,9 @@ def describe(data):
     else:
         lines.append("Strength: beginner, no best lifts given.")
     lines.append(f"Weights in the plan notes should be in {unit}.")
+    diet = DIETS.get(data.get("diet"))
+    if diet:
+        lines.append(f"Diet plan: yes, please include one in {diet} cuisine.")
     known = data.get("exercises") if isinstance(data.get("exercises"), list) else []
     known = [text_field(x, 60) for x in known[:250] if isinstance(x, str) and x.strip()]
     if known:
@@ -260,6 +311,28 @@ def clamp(v, lo, hi, default):
     except (TypeError, ValueError):
         return default
     return max(lo, min(hi, v))
+
+
+def normalize_diet(d):
+    """The AI's diet plan with values in range, or None if it's missing or empty."""
+    if not isinstance(d, dict):
+        return None
+    meals = []
+    for m in (d.get("meals") if isinstance(d.get("meals"), list) else [])[:8]:
+        if not isinstance(m, dict):
+            continue
+        options = clean_list(m.get("options"), 4, 400)
+        if options:
+            meals.append({"name": text_field(m.get("name"), 40) or "Meal", "time": text_field(m.get("time"), 30), "options": options})
+    if not meals:
+        return None
+    return {
+        "summary": text_field(d.get("summary"), 800),
+        "calories": clamp(d.get("calories"), 0, 6000, 0),
+        "protein": clamp(d.get("protein"), 0, 400, 0),
+        "meals": meals,
+        "tips": clean_list(d.get("tips"), 8, 300),
+    }
 
 
 def normalize(result):
@@ -300,13 +373,14 @@ def normalize(result):
             "cautions": clean_list(ins.get("cautions")),
         },
         "plan": {"name": text_field(plan.get("name"), 60) or "AI plan", "overview": text_field(plan.get("overview"), 600), "days": days},
+        "diet": normalize_diet(result.get("diet")),
     }
 
 
 # ---------- the AI call ----------
 # Each returns the reply's JSON text. Gemini needs only requests; Claude needs the anthropic package.
 
-def ask_gemini(photo, text):
+def ask_gemini(photo, text, system, schema):
     """Gemini's REST API through requests, so it runs on any Python (the google-genai SDK needs 3.10+).
     The request body is the same one google-genai sends for generate_content."""
     parts = []
@@ -314,11 +388,11 @@ def ask_gemini(photo, text):
         parts.append({"inlineData": {"mimeType": photo[0], "data": base64.b64encode(photo[1]).decode()}})
     parts.append({"text": text})
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM}]},
+        "systemInstruction": {"parts": [{"text": system}]},
         "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseJsonSchema": SCHEMA,
+            "responseJsonSchema": schema,
             "maxOutputTokens": 16000,
         },
     }
@@ -364,7 +438,7 @@ def ask_gemini(photo, text):
     return reply
 
 
-def ask_claude(photo, text):
+def ask_claude(photo, text, system, schema):
     global _client
     import anthropic
     if _client is None:
@@ -378,10 +452,10 @@ def ask_claude(photo, text):
         response = _client.beta.messages.create(
             model=MODEL,
             max_tokens=16000,
-            system=SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": content}],
             thinking={"type": "adaptive"},
-            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
+            output_config={"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
@@ -456,10 +530,15 @@ def plan(request):
             return fail(request, 400, "Couldn't read that photo. Try a different one.")
     text = ("The attached image is the person's photo, for training insights." if photo else "No photo was given.") + "\n\n" + answers
 
+    system, schema = SYSTEM, SCHEMA
+    if data.get("diet") in DIETS:
+        system += SYSTEM_DIET
+        schema = {**SCHEMA, "properties": {**SCHEMA["properties"], "diet": DIET_SCHEMA}, "required": SCHEMA["required"] + ["diet"]}
+
     record = PlanRequest.objects.create(uid=uid)
     reply = ""
     try:
-        reply = (ask_gemini if PROVIDER == "gemini" else ask_claude)(photo, text)
+        reply = (ask_gemini if PROVIDER == "gemini" else ask_claude)(photo, text, system, schema)
         result = normalize(json.loads(reply))
     except AIError as e:
         return fail(request, e.status, str(e))

@@ -205,7 +205,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 
 The instructions are `SYSTEM` in `proxy/workout_ai/views.py`. The same text is used for Gemini and Claude. Two choices made there that you can change:
 
-- **Training advice only.** No calorie targets, diets or supplements, same as before. Edit the "Training advice only" line to allow nutrition advice.
+- **Diet only when asked.** Without a diet plan, no calorie targets, diets or supplements. When the user adds a diet plan (Kerala, South Indian or North Indian), `SYSTEM_DIET` is added to the instructions and `DIET_SCHEMA` to the reply format. Edit `SYSTEM_DIET` to change how diet plans are written, and `DIETS` to add a cuisine (add it to `GEN_DIETS` in `index.html` too).
 - **Photo comments** are limited to training-relevant things (build, muscle balance, posture), without body-fat guesses or appearance judgments.
 
 After editing, reload the web app. The app doesn't need an update unless you change the reply format.
