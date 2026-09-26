@@ -225,7 +225,18 @@ textarea.field[data-gen]{width:100%;min-height:96px}
 .seg.diets button{padding:9px 12px;white-space:nowrap}
 @media (max-width:340px){.seg.diets button{padding:9px 8px}}
 .gen-diet h3 small{font-weight:500;color:var(--muted);font-size:14px}
-.gen-diet .diet-tgt{margin:0 0 4px;font:700 17px/1.3 var(--body)}
+.diet-mac{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 10px}
+.diet-mac div{background:var(--field);border-radius:10px;padding:10px 8px;border-top:3px solid var(--c,var(--line))}
+.diet-mac b{display:block;font:800 21px/1 var(--display);white-space:nowrap;font-variant-numeric:tabular-nums}
+@media (max-width:360px){.diet-mac{gap:6px}.diet-mac div{padding:10px 6px}.diet-mac b{font-size:18px}}
+.diet-mac b small{font:600 13px/1 var(--body);margin-left:1px}
+.diet-mac span{display:block;margin-top:4px;font-size:12.5px;color:var(--muted)}
+.diet-split{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:0 0 6px}
+.diet-split i{background:var(--c)}
+.diet-leg{margin:0 0 12px!important;font-size:13px!important;color:var(--muted)}
+.gen-diet li{margin-bottom:6px}
+.diet-m{display:block;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.diet-m b{color:var(--ink);font-weight:700}
 .gen-lifts{display:grid;grid-template-columns:minmax(0,1fr) 84px 68px;gap:8px;align-items:center;font-size:15px}
 .board .v small{display:block;color:var(--muted);font-size:12px}
 .people{list-style:none;margin:0;padding:0}
@@ -455,6 +466,11 @@ dialog.share p{margin:12px 0 0;text-align:center}
   #printArea .gp-day{break-before:page}
   #printArea .gp-note{margin-top:8pt;color:#333}
   #printArea .gp-diet li{margin-bottom:3pt}
+  #printArea .diet-mac{display:flex;gap:18pt;margin:6pt 0 4pt}
+  #printArea .diet-mac b{display:block;font:800 16pt/1 var(--display)}
+  #printArea .diet-mac span{font-size:9pt;color:#666}
+  #printArea .diet-split{display:none}
+  #printArea .diet-m{display:block;font-size:9.5pt;color:#555}
   #printArea .gp-diet h3 small{font-weight:500;color:#666}
 }
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
@@ -2162,13 +2178,24 @@ function genInsightParts(){
 function genInsightsHtml(tag){
   return genInsightParts().map(([h,v])=>`<${tag}>${h}</${tag}>`+(Array.isArray(v)?`<ul>${v.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:`<p>${esc(v)}</p>`)).join("");
 }
-/* the diet plan: targets, then each meal with its options, then tips */
+/* the diet plan: daily targets and the calorie split, then each meal's options with estimated macros, then tips.
+   Macros are the AI's estimates; options are strings from a proxy older than the macros. */
+const DIET_MACROS=[["protein","Protein","var(--pull)",4],["carbs","Carbs","var(--legs)",4],["fat","Fat","var(--core)",9]];
+function dietMacroLine(o){
+  if(!o.calories&&!o.protein)return "";
+  return `<span class="diet-m">${o.calories?o.calories+"&nbsp;kcal · ":""}<b>${o.protein||0}&nbsp;g&nbsp;protein</b> · ${o.carbs||0}&nbsp;g&nbsp;carbs · ${o.fat||0}&nbsp;g&nbsp;fat</span>`;
+}
 function genDietHtml(tag){
   const d=GEN.dietPlan;if(!d)return "";
-  const tgt=[d.calories?`About ${d.calories.toLocaleString()} kcal`:"",d.protein?`${d.protein} g protein`:""].filter(Boolean).join(" and ");
-  return (tgt?`<p class="diet-tgt">${tgt} a day</p>`:"")+(d.summary?`<p>${esc(d.summary)}</p>`:"")
+  const tiles=d.calories||d.protein?`<div class="diet-mac">`+[["calories","Calories","var(--line)"],...DIET_MACROS].map(([k,l,c])=>
+    `<div style="--c:${c}"><b>${d[k]||"-"}${k!=="calories"&&d[k]?"<small>g</small>":""}</b><span>${l}</span></div>`).join("")+`</div>`:"";
+  const kc=DIET_MACROS.map(([k,,,f])=>(d[k]||0)*f),tot=kc.reduce((a,b)=>a+b,0);
+  const split=tot?`<div class="diet-split" aria-hidden="true">${DIET_MACROS.map(([,,c],i)=>`<i style="--c:${c};width:${100*kc[i]/tot}%"></i>`).join("")}</div>
+    <p class="diet-leg">Daily targets. Calories from ${DIET_MACROS.map(([,l],i)=>`${l.toLowerCase()} ${Math.round(100*kc[i]/tot)}%`).join(", ")}. All numbers are estimates.</p>`:"";
+  const opt=o=>typeof o==="string"?esc(o):esc(o.food)+dietMacroLine(o);
+  return tiles+split+(d.summary?`<p>${esc(d.summary)}</p>`:"")
     +d.meals.map(m=>`<${tag}>${esc(m.name)}${m.time?` <small>${esc(m.time)}</small>`:""}</${tag}>`
-      +(m.options.length>1?`<ul>${m.options.map(o=>`<li>${esc(o)}</li>`).join("")}</ul>`:`<p>${esc(m.options[0])}</p>`)).join("")
+      +(m.options.length>1?`<ul>${m.options.map(o=>`<li>${opt(o)}</li>`).join("")}</ul>`:`<p>${opt(m.options[0])}</p>`)).join("")
     +(d.tips&&d.tips.length?`<${tag}>Tips</${tag}><ul>${d.tips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"");
 }
 function genTarget(x){return reps(x)+" "+(x.u==="sec"?"seconds":x.u==="min"?"minutes":x.u?"reps "+x.u:"reps")}
@@ -2228,7 +2255,7 @@ function renderGen(){
   <div class="panel"><h2>Days per week</h2><div class="seg" role="group" aria-label="Days per week">${[2,3,4,5,6].map(n=>opt("gdays",n,GEN.days,n)).join("")}</div></div>
   <div class="panel"><h2>Diet plan</h2>
     ${GEN.diet!=null?`<div class="seg diets" role="group" aria-label="Diet type">${GEN_DIETS.map(([k,l])=>opt("gdiet",k,GEN.diet,l)).join("")}</div>
-      <p class="small muted" style="margin:12px 0 10px">${GEN.diet?`A day of meals in ${esc(dietName(GEN.diet))} food, with calorie and protein targets for your goal.`:"Choose the food you eat at home."} Mention in your goal if you're vegetarian, have allergies or avoid any foods.</p>
+      <p class="small muted" style="margin:12px 0 10px">${GEN.diet?`A day of meals in ${esc(dietName(GEN.diet))} food, with daily calorie, protein, carb and fat targets for your goal and estimates for each meal.`:"Choose the food you eat at home."} Mention in your goal if you're vegetarian, have allergies or avoid any foods.</p>
       <button class="btn small" id="genDietClear">Remove diet plan</button>`
       :`<button class="btn" id="genDietAdd">Add a diet plan</button>
       <p class="small muted" style="margin:10px 0 0">Optional. Get a diet plan in Kerala, South Indian or North Indian food along with your workouts.</p>`}
@@ -3016,15 +3043,38 @@ function markLogged(){const dot=document.querySelector(`.plate[data-day="${S.day
 window.addEventListener("beforeunload",e=>{if(S.view==="planEdit"&&S.draft){e.preventDefault();e.returnValue=""}});
 
 /* ---------- rest timer ---------- */
-let tEnd=0,tLen=0,tInt=null;
-function startTimer(sec){tLen=sec;tEnd=Date.now()+sec*1000;$("#timer").classList.add("on");clearInterval(tInt);tick();tInt=setInterval(tick,250)}
+let tEnd=0,tLen=0,tInt=null,actx=null;
+/* Browsers (iOS especially) only allow sound after a tap, so the audio is switched on when a tap starts the timer */
+function audioOn(){
+  try{
+    const C=window.AudioContext||window.webkitAudioContext;if(!C)return;
+    if(!actx)actx=new C();
+    if(actx.state!=="running")actx.resume().catch(()=>{});
+  }catch(err){}
+}
+/* three short buzzer beeps when rest is over */
+function restBeep(){
+  if(!actx)return;
+  try{
+    if(actx.state!=="running")actx.resume().catch(()=>{});
+    const t0=actx.currentTime+0.05;
+    [0,0.3,0.6].forEach((dt,i)=>{
+      const o=actx.createOscillator(),g=actx.createGain(),t=t0+dt,len=i===2?0.45:0.2;
+      o.type="square";o.frequency.value=i===2?1175:880;
+      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.25,t+0.02);
+      g.gain.setValueAtTime(0.25,t+len-0.05);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+      o.connect(g).connect(actx.destination);o.start(t);o.stop(t+len+0.02);
+    });
+  }catch(err){}
+}
+function startTimer(sec){audioOn();tLen=sec;tEnd=Date.now()+sec*1000;$("#timer").classList.add("on");clearInterval(tInt);tick();tInt=setInterval(tick,250)}
 function tick(){
   const left=Math.max(0,Math.round((tEnd-Date.now())/1000));
   $("#tt").textContent=Math.floor(left/60)+":"+String(left%60).padStart(2,"0");
   $("#tb").style.width=(tLen?100*left/tLen:0)+"%";
-  if(left<=0){clearInterval(tInt);$("#tt").textContent="Go";if(navigator.vibrate)try{navigator.vibrate(200)}catch(err){}}
+  if(left<=0){clearInterval(tInt);$("#tt").textContent="Go";restBeep();if(navigator.vibrate)try{navigator.vibrate([200,100,200,100,400])}catch(err){}}
 }
-$("#tplus").onclick=()=>{tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
+$("#tplus").onclick=()=>{audioOn();tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
 $("#tstop").onclick=()=>{clearInterval(tInt);$("#timer").classList.remove("on")};
 
 /* ---------- install as an app ---------- */
