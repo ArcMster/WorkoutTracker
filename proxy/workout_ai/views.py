@@ -169,11 +169,17 @@ The diet plan (only when the answers ask for one):
 Use everyday home foods from that cuisine (for Kerala, for example: puttu, appam, idiyappam, kanji, \
 matta rice, fish curry, thoran, avial, kadala curry), in portions a person can measure at home \
 (cups, pieces, grams, palm-sized servings).
-- Give an approximate daily calorie target and protein target in grams, worked out from their weight, \
-height and goal. Round sensibly and say it's a starting point to adjust by how their weight changes.
+- Give approximate daily targets for calories and for protein, carbs and fat in grams, worked out from \
+their weight, height, training and goal. Protein first: usually 1.6-2.2 g per kg of body weight, higher \
+end when losing fat. Fat about 20-30% of calories. Carbs fill the rest, more on a muscle-gain goal. \
+Round sensibly and say in the summary it's a starting point to adjust by how their weight changes.
 - 4 to 6 meals (for example early morning, breakfast, lunch, evening snack, dinner, and a pre- or \
 post-workout meal). For each: a time of day and 2 or 3 interchangeable options, each a complete meal \
 with portions, so the week doesn't get repetitive.
+- Estimate calories, protein, carbs and fat for every option from its portions, using typical values for \
+home-cooked food. Keep each consistent (calories close to 4 x protein + 4 x carbs + 9 x fat). Options for \
+the same meal should be close in calories and protein, and one option from each meal should add up to \
+roughly the daily targets.
 - If their goal mentions being vegetarian, eggetarian, vegan, allergies, foods they avoid or a budget, \
 follow it strictly. Otherwise include both vegetarian and non-vegetarian options that are common in that cuisine.
 - Whole foods first. No crash diets, no meal replacement products, no supplements beyond saying a \
@@ -189,6 +195,8 @@ DIET_SCHEMA = {
         "summary": {"type": "string", "description": "2-3 sentences: the approach and why it suits their goal."},
         "calories": {"type": "integer", "description": "Approximate daily calories (kcal)."},
         "protein": {"type": "integer", "description": "Daily protein target in grams."},
+        "carbs": {"type": "integer", "description": "Daily carbohydrate target in grams."},
+        "fat": {"type": "integer", "description": "Daily fat target in grams."},
         "meals": {
             "type": "array",
             "items": {
@@ -196,7 +204,22 @@ DIET_SCHEMA = {
                 "properties": {
                     "name": {"type": "string", "description": "For example Breakfast."},
                     "time": {"type": "string", "description": "For example 8:00 am."},
-                    "options": {"type": "array", "items": {"type": "string"}, "description": "2 or 3 complete meals with portions."},
+                    "options": {
+                        "type": "array",
+                        "description": "2 or 3 interchangeable complete meals.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "food": {"type": "string", "description": "The meal with portions."},
+                                "calories": {"type": "integer", "description": "Estimated kcal."},
+                                "protein": {"type": "integer", "description": "Estimated grams."},
+                                "carbs": {"type": "integer", "description": "Estimated grams."},
+                                "fat": {"type": "integer", "description": "Estimated grams."},
+                            },
+                            "required": ["food", "calories", "protein", "carbs", "fat"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": ["name", "time", "options"],
                 "additionalProperties": False,
@@ -204,7 +227,7 @@ DIET_SCHEMA = {
         },
         "tips": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["summary", "calories", "protein", "meals", "tips"],
+    "required": ["summary", "calories", "protein", "carbs", "fat", "meals", "tips"],
     "additionalProperties": False,
 }
 
@@ -321,7 +344,14 @@ def normalize_diet(d):
     for m in (d.get("meals") if isinstance(d.get("meals"), list) else [])[:8]:
         if not isinstance(m, dict):
             continue
-        options = clean_list(m.get("options"), 4, 400)
+        options = []
+        for o in (m.get("options") if isinstance(m.get("options"), list) else [])[:4]:
+            if isinstance(o, str):
+                o = {"food": o}
+            food = text_field(o.get("food"), 400) if isinstance(o, dict) else ""
+            if food:
+                options.append({"food": food, "calories": clamp(o.get("calories"), 0, 3000, 0), "protein": clamp(o.get("protein"), 0, 300, 0),
+                                "carbs": clamp(o.get("carbs"), 0, 600, 0), "fat": clamp(o.get("fat"), 0, 300, 0)})
         if options:
             meals.append({"name": text_field(m.get("name"), 40) or "Meal", "time": text_field(m.get("time"), 30), "options": options})
     if not meals:
@@ -330,6 +360,8 @@ def normalize_diet(d):
         "summary": text_field(d.get("summary"), 800),
         "calories": clamp(d.get("calories"), 0, 6000, 0),
         "protein": clamp(d.get("protein"), 0, 400, 0),
+        "carbs": clamp(d.get("carbs"), 0, 1000, 0),
+        "fat": clamp(d.get("fat"), 0, 400, 0),
         "meals": meals,
         "tips": clean_list(d.get("tips"), 8, 300),
     }
