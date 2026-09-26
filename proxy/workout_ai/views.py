@@ -304,59 +304,64 @@ def normalize(result):
 
 
 # ---------- the AI call ----------
-# Each returns the reply's JSON text. Only the package for the chosen provider needs to be installed.
+# Each returns the reply's JSON text. Gemini needs only requests; Claude needs the anthropic package.
 
 def ask_gemini(photo, text):
-    global _client
-    from google import genai
-    from google.genai import errors, types
-    if _client is None:
-        _client = genai.Client(api_key=API_KEY, http_options=types.HttpOptions(timeout=TIMEOUT * 1000))
+    """Gemini's REST API through requests, so it runs on any Python (the google-genai SDK needs 3.10+).
+    The request body is the same one google-genai sends for generate_content."""
     parts = []
     if photo:
-        parts.append(types.Part.from_bytes(data=photo[1], mime_type=photo[0]))
-    parts.append(text)
+        parts.append({"inlineData": {"mimeType": photo[0], "data": base64.b64encode(photo[1]).decode()}})
+    parts.append({"text": text})
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM}]},
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseJsonSchema": SCHEMA,
+            "maxOutputTokens": 16000,
+        },
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
     try:
-        response = _client.models.generate_content(
-            model=MODEL,
-            contents=parts,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM,
-                response_mime_type="application/json",
-                response_json_schema=SCHEMA,
-                max_output_tokens=16000,
-            ),
-        )
-    except errors.ClientError as e:  # 4xx
-        log.warning("Gemini error %s %s: %s", e.code, e.status, e.message)
-        if e.code == 429:
-            raise AIError(503, "AI planning has reached its limit for now. Try again later.")
-        if e.code in (401, 403) or "api key" in str(e.message).lower() or "API_KEY" in str(e.details):
-            raise AIError(503, "AI planning isn't set up correctly on the server.")
-        if e.code == 404:
-            raise AIError(503, "The AI model on the server isn't available. Check AI_MODEL.")
-        raise AIError(400, "The AI couldn't read that request. If you added a photo, try a different one.")
-    except errors.APIError as e:  # 5xx
-        log.warning("Gemini error %s: %s", e.code, e.message)
-        raise AIError(502, "The AI service is having trouble right now. Try again in a minute.")
-    except Exception:  # timeouts and connection errors
+        r = _http.post(url, json=body, headers={"x-goog-api-key": API_KEY}, timeout=TIMEOUT)
+    except requests.RequestException:  # timeouts, proxy and connection errors
         log.exception("couldn't reach Gemini")
         raise AIError(504, "Couldn't reach the AI service. Try again in a minute.")
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
 
-    feedback = response.prompt_feedback
-    if feedback and feedback.block_reason:
-        log.info("Gemini blocked the prompt: %s", feedback.block_reason)
+    if r.status_code != 200:
+        err = data.get("error") or {}
+        status, message = str(err.get("status", "")), str(err.get("message", r.text[:300]))
+        log.warning("Gemini error %s %s: %s", r.status_code, status, message)
+        if r.status_code == 429:
+            raise AIError(503, "AI planning has reached its limit for now. Try again later.")
+        if r.status_code in (401, 403) or "api key" in message.lower() or "API_KEY" in json.dumps(err):
+            raise AIError(503, "AI planning isn't set up correctly on the server.")
+        if r.status_code == 404:
+            raise AIError(503, "The AI model on the server isn't available. Check AI_MODEL.")
+        if r.status_code < 500:
+            raise AIError(400, "The AI couldn't read that request. If you added a photo, try a different one.")
+        raise AIError(502, "The AI service is having trouble right now. Try again in a minute.")
+
+    block = (data.get("promptFeedback") or {}).get("blockReason")
+    if block:
+        log.info("Gemini blocked the prompt: %s", block)
         raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
-    reason = str(response.candidates[0].finish_reason) if response.candidates else ""
-    if "MAX_TOKENS" in reason:
+    cand = (data.get("candidates") or [{}])[0]
+    reason = cand.get("finishReason", "")
+    if reason == "MAX_TOKENS":
         raise AIError(502, "The plan came back incomplete. Try again.")
-    if not response.text:
+    reply = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
+    if not reply:
         log.info("Gemini returned no text: %s", reason)
         raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
-    u = response.usage_metadata
-    if u:
-        log.info("Gemini tokens: %s in, %s out", u.prompt_token_count, u.candidates_token_count)
-    return response.text
+    u = data.get("usageMetadata") or {}
+    log.info("Gemini tokens: %s in, %s out", u.get("promptTokenCount"), u.get("candidatesTokenCount"))
+    return reply
 
 
 def ask_claude(photo, text):
@@ -452,6 +457,7 @@ def plan(request):
     text = ("The attached image is the person's photo, for training insights." if photo else "No photo was given.") + "\n\n" + answers
 
     record = PlanRequest.objects.create(uid=uid)
+    reply = ""
     try:
         reply = (ask_gemini if PROVIDER == "gemini" else ask_claude)(photo, text)
         result = normalize(json.loads(reply))
@@ -460,6 +466,9 @@ def plan(request):
     except (ValueError, AttributeError, TypeError):
         log.warning("unparseable reply: %.500s", reply)
         return fail(request, 502, "The plan came back in a form the app couldn't read. Try again.")
+    except Exception:  # anything unexpected: log it, and still give the app a message it can show
+        log.exception("AI plan failed")
+        return fail(request, 500, "Something went wrong on the planning server. Try again later.")
 
     record.ok = True
     record.save(update_fields=["ok"])

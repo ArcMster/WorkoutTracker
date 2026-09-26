@@ -43,7 +43,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *,*::before,*::after{box-sizing:inherit}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased}
-button,input,select{font:inherit;color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:3px solid var(--pull);outline-offset:2px}
 .wrap{max-width:640px;margin:0 auto;padding:16px 16px 120px}
@@ -1566,8 +1566,10 @@ function render(){
   <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
-  if(at&&at.scrollIntoView)at.scrollIntoView({block:"nearest",inline:"nearest"});
   const tb=app.querySelector('.tabs');
+  /* scroll only the tab strip sideways; scrollIntoView would also scroll the page up */
+  if(at&&tb){const a=at.getBoundingClientRect(),b=tb.getBoundingClientRect();
+    if(a.left<b.left)tb.scrollLeft-=b.left-a.left;else if(a.right>b.right)tb.scrollLeft+=a.right-b.right}
   if(tb){const f=()=>tb.classList.toggle("more",tb.scrollLeft+tb.clientWidth<tb.scrollWidth-4);f();tb.addEventListener("scroll",f,{passive:true})}
 }
 /* ---------- landing ---------- */
