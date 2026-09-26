@@ -3,7 +3,7 @@
 The web app posts the Advanced form (body stats, goal text, days, strength, optional photo) with the
 user's Firebase ID token. This view:
   1. checks the token and that the account is approved (same rule as firestore.rules isActive()),
-  2. enforces a daily limit per user,
+  2. enforces a daily limit per user (higher for admins),
   3. asks the AI (Google Gemini by default, or Claude) for insights, a 7-day plan and, if asked, a diet plan as JSON,
   4. tidies the plan into the shape the app stores and returns it.
 
@@ -39,6 +39,7 @@ def conf(name, default=None):
 FIREBASE_PROJECT_ID = conf("FIREBASE_PROJECT_ID", "")
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in conf("AI_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 DAILY_LIMIT = int(conf("AI_DAILY_LIMIT", "5"))
+ADMIN_DAILY_LIMIT = int(conf("AI_ADMIN_DAILY_LIMIT", "50"))  # for admins (admins/{uid} exists in Firestore)
 PROVIDER = conf("AI_PROVIDER", "gemini").lower()  # "gemini" or "claude"
 API_KEY = (conf("GEMINI_API_KEY") or conf("GOOGLE_API_KEY")) if PROVIDER == "gemini" else conf("ANTHROPIC_API_KEY")
 MODEL = conf("AI_MODEL", "gemini-3.8-flash" if PROVIDER == "gemini" else "claude-opus-5")
@@ -121,6 +122,15 @@ def is_active(uid, token):
     if r.status_code == 404:  # joined before approval existed: active if they have a profile
         return firestore_get(f"profiles/{uid}", token).status_code == 200
     raise RuntimeError(f"Firestore returned {r.status_code}")
+
+
+def is_admin(uid, token):
+    """Same rule as isAdmin() in firestore.rules. If Firestore can't be read, they get the normal limit."""
+    try:
+        return firestore_get(f"admins/{uid}", token).status_code == 200
+    except requests.RequestException:
+        log.warning("couldn't check admin status for %s", uid)
+        return False
 
 
 # ---------- the prompt ----------
@@ -537,8 +547,9 @@ def plan(request):
 
     since = timezone.now() - timedelta(days=1)
     used = PlanRequest.objects.filter(uid=uid, created__gte=since, ok=True).count()
-    if used >= DAILY_LIMIT:
-        return fail(request, 429, f"You've made {DAILY_LIMIT} AI plans in the last 24 hours. Try again tomorrow.")
+    limit = ADMIN_DAILY_LIMIT if is_admin(uid, token) else DAILY_LIMIT
+    if used >= limit:
+        return fail(request, 429, f"You've made {limit} AI plans in the last 24 hours. Try again tomorrow.")
 
     try:
         data = json.loads(request.body or b"{}")
@@ -583,6 +594,6 @@ def plan(request):
 
     record.ok = True
     record.save(update_fields=["ok"])
-    result["remaining"] = max(0, DAILY_LIMIT - used - 1)
+    result["remaining"] = max(0, limit - used - 1)
     result["model"] = MODEL
     return cors(JsonResponse(result), request)
