@@ -71,11 +71,11 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 
 The **Advanced** tab in the top menu makes a plan with AI: Google Gemini by default, or Claude. (It replaces Plans > Advanced Planning, which built plans on the device from fixed rules.)
 
-- Asks for body weight, height, **your goal in your own words** (what you want, your equipment, anything to work around), days per week (2 to 6), Beginner or your best lifts, and an optional **photo**.
-- The AI returns **insights** (a summary, what the photo shows that matters for training, strengths, what to focus on, what to be careful with) and a **7-day plan**. Where it can, it uses exercise names you already have, so your history carries over.
-- Review it, **Save to my plans**, **Download PDF** (with the insights), or, in an installed iPhone app, **Save as image**. Nothing is saved until you tap Save.
+- Asks for body weight, height, **your goal in your own words** (what you want, your equipment, anything to work around), days per week (2 to 6), Beginner or your best lifts, an optional **photo** and an optional **diet plan** in Kerala, South Indian or North Indian food.
+- The AI returns **insights** (a summary, what the photo shows that matters for training, strengths, what to focus on, what to be careful with) and a **7-day plan**, plus, if you added one, a **diet plan** (daily calorie and protein targets, meals with a few options each, and tips). Where it can, it uses exercise names you already have, so your history carries over.
+- Review it, **Save to my plans**, **Download PDF** (with the insights and the diet plan), or, in an installed iPhone app, **Save as image**. Nothing is saved until you tap Save.
 - It needs you signed in and approved. It goes through your own proxy server, which keeps the Gemini API key, checks the account and limits plans per person per day. The photo is scaled down to 1024 px and sent for that plan only. Neither the app nor the proxy stores it, but on Gemini's free tier Google may use what's sent to improve its products (the tab says so).
-- Training suggestions only: no calorie targets or diets. It's a general plan, not medical advice.
+- Without a diet plan it gives training suggestions only. It's a general plan, not medical or dietitian advice.
 
 **Setup:** the proxy is a small Django app in `proxy/`. [PROXY_SETUP.md](PROXY_SETUP.md) walks through installing it on PythonAnywhere, its settings, and setting `AI_PROXY_URL` in `firebase-config.js`.
 

@@ -220,6 +220,12 @@ textarea.field[data-gen]{width:100%;min-height:96px}
 .gen-ins h3:first-of-type{margin-top:0}
 .gen-ins p{margin:0;font-size:15px;line-height:1.5}
 .gen-ins ul{margin:0;padding-left:20px;font-size:15px;line-height:1.5}
+.gen-diet h3{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.gen-diet h3:first-of-type{margin-top:14px}
+.seg.diets button{padding:9px 12px;white-space:nowrap}
+@media (max-width:340px){.seg.diets button{padding:9px 8px}}
+.gen-diet h3 small{font-weight:500;color:var(--muted);font-size:14px}
+.gen-diet .diet-tgt{margin:0 0 4px;font:700 17px/1.3 var(--body)}
 .gen-lifts{display:grid;grid-template-columns:minmax(0,1fr) 84px 68px;gap:8px;align-items:center;font-size:15px}
 .board .v small{display:block;color:var(--muted);font-size:12px}
 .people{list-style:none;margin:0;padding:0}
@@ -448,6 +454,8 @@ dialog.share p{margin:12px 0 0;text-align:center}
   #printArea .rp-day{break-inside:avoid}
   #printArea .gp-day{break-before:page}
   #printArea .gp-note{margin-top:8pt;color:#333}
+  #printArea .gp-diet li{margin-bottom:3pt}
+  #printArea .gp-diet h3 small{font-weight:500;color:#666}
 }
 .coachnote{background:var(--surface);border-left:3px solid var(--core);border-radius:4px 14px 14px 4px;padding:12px 14px;margin:0 0 16px;font-size:15px}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
@@ -2056,12 +2064,16 @@ function usePlan(id){
 /* ---------- Advanced (AI planning) ----------
    The Advanced tab sends body stats, a goal in the user's words, days per week, best lifts and an optional
    photo to an AI model (Google Gemini by default, or Claude) through the proxy in AI_PROXY (firebase-config.js),
-   with the user's Firebase ID token. The AI returns insights and a 7-day plan. The proxy keeps the API key, checks the account is approved,
+   with the user's Firebase ID token. The AI returns insights, a 7-day plan and, if the user added one, a diet plan in the cuisine they chose. The proxy keeps the API key, checks the account is approved,
    limits requests per day and stores nothing. Setup: PROXY_SETUP.md. */
 const GEN_LIFTS=[["bench","Bench press"],["squat","Squat"],["deadlift","Deadlift"],["ohp","Overhead press"]];
 const GEN_NOTE="This is a general training plan, not medical advice. If you have an injury or a health condition, check with a professional before you start.";
+const GEN_DIETS=[["kerala","Kerala"],["south","South Indian"],["north","North Indian"]];
+const GEN_DIET_NOTE="The diet plan is general guidance, not a dietitian's advice. If you have diabetes, a kidney or heart condition, allergies, are pregnant or have a medical condition, check with a doctor or dietitian first.";
 const GEN_PHOTO_MAX=1024;/* long edge in px: plenty for the AI, and keeps the upload small */
-const GEN={wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"",days:4,level:"beginner",lifts:{},photo:null,plan:null,ins:null,info:"",err:"",busy:false,left:null};
+const GEN={wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"",days:4,level:"beginner",lifts:{},photo:null,plan:null,ins:null,info:"",err:"",busy:false,left:null,
+  diet:null,dietPlan:null,dietMissing:false};/* diet: null until the diet plan is added, then "" until a GEN_DIETS key is chosen, dietPlan: the AI's diet */
+const dietName=k=>(GEN_DIETS.find(([x])=>x===k)||[])[1]||"";
 
 function genRead(){
   const u=S.settings.unit,lb=u==="lb";
@@ -2073,6 +2085,7 @@ function genRead(){
   if(cm==null||cm<120||cm>230)return {err:"Enter a height between 120 and 230 cm (about 4 ft to 7 ft 6 in)."};
   const goal=GEN.goal.trim();
   if(goal.length<3)return {err:"Describe your goal in a few words."};
+  if(GEN.diet==="")return {err:"Choose a diet type, or remove the diet plan."};
   const lifts=[];
   if(GEN.level==="lifts"){
     for(const [k,label] of GEN_LIFTS){
@@ -2112,7 +2125,7 @@ async function genPlan(){
   if(r.err){GEN.err=r.err;render();return}
   if(!AI_PROXY||!auth||!auth.currentUser){GEN.err="Sign in to use AI planning.";render();return}
   const u=S.settings.unit;
-  const body={weight:String(r.wt),height:r.htxt,unit:u,goal:r.goal,days:GEN.days,lifts:r.lifts,exercises:knownNames().slice(0,250),
+  const body={weight:String(r.wt),height:r.htxt,unit:u,goal:r.goal,days:GEN.days,lifts:r.lifts,diet:GEN.diet||null,exercises:knownNames().slice(0,250),
     photo:GEN.photo?{type:"image/jpeg",data:GEN.photo.split(",")[1]}:null};
   GEN.busy=true;GEN.err="";render();window.scrollTo(0,0);
   let res,out=null;
@@ -2125,8 +2138,10 @@ async function genPlan(){
   if(!res.ok||!out||!out.plan||!Array.isArray(out.plan.days)||out.plan.days.length!==7){GEN.err=genError(res.status,out);render();return}
   GEN.plan={name:out.plan.name||"AI plan",days:out.plan.days.map(d=>d.t==="rest"?REST(d.focus):{t:TYPES[d.t]?d.t:"other",title:d.title,focus:d.focus||"",note:d.note||"",ex:d.ex.map(x=>X(x.n,x.s,x.lo,x.hi,x.u))})};
   GEN.ins={...out.insights,overview:out.plan.overview||""};
+  GEN.dietPlan=GEN.diet&&out.diet&&Array.isArray(out.diet.meals)&&out.diet.meals.length?out.diet:null;
+  GEN.dietMissing=!!GEN.diet&&!GEN.dietPlan;
   GEN.left=out.remaining??null;
-  GEN.info="For "+r.wt+" "+u+", "+r.htxt+", "+GEN.days+" days a week"+(GEN.photo?", with your photo":"")+". Goal: "+r.goal;
+  GEN.info="For "+r.wt+" "+u+", "+r.htxt+", "+GEN.days+" days a week"+(GEN.photo?", with your photo":"")+(GEN.dietPlan?", "+dietName(GEN.diet)+" diet":"")+". Goal: "+r.goal;
   S.msg="";render();window.scrollTo(0,0);
 }
 function genSave(){
@@ -2134,7 +2149,7 @@ function genSave(){
   const id=newId();
   S.plans[id]={name:p.name,days:clone(p.days),updated:Date.now()};
   writeDoc("plan_"+id,clone(S.plans[id])).catch(()=>say("Couldn't save the plan. Check your connection and try again."));
-  GEN.plan=null;GEN.ins=null;S.viewPlanId=id;S.view="planView";
+  GEN.plan=null;GEN.ins=null;GEN.dietPlan=null;S.viewPlanId=id;S.view="planView";
   S.msg="Saved to your plans. Tap Use this plan to start following it.";S.msgOk=true;render();window.scrollTo(0,0);
 }
 /* insights as [heading, paragraph or list] pairs, shared by the screen, the PDF and the image */
@@ -2147,6 +2162,15 @@ function genInsightParts(){
 function genInsightsHtml(tag){
   return genInsightParts().map(([h,v])=>`<${tag}>${h}</${tag}>`+(Array.isArray(v)?`<ul>${v.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:`<p>${esc(v)}</p>`)).join("");
 }
+/* the diet plan: targets, then each meal with its options, then tips */
+function genDietHtml(tag){
+  const d=GEN.dietPlan;if(!d)return "";
+  const tgt=[d.calories?`About ${d.calories.toLocaleString()} kcal`:"",d.protein?`${d.protein} g protein`:""].filter(Boolean).join(" and ");
+  return (tgt?`<p class="diet-tgt">${tgt} a day</p>`:"")+(d.summary?`<p>${esc(d.summary)}</p>`:"")
+    +d.meals.map(m=>`<${tag}>${esc(m.name)}${m.time?` <small>${esc(m.time)}</small>`:""}</${tag}>`
+      +(m.options.length>1?`<ul>${m.options.map(o=>`<li>${esc(o)}</li>`).join("")}</ul>`:`<p>${esc(m.options[0])}</p>`)).join("")
+    +(d.tips&&d.tips.length?`<${tag}>Tips</${tag}><ul>${d.tips.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"");
+}
 function genTarget(x){return reps(x)+" "+(x.u==="sec"?"seconds":x.u==="min"?"minutes":x.u?"reps "+x.u:"reps")}
 function genPrintHtml(){
   const p=GEN.plan;
@@ -2158,7 +2182,8 @@ function genPrintHtml(){
   return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Made with AI ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
     ${genInsightsHtml("h3")}
     <h2>Your week</h2><table><thead><tr><th>Day</th><th>Workout</th><th>Focus</th></tr></thead><tbody>${week}</tbody></table>
-    <p class="gp-note">${GEN_NOTE}</p>${days}`;
+    <p class="gp-note">${GEN_NOTE}</p>
+    ${GEN.dietPlan?`<section class="gp-day gp-diet"><h2>Your diet plan: ${esc(dietName(GEN.diet))}</h2>${genDietHtml("h3")}<p class="gp-note">${GEN_DIET_NOTE}</p></section>`:""}${days}`;
 }
 function renderGen(){
   const u=S.settings.unit;
@@ -2177,8 +2202,10 @@ function renderGen(){
       ${iosApp?`<p class="small muted" style="margin:10px 0 0">If Download PDF does nothing in the installed app, use Save as image.</p>`:""}
     </div>
     <div class="panel gen-ins"><h2>Insights</h2>${genInsightsHtml("h3")}</div>
+    ${GEN.dietPlan?`<div class="panel gen-ins gen-diet"><h2>Diet plan: ${esc(dietName(GEN.diet))}</h2>${genDietHtml("h3")}<p class="small muted" style="margin:14px 0 0">${GEN_DIET_NOTE}</p></div>`
+      :GEN.dietMissing?`<div class="panel"><p class="muted" style="margin:0">The AI didn't send back a diet plan this time. Choose Change answers and try again. If it keeps happening, the planning server may need updating.</p></div>`:""}
     ${planDaysHtml(p)}
-    <div class="panel"><p class="small muted" style="margin:0 0 12px">Nothing is saved until you choose to. Saving adds this plan to Your plans, where you can edit it or start using it.</p>
+    <div class="panel"><p class="small muted" style="margin:0 0 12px">Nothing is saved until you choose to. Saving adds this plan to Your plans, where you can edit it or start using it.${GEN.dietPlan?" Only the workouts are saved: download the PDF to keep your diet plan.":""}</p>
       <button class="btn primary" id="genSave2">Save to my plans</button>
       <p class="small muted" style="margin:12px 0 0">${GEN_NOTE} Made by AI: check it makes sense for you${GEN.left!=null?`. You can make ${GEN.left} more AI plan${GEN.left===1?"":"s"} today.`:"."}</p></div>`;
   }
@@ -2199,6 +2226,13 @@ function renderGen(){
     <input type="file" id="genPhotoFile" accept="image/*" hidden>
     <p class="small muted" style="margin:10px 0 0">Optional. A full-body photo in fitted clothes, standing straight, in good light, lets the AI comment on your build, balance and posture. It's sent to Google's Gemini AI to make this plan. This app never stores it, but on Google's free tier Google may use what's sent to improve its products.</p></div>
   <div class="panel"><h2>Days per week</h2><div class="seg" role="group" aria-label="Days per week">${[2,3,4,5,6].map(n=>opt("gdays",n,GEN.days,n)).join("")}</div></div>
+  <div class="panel"><h2>Diet plan</h2>
+    ${GEN.diet!=null?`<div class="seg diets" role="group" aria-label="Diet type">${GEN_DIETS.map(([k,l])=>opt("gdiet",k,GEN.diet,l)).join("")}</div>
+      <p class="small muted" style="margin:12px 0 10px">${GEN.diet?`A day of meals in ${esc(dietName(GEN.diet))} food, with calorie and protein targets for your goal.`:"Choose the food you eat at home."} Mention in your goal if you're vegetarian, have allergies or avoid any foods.</p>
+      <button class="btn small" id="genDietClear">Remove diet plan</button>`
+      :`<button class="btn" id="genDietAdd">Add a diet plan</button>
+      <p class="small muted" style="margin:10px 0 0">Optional. Get a diet plan in Kerala, South Indian or North Indian food along with your workouts.</p>`}
+  </div>
   <div class="panel"><h2>Strength</h2><div class="seg" role="group" aria-label="Strength">${opt("glevel","beginner",GEN.level,"Beginner")}${opt("glevel","lifts",GEN.level,"I know my best lifts")}</div>
     ${GEN.level==="lifts"?`<p class="small muted" style="margin:12px 0 10px">Your best recent set of each, in ${u}. Leave any you don't do blank.</p>
       <div class="gen-lifts">${GEN_LIFTS.map(([k,l])=>`<span>${l}</span><input class="field" data-gen="lw.${k}" inputmode="decimal" autocomplete="off" placeholder="${u}" aria-label="${l}, weight in ${u}" value="${esc(L(k).w||"")}"><input class="field" data-gen="lr.${k}" inputmode="numeric" autocomplete="off" placeholder="reps" aria-label="${l}, reps" value="${esc(L(k).r||"")}">`).join("")}</div>`
@@ -2206,7 +2240,7 @@ function renderGen(){
   </div>
   ${GEN.err?`<p class="msg" style="color:var(--push)">${esc(GEN.err)}</p>`:""}
   <div class="row"><button class="btn primary" id="genGo">Make my plan with AI</button></div>
-  <p class="small muted">Your answers${GEN.photo?" and photo":""} are sent to Google's Gemini AI to make the plan. ${GEN_NOTE}</p>`;
+  <p class="small muted">Your answers${GEN.photo?" and photo":""} are sent to Google's Gemini AI to make the plan. ${GEN_NOTE}${GEN.diet?" "+GEN_DIET_NOTE:""}</p>`;
 }
 
 /* dashboard */
@@ -2826,6 +2860,7 @@ document.addEventListener("click",async e=>{
   if(ds.ghu){GEN.hu=ds.ghu;render();return}
   if(ds.gdays){GEN.days=+ds.gdays;render();return}
   if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
+  if(ds.gdiet){GEN.diet=ds.gdiet;GEN.err="";render();return}
   if(ds.watch){toggleVid(t);return}
   if(ds.vsave!=null){admExercise(ds.vsave);return}
   if(ds.vdel!=null){admExercise(ds.vdel,true);return}
@@ -2887,10 +2922,12 @@ document.addEventListener("click",async e=>{
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
     case "genGo":genPlan();return;
-    case "genEdit":GEN.plan=null;GEN.ins=null;render();window.scrollTo(0,0);return;
+    case "genEdit":GEN.plan=null;GEN.ins=null;GEN.dietPlan=null;render();window.scrollTo(0,0);return;
     case "genSave":case "genSave2":genSave();return;
     case "genPhotoBtn":$("#genPhotoFile").click();return;
     case "genPhotoClear":GEN.photo=null;render();return;
+    case "genDietAdd":GEN.diet="";render();return;
+    case "genDietClear":GEN.diet=null;GEN.err="";render();return;
     case "genPdf":printHtml(genPrintHtml());return;
     case "genImg":openShare("plan");return;
     case "savePlan":savePlan();return;
