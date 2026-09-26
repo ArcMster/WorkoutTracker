@@ -413,6 +413,32 @@ body.landing-on .timer{display:none}
 .blist .nm{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .blist .mini{width:112px;gap:3px}
 .blist .ct{font:800 22px/1 var(--display);width:22px;text-align:right}
+/* Home leaderboard: scope switch, three metric tiles, then the top set per lift */
+.seg.wide{display:flex;margin-bottom:14px}
+.seg.wide button{flex:1}
+.seg.sm button{padding:6px 10px;font-size:13px}
+.lb-empty{margin:0}
+.lb-sub{margin:20px 0 10px;align-items:center}
+.lb-note{margin:10px 0 0}
+.lt3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.lt{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;text-align:left;background:var(--surface);border:0;border-radius:14px;padding:12px 10px;color:var(--ink);cursor:pointer}
+.lt-h{font-size:13px;font-weight:600;line-height:1.2}
+.lt-h small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+.lt>b{font:800 28px/1 var(--display);font-variant-numeric:tabular-nums;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt>b small{font:500 12px var(--body);color:var(--muted);margin-left:3px}
+.lt-who{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%;font-size:13px;font-weight:600}
+.lt-who .av{width:24px;height:24px;font-size:10px;border-width:1px}
+.lt-who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-me{font-size:11px;color:var(--muted);min-height:13px}
+.ll4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ll{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:8px;row-gap:6px;align-items:center;min-width:0;text-align:left;background:var(--surface);border:0;border-left:4px solid var(--c);border-radius:6px 14px 14px 6px;padding:10px;color:var(--ink);cursor:pointer}
+.ll-n{grid-column:1/-1;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ll .av{width:26px;height:26px;font-size:10px;border-width:1px}
+.ll-who{min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ll-who small{display:block;font-weight:400;font-size:11px;color:var(--muted)}
+.ll>b{font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
+.ll>.ll-who.muted{grid-column:1/3}
+@media (max-width:360px){.lt{padding:10px 8px}.lt>b{font-size:24px}}
 .avbtn{border:0;background:none;padding:0;line-height:0}
 .link.small{font-size:13px}
 .bio{white-space:pre-line;overflow-wrap:anywhere}
@@ -616,8 +642,9 @@ const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],b
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false};
 const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
-/* leaderboard: chosen metric and period, where it was opened from, and trainee counts loaded from their logs (uid: summary, or null while loading) */
-const BOARD={metric:"workouts",period:"week",from:"dash",tr:{}};
+/* leaderboard: chosen metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from,
+   trainee counts loaded from their logs (uid: summary, or null while loading), and my summary while Home renders */
+const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
 const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
 
@@ -820,8 +847,73 @@ function schedulePublish(){
 function publishNow(){
   if(S.mode!=="db")return Promise.resolve();
   const data=S.settings.sharing?computeSummary():{sharing:false,name:myName(),photo:myPhoto(),updated:Date.now()};
+  publishBoard(S.settings.sharing?data:null);
   return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
 }
+/* ---------- global leaderboard card ----------
+   board/{uid} is a small public card with only the numbers the global leaderboard ranks by.
+   Period fields carry their week or month in the name (ww_20260921, vm_202609, lw_20260921_bench),
+   so each ranking is one orderBy on a single field: no composite indexes, and last week's
+   numbers simply aren't found by this week's query. The streak is keyed by the last week
+   trained, which keeps it valid through the following week. */
+const GL_LIFTS=[["bench","Bench Press"],["squat","Squat"],["dead","Deadlift or Rack Pull"],["ohp","Overhead Press"]];
+const BRD_KEY="infinity-brd-";
+function wkKey(d){return mondayOf(d).replace(/-/g,"")}
+function moKey(d){return d.slice(0,7).replace("-","")}
+function weekBest(lf,wk){let b=0;(lf&&lf.h||[]).forEach(x=>{if(x.d>=wk&&x.w>b)b=x.w});return b}
+function globalOn(){return S.mode==="db"&&S.settings.sharing&&S.settings.global!==false}
+async function publishBoard(sum){
+  if(S.mode!=="db"||!uid)return;
+  const ref=doc(fs,"board",uid);
+  let prev=null;try{prev=localStorage.getItem(BRD_KEY+uid)}catch(e){}
+  if(!sum||S.settings.global===false){
+    if(prev==="off")return;
+    return deleteDoc(ref).then(()=>{try{localStorage.setItem(BRD_KEY+uid,"off")}catch(e){}}).catch(e=>console.warn("board",e));
+  }
+  const td=today(),wk=mondayOf(td),w=wkKey(td),mo=moKey(td);
+  const data={name:(pname({nick:ME.nick,name:myName()})||"").slice(0,80),photo:await thumbOf(myPhoto()),total:sum.total||0};
+  if(sum.weekDays.length)data["ww_"+w]=sum.weekDays.length;
+  if(sum.volumeWeek)data["vw_"+w]=sum.volumeWeek;
+  if(sum.monthWorkouts)data["mw_"+mo]=sum.monthWorkouts;
+  if(sum.volumeMonth)data["vm_"+mo]=sum.volumeMonth;
+  if(sum.streak)data["st_"+wkKey(sum.weekDays.length?td:addDays(wk,-7))]=sum.streak;
+  GL_LIFTS.forEach(([k,n])=>{
+    const lf=(sum.lifts||[]).find(x=>x.n===n);if(!lf)return;
+    if(lf.pr.w>0)data["lp_"+k]=lf.pr.w;
+    const b=weekBest(lf,wk);if(b>0)data["lw_"+w+"_"+k]=b;
+  });
+  const key=JSON.stringify(data);
+  if(prev===key)return;
+  return setDoc(ref,data).then(()=>{try{localStorage.setItem(BRD_KEY+uid,key)}catch(e){}}).catch(e=>console.warn("board",e));
+}
+/* global rankings, one query per field, cached for a few minutes. Entry: {rows, at} or {loading} or {err} */
+const GLOB={};
+function globRows(field,n){
+  const c=GLOB[field+"|"+n];
+  if(c&&(c.loading||Date.now()-c.at<180000))return c;
+  const big=Object.keys(GLOB).find(k=>k.startsWith(field+"|")&&+k.split("|")[1]>=n&&GLOB[k].rows&&Date.now()-GLOB[k].at<180000);
+  if(big)return {rows:GLOB[big].rows.slice(0,n),at:GLOB[big].at};
+  const e=GLOB[field+"|"+n]={loading:true,rows:c&&c.rows};
+  getDocs(query(collection(fs,"board"),orderBy(field,"desc"),limit(n)))
+    .then(s=>{GLOB[field+"|"+n]={rows:s.docs.map(d=>{const v=d.data();return {uid:d.id,isMe:d.id===uid,p:{name:v.name||"Member",photo:v.photo||""},v:v[field]||0}}),at:Date.now()}})
+    .catch(err=>{console.warn("global",err);GLOB[field+"|"+n]={err:fbError(err,"load the global leaderboard"),at:Date.now()}})
+    .finally(()=>softRender());
+  return e;
+}
+/* streaks live in two fields (this week and last week); merge them */
+function globStreak(n){
+  const wk=mondayOf(today()),a=globRows("st_"+wkKey(wk),n),b=globRows("st_"+wkKey(addDays(wk,-7)),n);
+  if(a.err||b.err)return {err:a.err||b.err};
+  const rows=[...(a.rows||[]),...(b.rows||[])].sort((x,y)=>y.v-x.v).slice(0,n);
+  return {rows,loading:!!(a.loading||b.loading)&&!rows.length};
+}
+function globField(m,p,lift){
+  const td=today(),w=wkKey(td),mo=moKey(td);
+  if(m==="lifts")return p==="all"?"lp_"+lift:"lw_"+w+"_"+lift;
+  if(m==="volume")return p==="month"?"vm_"+mo:"vw_"+w;
+  return p==="all"?"total":p==="month"?"mw_"+mo:"ww_"+w;
+}
+function globalRanking(m,p,lift,n){return m==="streak"?globStreak(n):globRows(globField(m,p,lift),n)}
 /* Zero out a summary's week or month once it's out of date. Summaries from older
    versions have no month fields, so their month counts read as zero. */
 function live(sum){
@@ -2344,22 +2436,10 @@ function renderDash(){
     const lf=(mine.lifts||[]).find(x=>x.n===n);
     return `<div><span>${l}</span><b>${lf&&lf.pr.w>0?fromKg(lf.pr.w):"-"}</b></div>`;
   }).join("");
-  /* buddies */
-  let buddiesHtml="";
-  if(S.mode==="db"){
-    const people=[{uid:"me",p:{name:myName(),photo:myPhoto()},isMe:true,L}];
-    SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing)people.push({uid:a.uid,p:SOC.profiles[a.uid]||{},isMe:false,L:live(sh)})});
-    people.sort((a,b)=>(b.L.weekDays.length-a.L.weekDays.length)||(b.L.volumeWeek-a.L.volumeWeek));
-    const hidden=SOC.accepted.length-(people.length-1);
-    buddiesHtml=SOC.accepted.length?`<section class="sec"><div class="sec-h"><span class="kicker">Buddies this week</span><span class="links"><button class="link" data-view="board">Leaderboard</button><button class="link" data-view="buddies">Manage</button></span></div>
-      <ul class="blist">${people.map(x=>`<li ${x.isMe?"":`data-buddy="${x.uid}" role="button" tabindex="0"`}>${avatar(x.p)}
-        <span class="nm">${x.isMe?"You":esc(pname(x.p)||"Buddy")}</span>
-        ${miniWeek(x.L)}
-        <span class="ct">${x.L.weekDays.length}</span></li>`).join("")}</ul>
-      ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing right now.</p>`:""}
-      ${!S.settings.sharing?`<p class="small muted">Your buddies can't see your progress. <button class="link" data-view="buddies">Turn on sharing</button></p>`:""}</section>`
-      :`<section class="sec"><p class="small muted" style="margin:0">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button></p></section>`;
-  }
+  /* leaderboard, worked out once from my summary */
+  BOARD.meL=L;
+  const buddiesHtml=S.mode==="db"?renderLbDash():"";
+  BOARD.meL=null;
   return `
   ${S.coachNotice?`<p class="coachnote">${S.coachNotice}</p>`:""}
   <header class="greet"><h1>${greeting()}${nm?", "+esc(nm):""}</h1><p>${new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</p></header>
@@ -2417,8 +2497,8 @@ function renderPerson(){
     +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"")
     +(!bud&&!inc&&!out&&u!==uid?`<button class="btn primary" data-add="${u}">Send buddy request</button>`:"");
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
-  const from=["find","board","admin"].includes(S.personFrom)?S.personFrom:"buddies";
-  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":from==="board"?"leaderboard":from==="admin"?"admin":"buddies"}</button></p>
+  const from=["find","board","admin","dash"].includes(S.personFrom)?S.personFrom:"buddies";
+  return `<p><button class="link" data-view="${from}">Back to ${from==="find"?"find buddies":from==="board"?"leaderboard":from==="admin"?"admin":from==="dash"?"home":"buddies"}</button></p>
   <div class="panel profile">
     ${avatar(p,"xl")}
     <h1 class="pf-name">${esc(nm||"Loading...")}</h1>
@@ -2500,6 +2580,12 @@ function renderBuddies(){
       <span><b>Show me in Find Buddies</b><br><span class="muted" style="font-size:14px">${S.settings.findable!==false
         ?"Other members can see your name, photo and bio in the list and send you a request."
         :"Off. People can only add you by email or invite link."}</span></span></label></div>
+  <div class="panel"><label class="bigswitch"><input type="checkbox" id="globalBoard" ${globalOn()?"checked":""} ${S.settings.sharing?"":"disabled"}>
+      <span><b>Show me on the global leaderboard</b><br><span class="muted" style="font-size:14px">${!S.settings.sharing
+        ?"Needs Share my progress on."
+        :S.settings.global!==false
+        ?"Every member can see your name, photo, weekly workouts and volume, streak and top Bench, Squat, Deadlift and OHP sets."
+        :"Off. Only your buddies see your numbers."}</span></span></label></div>
   <div class="panel"><h2>Add a buddy</h2>
     <div class="row" style="margin-bottom:14px"><button class="btn primary" id="findBtn">Find New Buddies</button></div>
     <p class="muted" style="font-size:14px;margin:0 0 8px">Or add someone by their Google email.</p>
@@ -2601,15 +2687,22 @@ function doSignIn(){
     else if(c!=="auth/popup-closed-by-user"&&c!=="auth/cancelled-popup-request")setStatus("Sign-in didn't finish. Try again.");
   });
 }
-/* ---------- leaderboard ---------- */
-function boardVal(L,m,p){
+/* ---------- leaderboard ----------
+   Two scopes: Buddies (me, buddies who share and, for a trainer, trainees; worked out from
+   their summaries) and Global (board/{uid} cards, queried per metric). Metrics: workouts,
+   volume, streak, and a lift's top set this week or its best ever. */
+const LS_SCOPE="infinity-scope";
+function boardVal(L,m,p,lift){
   if(m==="streak")return L.streak||0;
+  if(m==="lifts"){const n=(GL_LIFTS.find(x=>x[0]===lift)||GL_LIFTS[0])[1],lf=(L.lifts||[]).find(x=>x.n===n);
+    return !lf?0:p==="all"?(lf.pr.w||0):weekBest(lf,mondayOf(today()))}
   if(m==="volume")return (p==="month"?L.volumeMonth:L.volumeWeek)||0;
-  return p==="month"?(L.monthWorkouts||0):(L.weekDays||[]).length;
+  return p==="all"?(L.total||0):p==="month"?(L.monthWorkouts||0):(L.weekDays||[]).length;
 }
-/* me, buddies who share, and (for a trainer) trainees; ties go to volume, then name */
-function boardRows(){
-  const rows=[{uid,p:{name:myName(),photo:myPhoto()},isMe:true,L:live(computeSummary())}];
+/* ties go to volume, then name */
+function boardRows(m,p,lift){
+  m=m||BOARD.metric;p=p||BOARD.period;lift=lift||BOARD.lift;
+  const rows=[{uid,p:{name:myName(),photo:myPhoto()},isMe:true,L:BOARD.meL||live(computeSummary())}];
   const seen=new Set([uid]);
   SOC.accepted.forEach(a=>{const sh=SOC.shared[a.uid];if(sh&&sh.sharing){rows.push({uid:a.uid,p:SOC.profiles[a.uid]||{},L:live(sh)});seen.add(a.uid)}});
   SOC.trainees.forEach(t=>{
@@ -2617,36 +2710,117 @@ function boardRows(){
     const sh=SOC.shared[t],sum=sh&&sh.sharing?sh:BOARD.tr[t];
     if(sum){rows.push({uid:t,p:SOC.profiles[t]||{},L:live(sum),trainee:!(sh&&sh.sharing)});seen.add(t)}
   });
-  const m=BOARD.metric,p=BOARD.period;
   /* summaries from app versions before the leaderboard have no month numbers: show them as unknown, not zero */
-  rows.forEach(r=>{r.nm=r.isMe?"You":pname(r.p)||"Buddy";r.unk=m!=="streak"&&p==="month"&&r.L.monthStart==null;
-    r.v=r.unk?-1:boardVal(r.L,m,p);r.vol=r.unk?-1:boardVal(r.L,"volume",p)});
+  rows.forEach(r=>{r.nm=r.isMe?"You":pname(r.p)||"Buddy";r.unk=p==="month"&&(m==="workouts"||m==="volume")&&r.L.monthStart==null;
+    r.v=r.unk?-1:boardVal(r.L,m,p,lift);r.vol=r.unk||m==="lifts"?-1:boardVal(r.L,"volume",p==="all"?"week":p)});
   rows.sort((a,b)=>(b.v-a.v)||(b.vol-a.vol)||a.nm.localeCompare(b.nm));
   const loading=SOC.trainees.some(t=>BOARD.tr[t]===null&&!seen.has(t));
   const hidden=SOC.accepted.filter(a=>!seen.has(a.uid)&&!(SOC.trainees.includes(a.uid)&&BOARD.tr[a.uid]===null)).length;
   return {rows,hidden,loading};
 }
+/* how a value reads: [number, unit] */
+function boardShow(m,v){
+  const u=S.settings.unit;
+  if(m==="volume")return [fmtNum(u==="lb"?v/0.45359:v),u];
+  if(m==="lifts")return [fromKg(v),u];
+  if(m==="streak")return [v,v===1?"week":"weeks"];
+  return [v,v===1?"workout":"workouts"];
+}
+function scope(){
+  if(!BOARD.scope){let v=null;try{v=localStorage.getItem(LS_SCOPE)}catch(e){}BOARD.scope=v==="global"||v==="buddies"?v:(SOC.accepted.length?"buddies":"global")}
+  return BOARD.scope;
+}
+function setScope(v){BOARD.scope=v;try{localStorage.setItem(LS_SCOPE,v)}catch(e){}}
+/* one ranking in either scope: {rows:[{uid,isMe,p,v}], loading, err}. Only people with something to show. */
+function ranking(sc,m,p,lift,n){
+  if(sc==="global"){const g=globalRanking(m,p,lift,n);return {rows:(g.rows||[]).filter(r=>r.v>0),loading:!!g.loading&&!g.rows,err:g.err}}
+  return {rows:boardRows(m,p,lift).rows.filter(r=>r.v>0)};
+}
+function segH(key,cur,opts,label,cls){return `<div class="seg${cls?" "+cls:""}" role="group" aria-label="${label}">${opts.map(([v,l])=>`<button data-${key}="${v}" aria-pressed="${v===cur}">${l}</button>`).join("")}</div>`}
+/* dashboard: a tile per metric showing the leader, plus the top set per lift */
+function lbTile(sc,m,p,title,sub){
+  const r=ranking(sc,m,p,BOARD.lift,10),top=r.rows[0];
+  const mi=r.rows.findIndex(x=>x.isMe);
+  const [n,l]=top?boardShow(m,top.v):["-",""];
+  const who=top?`<span class="lt-who">${avatar(top.p)}<span>${top.isMe?"You":esc(pname(top.p)||"Buddy")}</span></span>`
+    :`<span class="lt-who muted">${r.loading?"Loading...":r.err?"Couldn't load":"No one yet"}</span>`;
+  const me=mi>0?`You're #${mi+1}`:mi===0?"You lead":r.rows.length?(sc==="global"?"Not in top 10":""):"";
+  return `<button class="lt" data-tile="${m}" data-tp="${p}" aria-label="${title} ${sub}: ${top?(top.isMe?"you":esc(pname(top.p)))+", "+n+" "+l:"no one yet"}">
+    <span class="lt-h">${title}<small>${sub}</small></span>
+    <b>${n}<small>${esc(l)}</small></b>${who}<span class="lt-me">${me}</span></button>`;
+}
+function lbLift(sc,key,label,col){
+  const p=BOARD.lx,r=ranking(sc,"lifts",p,key,10),top=r.rows[0];
+  const mi=r.rows.findIndex(x=>x.isMe);
+  return `<button class="ll" style="--c:${col}" data-tile="lifts" data-tp="${p}" data-lift="${key}">
+    <span class="ll-n">${label}</span>
+    ${top?`${avatar(top.p)}<span class="ll-who">${top.isMe?"You":esc(pname(top.p)||"Buddy")}${mi>0?`<small>You're #${mi+1}</small>`:""}</span><b>${fromKg(top.v)}</b>`
+      :`<span class="ll-who muted">${r.loading?"Loading...":"No one yet"}</span><b>-</b>`}</button>`;
+}
+function renderLbDash(){
+  const sc=scope(),u=S.settings.unit;
+  const head=`<div class="sec-h"><span class="kicker">Leaderboard</span><span class="links"><button class="link" data-view="board">See all</button><button class="link" data-view="buddies">Manage</button></span></div>
+    ${segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Leaderboard scope","wide")}`;
+  let body;
+  if(sc==="buddies"&&!SOC.accepted.length&&!SOC.trainees.length){
+    body=`<p class="small muted lb-empty">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button> or see how you stack up on the <button class="link" data-ls="global">global board</button>.</p>`;
+  }else if(sc==="global"&&!globalOn()){
+    body=`<p class="small muted lb-empty">${S.settings.sharing?"You're hidden from the global leaderboard, so you won't be ranked here.":"Turn on sharing to appear on the global leaderboard."} <button class="link" data-view="buddies">Change</button></p>`;
+  }
+  if(sc==="buddies"&&body)return `<section class="sec lb">${head}${body}</section>`;
+  const lifts=KEY_LIFTS.map(([n,l,c])=>{const k=(GL_LIFTS.find(x=>x[1]===n)||[])[0];return k?lbLift(sc,k,l,c):""}).join("");
+  let week="";
+  if(sc==="buddies"){
+    const {rows,hidden}=boardRows("workouts","week");
+    week=`<div class="sec-h lb-sub"><span class="kicker">This week</span></div>
+      <ul class="blist">${rows.filter(x=>!x.trainee).map(x=>`<li ${x.isMe?"":`data-buddy="${x.uid}" role="button" tabindex="0"`}>${avatar(x.p)}
+        <span class="nm">${esc(x.nm)}</span>${miniWeek(x.L)}<span class="ct">${x.v}</span></li>`).join("")}</ul>
+      ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing right now.</p>`:""}
+      ${!S.settings.sharing?`<p class="small muted">Your buddies can't see your progress. <button class="link" data-view="buddies">Turn on sharing</button></p>`:""}`;
+  }
+  return `<section class="sec lb">${head}${body||""}
+    <div class="lt3">${lbTile(sc,"workouts","week","Workouts","this week")}${lbTile(sc,"volume","week","Volume","this week")}${lbTile(sc,"streak","week","Streak","weeks in a row")}</div>
+    <div class="sec-h lb-sub"><span class="kicker">Top lifts</span>${segH("lx",BOARD.lx,[["week","This week"],["all","Records"]],"Lift period","sm")}</div>
+    <div class="ll4">${lifts}</div>
+    <p class="small muted lb-note">Heaviest top set, in ${u}. Tap any tile for the full ranking.</p>
+    ${week}</section>`;
+}
 function renderBoard(){
   const back=BOARD.from==="buddies"?"buddies":"dash";
   const head=`<p><button class="link" data-view="${back}">Back to ${back==="buddies"?"buddies":"home"}</button></p>`;
   if(S.mode!=="db")return head+`<div class="panel"><h2>Leaderboard</h2><p class="muted">${CONFIGURED?"Sign in with Google to compare progress with your buddies.":"Set up Firebase to compare progress with buddies."}</p>${CONFIGURED?`<button class="btn primary" id="signin">Sign in with Google</button>`:""}</div>`;
-  if(!SOC.accepted.length&&!SOC.trainees.length)return head+`<header class="greet"><h1>Leaderboard</h1></header>
-    <div class="panel"><p class="muted" style="margin:0 0 14px">No buddies yet. Add a few and see who trains most each week.</p><button class="btn primary" id="findBtn">Find New Buddies</button></div>`;
-  loadBoardTrainees();
-  const {rows,hidden,loading}=boardRows();
-  const m=BOARD.metric,p=BOARD.period,u=S.settings.unit;
-  const seg=(key,cur,opts,label)=>`<div class="seg" role="group" aria-label="${label}">${opts.map(([v,l])=>`<button data-${key}="${v}" aria-pressed="${v===cur}">${l}</button>`).join("")}</div>`;
-  const sub=m==="streak"?"Weeks in a row with at least one workout":p==="month"?new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"}):"Week of "+fmtDate(mondayOf(today()));
-  const show=r=>m==="volume"?[fmtNum(u==="lb"?r.v/0.45359:r.v),u]:m==="streak"?[r.v,r.v===1?"week":"weeks"]:[r.v,r.v===1?"workout":"workouts"];
-  const row=(r,i)=>{
-    const [n,l]=r.unk?["-","not updated"]:show(r);
-    const inner=`${avatar(r.p)}<span class="nm">${esc(r.nm)}${r.trainee?`<small>Trainee, only you see this</small>`:""}</span><span class="v"><b>${n}</b><small>${l}</small></span>`;
+  const sc=scope(),m=BOARD.metric,lift=BOARD.lift;
+  /* periods each metric offers */
+  const periods=m==="streak"?[]:m==="lifts"?[["week","This week"],["all","Best ever"]]:m==="volume"?[["week","This week"],["month","This month"]]:[["week","This week"],["month","This month"],["all","All time"]];
+  if(periods.length&&!periods.some(x=>x[0]===BOARD.period))BOARD.period="week";
+  const p=BOARD.period;
+  const liftName=(KEY_LIFTS.find(x=>x[0]===(GL_LIFTS.find(g=>g[0]===lift)||GL_LIFTS[0])[1])||[])[1]||"";
+  const sub=m==="streak"?"Weeks in a row with at least one workout"
+    :(m==="lifts"?liftName+", heaviest top set, ":"")+(p==="all"?(m==="lifts"?"best ever":"All time"):p==="month"?new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"}):"week of "+fmtDate(mondayOf(today())));
+  const ctl=`<div class="bd-ctl">${segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Scope","wide")}
+    ${segH("bm",m,[["workouts","Workouts"],["volume","Volume"],["streak","Streak"],["lifts","Lifts"]],"Rank by")}
+    ${m==="lifts"?segH("blift",lift,KEY_LIFTS.map(([n,l])=>[(GL_LIFTS.find(g=>g[1]===n)||[])[0],l]),"Lift"):""}
+    ${periods.length?segH("bp",p,periods,"Period"):""}</div>`;
+  const top=head+`<header class="greet"><h1>Leaderboard</h1><p>${esc(sub.charAt(0).toUpperCase()+sub.slice(1))}</p></header>`+ctl;
+  const row=(r,i,[n,l])=>{
+    const inner=`${avatar(r.p)}<span class="nm">${esc(r.nm)}${r.trainee?`<small>Trainee, only you see this</small>`:""}</span><span class="v"><b>${n}</b><small>${esc(l)}</small></span>`;
     return `<li class="${r.isMe?"me":""}"><span class="rk">${i+1}</span>${r.isMe?`<span class="bd-p">${inner}</span>`:`<button class="bd-p" data-person="${r.uid}" aria-label="${esc(r.nm)}, rank ${i+1}, ${n} ${l}">${inner}</button>`}</li>`;
   };
-  return head+`<header class="greet"><h1>Leaderboard</h1><p>${esc(sub)}</p></header>
-  <div class="bd-ctl">${seg("bm",m,[["workouts","Workouts"],["volume","Volume"],["streak","Streak"]],"Rank by")}
-    ${m!=="streak"?seg("bp",p,[["week","This week"],["month","This month"]],"Period"):""}</div>
-  <div class="panel"><ol class="board">${rows.map(row).join("")}</ol>
+  if(sc==="global"){
+    const g=globalRanking(m,p,lift,50);
+    const rows=(g.rows||[]).filter(r=>r.v>0).map(r=>({...r,nm:r.isMe?"You":pname(r.p)||"Member"}));
+    const inTop=rows.some(r=>r.isMe);
+    return top+`<div class="panel">${g.err?`<p class="muted" style="margin:0">${esc(g.err)}</p>`
+      :rows.length?`<ol class="board">${rows.map((r,i)=>row(r,i,boardShow(m,r.v))).join("")}</ol>`
+      :`<p class="muted" style="margin:0">${g.loading?"Loading...":"No one has numbers here yet."}</p>`}
+      ${rows.length&&!inTop?`<p class="small muted">${globalOn()?"You're not in the top 50 here yet.":S.settings.sharing?"You're hidden from the global leaderboard.":"Turn on sharing to appear on the global leaderboard."}${globalOn()?"":` <button class="link small" data-view="buddies">Change</button>`}</p>`:""}
+      <p class="small muted">Top 50 members who share their progress.</p></div>`;
+  }
+  if(!SOC.accepted.length&&!SOC.trainees.length)return top+`<div class="panel"><p class="muted" style="margin:0 0 14px">No buddies yet. Add a few and see who trains most each week.</p><button class="btn primary" id="findBtn">Find New Buddies</button></div>`;
+  loadBoardTrainees();
+  const {rows,hidden,loading}=boardRows();
+  const shown=m==="lifts"?rows.filter(r=>r.v>0):rows;
+  return top+`<div class="panel">${shown.length?`<ol class="board">${shown.map((r,i)=>row(r,i,r.unk?["-","not updated"]:boardShow(m,r.v))).join("")}</ol>`:`<p class="muted" style="margin:0">No one has logged this lift${p==="week"?" this week":""} yet.</p>`}
     ${loading?`<p class="small muted">Loading your trainees...</p>`:""}
     ${(()=>{const old=rows.filter(r=>r.unk).map(r=>r.nm);return old.length?`<p class="small muted">${esc(old.join(", "))} ${old.length===1?"needs":"need"} to open the latest version of the app before monthly numbers show.</p>`:""})()}
     ${hidden>0?`<p class="small muted">${hidden} ${hidden===1?"buddy isn't":"buddies aren't"} sharing.</p>`:""}
@@ -2882,6 +3056,10 @@ document.addEventListener("click",async e=>{
   if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
   if(t.id==="findMore"){loadFind();return}
   if(ds.bm){BOARD.metric=ds.bm;render();return}
+  if(ds.ls){setScope(ds.ls);render();return}
+  if(ds.lx){BOARD.lx=ds.lx;render();return}
+  if(ds.blift){BOARD.lift=ds.blift;render();return}
+  if(ds.tile){BOARD.metric=ds.tile;BOARD.period=ds.tp||"week";if(ds.lift)BOARD.lift=ds.lift;BOARD.from="dash";S.view="board";S.msg="";render();window.scrollTo(0,0);return}
   if(ds.admf){ADM.f=ds.admf;render();return}
   if(ds.bp){BOARD.period=ds.bp;render();return}
   if(ds.ghu){GEN.hu=ds.ghu;render();return}
@@ -3022,6 +3200,7 @@ document.addEventListener("change",async e=>{
   else if(el.id==="buddyEx"){S.buddyEx=el.value;render()}
   else if(el.id==="planSel"){if(getPlan(el.value)){usePlan(el.value);render()}}
   else if(el.id==="sharing"){S.settings.sharing=el.checked;await saveSettings();await publishNow();render()}
+  else if(el.id==="globalBoard"){S.settings.global=el.checked;await saveSettings();await publishNow();render()}
   else if(ds.dt!=null&&S.draft){
     const d=S.draft.days[+ds.dt];const old=tinfo(d.t).label;
     if(!d.title||d.title===old||d.title==="Rest")d.title=el.value==="rest"?"Rest":tinfo(el.value).label;

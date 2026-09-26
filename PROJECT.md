@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 25 Sept 2026, after the leaderboard, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v31`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 26 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v37`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v29` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v37` |
 
 ## Files
 
@@ -97,8 +97,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Buddies list: one main action per row. The trainer toggle and **Remove buddy** sit behind a **⋯** button.
 
 ### Leaderboard
-- Opened from **Leaderboard** on Home (next to "Buddies this week") and on the Buddies tab. It isn't a top-level tab.
-- Ranks you plus every buddy who shares progress. Metrics: **Workouts**, **Volume** (weight x reps, in your unit) and **Streak** (weeks). Workouts and Volume can be **This week** or **This month**.
+- Home has a **Leaderboard** dashboard with a **Buddies | Global** switch (remembered on the device). It shows three tiles, **Workouts** this week, **Volume** this week and **Streak**, each with the leader and your rank. Below them, **Top lifts** shows the leader for Bench, Squat, Deadlift and OHP, either this week's heaviest top set or **Records** (best ever). In Buddies it also keeps the "This week" list with each buddy's week dots.
+- Tapping a tile opens the full leaderboard on that metric. **See all** opens it too, as does **Leaderboard** on the Buddies tab. It isn't a top-level tab.
+- The full leaderboard has the same Buddies | Global switch. Metrics: **Workouts** (this week, this month, all time), **Volume** (weight x reps, in your unit; this week or this month), **Streak** (weeks) and **Lifts** (pick a lift; this week or best ever).
+- **Global** ranks the top 50 members from `board/{uid}` cards. A card is published only while **Share my progress** and **Show me on the global leaderboard** (Buddies tab, on by default) are both on. Turning either off deletes the card.
+- Buddies ranks you plus every buddy who shares progress.
 - Your row is highlighted. Ties go to the higher volume for the period, then to the name.
 - Buddies who don't share appear as one muted line ("2 buddies aren't sharing"), not as rows.
 - A trainer also sees their trainees, even ones who don't share: their counts are worked out from the log the trainer can already read, loaded once per session. Only the trainer sees those rows.
@@ -128,6 +131,11 @@ admins/{uid}                        { by, at }: presence means admin
 accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, requested, by, at }
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
 exercises/{slug}                    { name, display?, youtube?, added?, updatedBy, updatedAt }: exercise catalogue: rename, tutorial video, admin-added
+board/{uid}                         global leaderboard card: { name, photo (small thumbnail), total, lp_<lift>,
+                                      ww_<week>, vw_<week>, lw_<week>_<lift>, mw_<month>, vm_<month>, st_<last week trained> }
+                                      week = Monday as YYYYMMDD, month = YYYYMM, lift = bench | squat | dead | ohp.
+                                      The period is in the field name, so each ranking is one single-field orderBy (no composite
+                                      indexes) and old weeks simply aren't found. Volumes and weights in kg.
 shared/{uid}                        progress summary for buddies, or { sharing: false }:
                                     { sharing, name, photo, ig, planName, weekStart, weekDays, weekTypes, volumeWeek,
                                       monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated }
@@ -146,6 +154,7 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `requests/{id}` | The two people involved | Sender creates as pending; receiver accepts; either side deletes |
 | `coaching/{uid}` | Owner and listed trainers | Owner |
 | `shared/{uid}` | Owner and accepted buddies | Owner |
+| `board/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, at most 24 fields, name and photo size limits; owner can always delete |
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
 | `accounts/{uid}` | Owner and admins | Owner creates only a pending request; admins set active or disabled, never for themselves |
 | `audit/{id}` | Admins | Admins create; no changes or deletes |
@@ -165,7 +174,8 @@ The whole script is one ES module inside `<script type="module">`.
   - `FIND`: the Find Buddies list and paging
   - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
   - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
-  - `BOARD`: leaderboard metric and period, where it was opened from, and trainee counts loaded from their logs
+  - `BOARD`: leaderboard metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from, and trainee counts loaded from their logs
+  - `GLOB`: global leaderboard query results per field, cached for 3 minutes
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
   - main tabs: `dash` (Home), `log` (Workout), `plans`, `gen` (Advanced, AI planning), `buddies`, `history` (Progress)
   - plan screens: `planView`, `planEdit`
