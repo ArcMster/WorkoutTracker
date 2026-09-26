@@ -45,6 +45,7 @@ Everything is in `proxy/` in this repo:
 | `FIREBASE_PROJECT_ID` | yes | `fitness-tracker-472ec` | Sign-in tokens must come from this Firebase project. |
 | `AI_ALLOWED_ORIGINS` | yes | `https://arcmster.github.io` | Sites allowed to call the proxy (CORS). Comma-separated for more than one, for example add `http://localhost:8000` for testing. |
 | `AI_DAILY_LIMIT` | no | `5` | Successful AI plans per user per 24 hours. |
+| `AI_ADMIN_DAILY_LIMIT` | no | `50` | The same limit for admins (users with a document in `admins`). |
 | `AI_MODEL` | no | `gemini-3.8-flash` | The model. `gemini-3.5-flash-lite` is cheaper and faster, and less thorough. |
 | `AI_REQUIRE_ACTIVE` | no | `1` | Set `0` to skip the approved-account check. Not recommended. |
 | `AI_PROVIDER` | no | `gemini` | `gemini` (default) or `claude`. For `claude`, also install `anthropic` and set `ANTHROPIC_API_KEY`. `AI_MODEL` then defaults to `claude-opus-5`, and `AI_EFFORT` (`low`, `medium`, `high`) applies. |
@@ -193,7 +194,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 | --- | --- |
 | 401 | No token, or it expired or belongs to another Firebase project |
 | 403 | The account is pending or disabled |
-| 429 | The user reached the daily limit (`AI_DAILY_LIMIT`) |
+| 429 | The user reached the daily limit (`AI_DAILY_LIMIT`, or `AI_ADMIN_DAILY_LIMIT` for admins) |
 | 413 | The photo is too large |
 | 400 | The AI couldn't read the request or photo |
 | 422 | The AI declined the request (safety filter) |
