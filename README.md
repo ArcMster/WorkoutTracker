@@ -65,7 +65,10 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - **Leaderboard** on Home or the Buddies tab ranks you and your buddies by workouts, volume or week streak, this week or this month.
 - Only buddies with **Share my progress** on are ranked. The rest are counted in one line below the table.
 - Trainers also see their trainees there, worked out from the log they can already read. Only the trainer sees those rows.
-- It uses the existing `shared/{uid}` summary, which now also carries `monthStart`, `monthWorkouts` and `volumeMonth`. No new collections or rules.
+- It uses the existing `shared/{uid}` summary, which now also carries `monthStart`, `monthWorkouts` and `volumeMonth`.
+- Home shows it as a dashboard with a **Buddies | Global** switch: tiles for workouts, volume and streak this week, and the top Bench, Squat, Deadlift and OHP set this week or ever. Tap a tile for the full ranking.
+- **Global** ranks the top 50 members who share progress and leave **Show me on the global leaderboard** on (Buddies tab). It reads the new `board/{uid}` collection, so **publish the updated `firestore.rules`** in the Firebase console. No indexes are needed.
+- Members appear on the global board once they open the updated app.
 
 ## Advanced (AI planning)
 
@@ -119,6 +122,7 @@ The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline 
 - Your full workout log (`users/{uid}/log`) is private to you. Nobody else can read it.
 - When **Share my progress** is on, the app publishes a summary to `shared/{uid}`: weekly and monthly workouts and volume, streak, total workouts, top set per lift and recent workout days.
 - Only your accepted buddies can read that summary. Turning sharing off replaces it with `{ sharing: false }`.
+- While sharing is on, a smaller card goes to `board/{uid}` for the global leaderboard, which every member can read: name, thumbnail, weekly and monthly workouts and volume, streak, total, and top Bench, Squat, Deadlift and OHP sets. Turn off **Show me on the global leaderboard** to delete it.
 - Buddies are added by Google email or invite link. The other person has to accept.
 
 ## Data layout
@@ -136,4 +140,5 @@ audit/{id}                         { action, target, name, by, at }: admin actio
 exercises/{slug}                   { name, display, youtube, added, updatedBy, updatedAt }: renames, tutorial videos, added exercises
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
 shared/{uid}                       progress summary buddies can see
+board/{uid}                        global leaderboard card: name, thumbnail and ranking numbers
 ```

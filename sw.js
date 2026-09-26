@@ -1,6 +1,6 @@
 /* Service worker: makes Infinity Fitness Tracker installable and able to open offline.
    Bump CACHE when you change index.html so users get the new version. */
-const CACHE = "infinity-v36";
+const CACHE = "infinity-v37";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png"];
 const CDN = ["www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];

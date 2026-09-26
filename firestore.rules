@@ -167,6 +167,21 @@ service cloud.firestore {
         && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
     }
 
+    // Global leaderboard card: name, a small photo and the numbers it ranks by. Period fields carry
+    // their week or month in the name (ww_20260921), so the field set changes each week; the rules
+    // cap its size instead of listing keys. Only written while sharing and "global" are both on.
+    match /board/{uid} {
+      allow get: if signedIn();
+      allow list: if signedIn() && request.query.limit <= 50;
+      allow create, update: if isMe(uid) && active()
+        && request.resource.data.size() <= 24
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.photo is string && request.resource.data.photo.size() <= 20000
+        && request.resource.data.total is int;
+      // Leaving the board is always allowed, even for a disabled account.
+      allow delete: if isMe(uid);
+    }
+
     // Progress summary. The app only writes stats here while sharing is on;
     // turning sharing off overwrites it with { sharing: false }.
     match /shared/{uid} {
