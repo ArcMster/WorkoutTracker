@@ -1,5 +1,4 @@
-google-genai
 google-auth
 requests
-# only if AI_PROVIDER=claude:
+# only if AI_PROVIDER=claude (needs Python 3.10+ for anthropic 1.x):
 # anthropic

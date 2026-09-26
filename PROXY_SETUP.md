@@ -25,7 +25,7 @@ Everything is in `proxy/` in this repo:
 
 | File | What it is |
 | --- | --- |
-| `proxy/requirements.txt` | Python packages: `google-genai`, `google-auth`, `requests` |
+| `proxy/requirements.txt` | Python packages: `google-auth`, `requests` |
 | `proxy/workout_ai/` | A Django app to drop into your project: `views.py` (the endpoint), `urls.py`, `models.py`, `migrations/` |
 
 ## What you need
@@ -35,7 +35,7 @@ Everything is in `proxy/` in this repo:
   - If you already have a Google Cloud API key you want to use, enable the **Generative Language API** for its project in the Google Cloud console. An AI Studio key is simpler.
 - Your **Firebase project id**. It's `projectId` in `firebase-config.js` (for this app, `fitness-tracker-472ec`).
 - Your GitHub Pages address, for example `https://arcmster.github.io` (just the origin: no path, no trailing slash).
-- Your Django web app on PythonAnywhere running **Python 3.10 or newer** (see the **Web** tab). The `google-genai` package needs 3.10+.
+- Your Django web app on PythonAnywhere, Python 3.8 or newer. The proxy calls Gemini's REST API with `requests`, so it doesn't need Google's `google-genai` package (that one needs Python 3.10+). Only `AI_PROVIDER=claude` needs Python 3.10+, for the `anthropic` package.
 
 ## Settings
 
@@ -82,13 +82,13 @@ Open a **Bash console**. If your web app uses a virtualenv (the **Web** tab show
 
 ```bash
 workon <your-virtualenv-name>
-pip install google-genai google-auth requests
+pip install google-auth requests
 ```
 
 With no virtualenv, install for your web app's Python version, for example 3.10:
 
 ```bash
-pip3.10 install --user google-genai google-auth requests
+pip3.10 install --user google-auth requests
 ```
 
 ### 3. Register the app and its URL
@@ -198,6 +198,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 | 400 | The AI couldn't read the request or photo |
 | 422 | The AI declined the request (safety filter) |
 | 502 / 504 | The AI or Firestore couldn't be reached, or the reply was unusable |
+| 500 | Something unexpected failed on the server (the error log has the details) |
 | 503 | The server is missing settings, the key was rejected, the model name is wrong, or the Gemini quota ran out (the error log says which) |
 
 ## Changing what the AI does
