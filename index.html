@@ -114,6 +114,8 @@ tr.isdone input{opacity:.7}
 .chart svg{display:block;width:100%;height:auto}
 .hlist{list-style:none;margin:10px 0 0;padding:0}
 .hlist li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.hlist small.by{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.hlist small.by .link{font-size:13px}
 .hlist li span:last-child{color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
 .sess{width:100%;display:flex;align-items:center;gap:12px;border:0;border-top:1px solid var(--line);background:none;padding:10px 0;text-align:left}
 .sess .dot{width:14px;height:14px;border-radius:50%;flex:none;background:var(--c)}
@@ -3113,6 +3115,7 @@ async function admLog(){
   try{
     const snap=await getDocs(query(collection(fs,"audit"),orderBy("at","desc"),limit(10)));
     ADM.log=snap.docs.map(d=>d.data());
+    ADM.log.forEach(a=>a.by&&a.by!==uid&&loadProfile(a.by));/* who did it */
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
@@ -3248,7 +3251,7 @@ function renderAdmin(){
       <input class="field" data-vurl inputmode="url" autocomplete="off" placeholder="YouTube link (optional)" aria-label="YouTube link"><button class="btn small primary" data-vsave="">Add</button>
       ${ADM.newName&&ADM.vmsg[slug(ADM.newName)]?`<small>${esc(ADM.vmsg[slug(ADM.newName)])}</small>`:""}</li></ul>
   </div>
-  ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}</span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
+  ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}<small class="by">by ${a.by===uid?"you":a.by?`<button class="link" data-person="${esc(a.by)}">${esc(pname(SOC.profiles[a.by])||"an admin")}</button>`:"an admin"}</small></span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
 }
 
 function leaveEditor(){

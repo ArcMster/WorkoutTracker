@@ -54,7 +54,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Admin
 - **Admin** tab in the top menu, shown only when `admins/{myUid}` exists.
 - Counts of users, admins and disabled accounts; user list from `profiles`, 50 per page, with name search over loaded pages and filter chips (Active by default, All, Disabled, Admins, Trainers); admin, trainer, disabled and "You" badges. Trainers come from the `coaching` lists, which admins can only read once the rules allow it.
-- Per user, behind a confirmation: **Disable** / **Enable** and **Make admin** / **Remove admin**. Your own row has no actions. Each action stores `by` and `at` and adds an `audit` entry; the last 10 show under Recent actions.
+- Per user, behind a confirmation: **Disable** / **Enable** and **Make admin** / **Remove admin**. Your own row has no actions. Each action stores `by` and `at` and adds an `audit` entry; the last 10 show under Recent actions, each with the admin who did it ("by you", or their name linking to their profile).
 - Disabling is an app flag enforced by the rules, not a Firebase Auth disable. On sign-in the app reads `accounts/{myUid}` first; if disabled it shows one calm screen and loads nothing else, with no listeners and no writes.
 - Admins get no access to workout logs.
 - The first admin is created by hand in the Firebase console (steps in README).
