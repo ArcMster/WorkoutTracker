@@ -40,9 +40,11 @@ service cloud.firestore {
     // Account status. The owner can read their own; admins can read all.
     match /accounts/{uid} {
       allow read: if isMe(uid) || isAdmin();
-      // A new user asks to join: only the pending state, with what an admin needs to recognise them.
+      // A new user asks to join: only the pending state, with what an admin needs to recognise them,
+      // and whether they signed up as a trainer.
       allow create: if isMe(uid)
-        && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested'])
+        && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested', 'trainer'])
+        && (!('trainer' in request.resource.data) || request.resource.data.trainer is bool)
         && request.resource.data.status == 'pending'
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.email == request.auth.token.email
@@ -50,7 +52,7 @@ service cloud.firestore {
         && request.resource.data.requested == request.time;
       // Admins approve, decline (disable) or enable accounts, never their own.
       allow create, update: if isAdmin() && uid != request.auth.uid
-        && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested'])
+        && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested', 'trainer'])
         && request.resource.data.status in ['active', 'disabled']
         && request.resource.data.disabled == (request.resource.data.status == 'disabled')
         && request.resource.data.by == request.auth.uid
@@ -89,12 +91,39 @@ service cloud.firestore {
       return signedIn() && (accepted(request.auth.uid, other) || accepted(other, request.auth.uid));
     }
 
-    // Who may act as my trainer. Only I can change my own list.
+    // Who may act as my trainer. Only I can add trainers to my own list.
+    // A trainer can take themselves off it ("Stop training"), and change nothing else.
     match /coaching/{uid} {
       allow read: if isMe(uid) || (signedIn() && request.auth.uid in resource.data.trainers);
       allow write: if isMe(uid) && active()
         && request.resource.data.trainers is list
         && request.resource.data.trainers.size() <= 10;
+      allow update: if active() && request.auth.uid in resource.data.trainers
+        && request.resource.data.keys().hasOnly(['trainers', 'updated'])
+        && request.resource.data.trainers == resource.data.trainers.removeAll([request.auth.uid]);
+    }
+
+    // Is this user marked as a trainer on their profile?
+    function isTrainer(u) {
+      let p = /databases/$(database)/documents/profiles/$(u);
+      return exists(p) && get(p).data.get('trainer', false) == true;
+    }
+
+    // Offers to train. Id is "{trainer}_{member}". Only someone marked as a trainer can send one.
+    // The member accepts by adding the trainer to their own coaching list, then deletes the offer.
+    // Either side can delete it (cancel, decline or tidy up).
+    match /coachOffers/{id} {
+      allow read: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if active() && isTrainer(request.auth.uid)
+        && request.resource.data.keys().hasOnly(['from', 'to', 'created'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string
+        && request.resource.data.to != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to
+        && request.resource.data.created == request.time;
+      allow delete: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
     }
 
     function isTrainerOf(uid) {
@@ -111,14 +140,15 @@ service cloud.firestore {
       allow write: if isTrainerOf(uid) && active() && (docId.matches('plan_.*') || docId == 'coach');
     }
 
-    // Name, nickname, photo, Instagram handle and bio. Anyone signed in can look up one profile by id.
+    // Name, nickname, photo, Instagram handle, bio and whether they are a trainer. Anyone signed in can look up one profile by id.
     // Only admins can list profiles, for the admin screen's user list.
     match /profiles/{uid} {
       allow get: if signedIn();
       allow list: if isAdmin();
       allow write: if isMe(uid) && active()
-        && request.resource.data.keys().hasOnly(['name', 'photo', 'nick', 'ig', 'bio', 'custom', 'updated'])
-        && (!('bio' in request.resource.data) || (request.resource.data.bio is string && request.resource.data.bio.size() <= 160));
+        && request.resource.data.keys().hasOnly(['name', 'photo', 'nick', 'ig', 'bio', 'custom', 'updated', 'trainer'])
+        && (!('bio' in request.resource.data) || (request.resource.data.bio is string && request.resource.data.bio.size() <= 160))
+        && (!('trainer' in request.resource.data) || request.resource.data.trainer is bool);
     }
 
     // Member list for "Find New Buddies": a small card per user. Everyone is listed
@@ -127,7 +157,8 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if signedIn() && request.query.limit <= 50;
       allow create, update: if isMe(uid) && active()
-        && request.resource.data.keys().hasOnly(['name', 'nick', 'bio', 'photo', 'seen'])
+        && request.resource.data.keys().hasOnly(['name', 'nick', 'bio', 'photo', 'seen', 'trainer'])
+        && (!('trainer' in request.resource.data) || request.resource.data.trainer is bool)
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.nick is string && request.resource.data.nick.size() <= 40
         && request.resource.data.bio is string && request.resource.data.bio.size() <= 80

@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 26 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials and AI planning on the Advanced tab (cache `infinity-v37`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 27 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning on the Advanced tab, changing or swapping a day's workout, and trainers as a profile attribute (cache `infinity-v38`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,13 +13,13 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v37` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v38` |
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The whole app: markup, CSS and JavaScript (about 2,400 lines) |
+| `index.html` | The whole app: markup, CSS and JavaScript (about 3,500 lines) |
 | `firebase-config.js` | Firebase web config. If it's missing, the app runs in guest mode |
 | `firestore.rules` | Security rules. Paste into the Firebase console after every change |
 | `sw.js` | Service worker. Loads app files from the network first and falls back to the cache; serves the Firebase SDK and fonts from the cache first |
@@ -47,9 +47,9 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 
 ### Joining (approval)
 - Accounts have a status in `accounts/{uid}.status`: **pending** (Requested to Join), **active** or **disabled**. Older documents with only `disabled: true/false` still read correctly.
-- Anyone who signs in for the first time creates a pending request (name, email, Google photo) and sees a "Request sent" screen with **Check again** and **Sign out**. Nothing else loads and the rules refuse all their writes.
+- Anyone who signs in for the first time sees a sign-up screen (view `join`) asking **I'm training for myself** or **I'm a trainer**. **Request to join** creates a pending request (name, email, Google photo, `trainer`) and shows a "Request sent" screen with **Check again** and **Sign out**. Nothing else loads and the rules refuse all their writes.
 - People who used the app before approval existed have a profile but no account document; the app and the rules treat them as active, so nobody already using it is locked out. Anyone without a profile who signs in (someone who never opened a version with profiles) will show up as a request.
-- Admins see **Requested to join** at the top of the Admin tab (and a count on the tab) with **Approve** (to active) and **Decline** (to disabled). Disabled accounts can be enabled again later.
+- Admins see **Requested to join** at the top of the Admin tab (with a Trainer tag for people who signed up as trainers) (and a count on the tab) with **Approve** (to active) and **Decline** (to disabled). Disabled accounts can be enabled again later.
 
 ### Admin
 - **Admin** tab in the top menu, shown only when `admins/{myUid}` exists.
@@ -64,7 +64,10 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Custom plans: each weekday is a workout type or Rest. Each exercise has sets, a rep range and a unit (reps, seconds, minutes, per leg, per side).
 - Ready-made plans are read-only; **Duplicate** makes an editable copy.
 - Plans can be imported from `.pdf`, `.xlsx`, `.xls` or `.csv` files, then checked in the editor before saving.
-- **Missed workouts move forward:** an unlogged training day moves to the next training day. Rest days never move. **Reset to plan days** puts the schedule back.
+- **Missed workouts move forward:** an unlogged training day moves to the next training day. Rest days never move. **Reset to plan days** puts the schedule back (and clears day swaps).
+- **Change workout** (Workout tab, view `dayEdit`) edits one date's workout with the plan editor's day block (`dayEditHtml`, checked by `cleanDay`, the same helpers the plan editor uses): swap, add, remove or reorder exercises, change sets and reps, start from any plan's day or blank. It's saved on that date's session as `custom` and shown instead of the plan day (`day()`, `dayAt()`); the plan isn't touched. Works on rest days too. **Back to the plan workout** removes it; logged sets stay.
+- **Swap day** swaps two training days of the current week in the active plan (`swapDays`). Only days from today on that aren't logged or changed can swap. Stored as `settings.swap = { planId, pins: { date: template day }, with: { date: partner date } }`; pins are dated, so they only affect that week. If a swapped day passes unlogged and its partner was done, the swapped-in workout rolls forward to the next training day (`carry` in `schedule()`); if neither was done, `swapPins()` drops both halves. So no workout is done twice or lost. **Undo swaps** clears swaps from today on.
+- A session's `slot` is the plan workout it stands in for (set by `ensure()` from `schedule()`). The rolling schedule advances from `slot`, not from the day shown, so a swapped or changed workout counts as the one that was due and the plan moves on as usual.
 - Six-week cycles with a suggested deload in week 6 (about 40% fewer sets).
 - The logging screen shows last time's numbers, hints for beating them, and a rest timer that beeps three times and vibrates when rest is over (Web Audio, switched on by the tap that starts the timer, since browsers block sound until a tap).
 - Exercises with the same name share history across plans.
@@ -109,7 +112,10 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Buddies on older app versions publish no month numbers. For This month they show "-", rank last and are named in a note asking them to open the latest version; their summary republishes with month numbers when they do.
 
 ### Trainers
-- **Make trainer** on a buddy gives them coach access. You can have up to 10 trainers.
+- Being a trainer is an attribute: `profiles/{uid}.trainer` (and `directory/{uid}.trainer` for Find Buddies). It's chosen at sign-up (stored on the join request in `accounts/{uid}.trainer` and copied to the profile on first sign-in after approval) and switched in **Profile > I'm a trainer**. Members with no flag who already train someone are set to trainer automatically (`settleTrainer()`). Trainers get a Trainer badge on their profile, in Find Buddies and in Admin.
+- A trainer can **Offer to train** any member, from the person's profile or by Google email on the Buddies tab. The offer is `coachOffers/{trainer}_{member}`; the member sees it under **Trainer offers** on the Buddies tab (and in the tab count) and **Accept** adds the trainer to their `coaching` list and deletes the offer. Either side can cancel or decline.
+- Members can add a trainer themselves: **Make my trainer** on a trainer's profile, or **Make trainer** on a buddy marked as a trainer. Buddies who aren't trainers no longer get that option. You can have up to 10 trainers.
+- A trainer can **Stop training** someone from the trainer page, which removes only themselves from that member's `coaching` list.
 - A trainer can create and edit plans for you, assign your active plan, and read your whole log. Your app switches plans and shows a note on Home.
 - A trainer can open each of your workouts in detail (every set, planned against actual, older and newer navigation) and download CSV or PDF reports.
 - A trainer can never change sets you logged. The rules only let them write `plan_*` and `coach` documents.
@@ -117,18 +123,20 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ## Data model (Firestore)
 
 ```
-users/{uid}/log/settings            unit, start (cycle start), sharing, activePlan, sched, coachSeen, findable
+users/{uid}/log/settings            unit, start (cycle start), sharing, activePlan, sched, swap { planId, pins, with }, coachSeen, findable
 users/{uid}/log/plan_{id}           custom plan: { name, days: [{ t, title, focus, note, ex: [{ n, s, lo, hi, u }] } x7] }
 users/{uid}/log/coach               last plan a trainer assigned: { activePlan, by, at }
 users/{uid}/log/{date}_d{day}[_{planId}]
-                                    session: { date, day, src, planId, t, title, unit, deload, entries: { exercise: [{ w, r, done }] }, updated }
-profiles/{uid}                      name, nick, photo, ig, bio, custom, updated
-directory/{uid}                     Find Buddies card: name, nick, bio (80), photo (96px), seen (YYYY-MM-DD)
+                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, entries: { exercise: [{ w, r, done }] }, updated }
+                                    custom: a changed workout for that date only, same shape as a plan day
+profiles/{uid}                      name, nick, photo, ig, bio, custom, trainer, updated
+directory/{uid}                     Find Buddies card: name, nick, bio (80), photo (96px), seen (YYYY-MM-DD), trainer
 emails/{email}                      { uid }, for add by email
 requests/{fromUid}_{toUid}          { from, to, status: pending | accepted, created }
 coaching/{uid}                      { trainers: [uid, ...] }, max 10
+coachOffers/{trainerUid}_{memberUid} { from, to, created }: a trainer's offer to train someone
 admins/{uid}                        { by, at }: presence means admin
-accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, requested, by, at }
+accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, trainer, requested, by, at }
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
 exercises/{slug}                    { name, display?, youtube?, added?, updatedBy, updatedAt }: exercise catalogue: rename, tutorial video, admin-added
 board/{uid}                         global leaderboard card: { name, photo (small thumbnail), total, lp_<lift>,
@@ -148,11 +156,12 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | Path | Read | Write |
 | --- | --- | --- |
 | `users/{uid}/log/*` | Owner; trainers listed in `coaching/{uid}` | Owner; trainers only for `plan_*` and `coach` |
-| `profiles/{uid}` | Any signed-in user, one document at a time; only admins can list | Owner, with a fixed set of fields |
+| `profiles/{uid}` | Any signed-in user, one document at a time; only admins can list | Owner, with a fixed set of fields (`trainer` must be true or false) |
 | `directory/{uid}` | Any signed-in user; lists capped at 50 | Owner, with fixed fields and size limits |
 | `emails/{email}` | Any signed-in user, exact match only | Owner, only for the email on their Google sign-in |
 | `requests/{id}` | The two people involved | Sender creates as pending; receiver accepts; either side deletes |
-| `coaching/{uid}` | Owner and listed trainers | Owner |
+| `coaching/{uid}` | Owner and listed trainers | Owner; a listed trainer can only remove themselves |
+| `coachOffers/{id}` | The trainer and the member | Trainer creates (their profile must have `trainer: true`); either side deletes |
 | `shared/{uid}` | Owner and accepted buddies | Owner |
 | `board/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, at most 24 fields, name and photo size limits; owner can always delete |
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
@@ -168,8 +177,9 @@ The whole script is one ES module inside `<script type="module">`.
 
 - **State objects**
   - `S`: app state (current view, date, sessions, plans, settings, mode `db` or `local`)
-  - `SOC`: buddies, requests, profiles, shared summaries, trainers, trainees
-  - `ME`: your own nickname, photo, Instagram and bio
+  - `SOC`: buddies, requests, profiles, shared summaries, trainers, trainees, training offers in and out
+  - `ACCT`: the account document read at sign-in (for the sign-up trainer choice)
+  - `ME`: your own nickname, photo, Instagram, bio and trainer flag
   - `TR`: the trainee a trainer has open
   - `FIND`: the Find Buddies list and paging
   - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
@@ -178,11 +188,11 @@ The whole script is one ES module inside `<script type="module">`.
   - `GLOB`: global leaderboard query results per field, cached for 3 minutes
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
   - main tabs: `dash` (Home), `log` (Workout), `plans`, `gen` (Advanced, AI planning), `buddies`, `history` (Progress)
-  - plan screens: `planView`, `planEdit`
+  - plan screens: `planView`, `planEdit`, and `dayEdit` (change one date's workout)
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
   - trainer screens: `trainee`, `tday` (a trainee's single workout)
-  - `admin` (admins only) and `disabled` (the only screen a disabled account sees)
+  - `admin` (admins only), `join` (sign-up choice), `pending` and `disabled` (the only screens a new or disabled account sees)
 - **Events:** single document-level `click`, `input`, `change` and `keydown` handlers dispatch on element ids and `data-*` attributes.
 - **Sync:** `writeDoc` / `scheduleSave` write to Firestore with offline persistence. Guest mode stores everything in `localStorage` (`ppl-log-v1`).
 - **Live data:** `onSnapshot` listeners for requests, coaching and each buddy's `shared` document.
