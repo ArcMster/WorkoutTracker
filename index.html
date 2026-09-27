@@ -505,6 +505,17 @@ dialog.share p{margin:12px 0 0;text-align:center}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
 .daytools{margin:0 0 12px}
+.livedot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:6px;vertical-align:middle;animation:livepulse 1.6s ease-in-out infinite}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.livedot{animation:none}}
+.nowlist{list-style:none;margin:8px 0 0;padding:0}
+.nowlist li{display:flex;align-items:center;gap:12px;padding:10px 0 10px 12px;border-left:3px solid var(--c);border-top:1px solid var(--line);cursor:pointer}
+.nowlist li:first-child{border-top:0}
+.nowlist .nm{flex:1;min-width:0}
+.nowlist .nm small{display:block;color:var(--muted);font-size:13px}
+.nowlist .wt{color:var(--c);font-weight:700}
+.nowbanner{border-left:3px solid var(--c)}
+.nowbanner .nowtitle{margin:6px 0 2px;color:var(--c);font:800 28px/1.1 var(--display)}
 .joinopts{display:grid;gap:10px;margin:18px 0 8px;text-align:left}
 .joinopt{display:block;width:100%;text-align:left;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:14px 16px;color:var(--ink)}
 .joinopt b{display:block;font-size:17px;margin-bottom:2px}
@@ -896,7 +907,47 @@ function computeSummary(){
   });
   const recent=list.slice(-6).reverse().map(s=>{let c=0;Object.values(s.entries||{}).forEach(a=>c+=filled(a).length);const m=sessionMeta(s);return {d:s.date,day:s.day,t:m.t,title:m.title,sets:c}});
   return {sharing:true,name:myName(),photo:myPhoto(),ig:ME.ig,planName:activePlan().name,...tally(list),weekDays:Object.keys(weekTypes).map(Number),weekTypes,
-    lifts:liftArr,recent,updated:Date.now()};
+    lifts:liftArr,recent,now:nowTraining(),updated:Date.now()};
+}
+/* ---------- training now ----------
+   The workout I logged a set in most recently today, for buddies' "Training now".
+   at: time of the last set, so buddies can tell whether I'm still going. */
+const LIVE_MIN=45;/* minutes after the last set that someone still counts as training */
+function nowTraining(){
+  const td=today();let s=null;
+  Object.values(S.sessions).forEach(x=>{if(x.date===td&&hasSets(x)&&(!s||(x.updated||0)>(s.updated||0)))s=x});
+  if(!s)return null;
+  const p=getPlan(s.planId||"ppl"),m=sessionMeta(s);
+  const d=s.custom||(p&&p.days[sessSrc(s)-1]);
+  const done=setCount(s),of=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload),0):0;
+  const ex=s.lastEx&&filled(s.entries[s.lastEx]).length?s.lastEx:Object.keys(s.entries||{}).filter(n=>filled(s.entries[n]).length).pop()||"";
+  return {d:s.date,at:s.updated||Date.now(),t:m.t,title:m.title,src:s.custom?0:sessSrc(s),plan:p?p.name:"",custom:!!s.custom,ex,done,of};
+}
+/* a buddy's live workout, or null once it's over (another day, or no set for LIVE_MIN minutes) */
+function liveNow(sum){
+  const n=sum&&sum.sharing&&sum.now;
+  if(!n||n.d!==today()||Date.now()-(n.at||0)>LIVE_MIN*60000)return null;
+  return n;
+}
+function agoText(at){const m=Math.max(0,Math.round((Date.now()-at)/60000));return m<1?"just now":m+" min ago"}
+function nowDayLabel(n){return n.custom?"Changed workout":n.src?WD_LONG[n.src-1]+"'s workout"+(n.plan?" in "+n.plan:""):n.plan}
+function nowLine(n){
+  const fin=n.of&&n.done>=n.of;
+  return fin?`Finished, ${n.done} sets · ${agoText(n.at)}`:`${n.ex?"On "+esc(dn(n.ex))+" · ":""}${n.done}${n.of?" of "+n.of:""} sets · last set ${agoText(n.at)}`;
+}
+function trainingNow(){return SOC.accepted.map(a=>({uid:a.uid,n:liveNow(SOC.shared[a.uid])})).filter(x=>x.n).sort((a,b)=>b.n.at-a.n.at)}
+/* keep "last set 3 min ago" current, and drop people once their workout is over */
+setInterval(()=>{
+  const typing=document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if(!typing&&["dash","buddy","buddies"].includes(S.view)&&SOC.accepted.some(a=>SOC.shared[a.uid]&&SOC.shared[a.uid].now))render();
+},60000);
+function renderNowDash(){
+  const list=trainingNow();if(!list.length)return "";
+  return `<section class="sec nowtr"><div class="sec-h"><span class="kicker"><span class="livedot" aria-hidden="true"></span>Training now</span></div>
+    <ul class="nowlist">${list.map(({uid:b,n})=>{const p=SOC.profiles[b]||SOC.shared[b]||{};
+      return `<li data-buddy="${b}" role="button" tabindex="0" style="--c:${tinfo(n.t).solid}">${avatar(p)}
+        <span class="nm"><b>${esc(pname(p)||"Buddy")}</b> · <span class="wt">${esc(n.title)}</span>
+        <small class="one">${esc(nowDayLabel(n))}</small><small class="one">${nowLine(n)}</small></span></li>`}).join("")}</ul></section>`;
 }
 let pubTimer=null;
 function schedulePublish(){
@@ -2623,6 +2674,7 @@ function renderDash(){
   ${S.coachNotice?`<p class="coachnote">${S.coachNotice}</p>`:""}
   <header class="greet"><h1>${greeting()}${nm?", "+esc(nm):""}</h1><p>${new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</p></header>
   ${todayHtml}
+  ${S.mode==="db"?renderNowDash():""}
   <section class="sec"><div class="sec-h"><span class="kicker">This week</span><span class="small muted">${esc(plan.name)}</span></div>
     <div class="weekrow">${week}</div>
     <div class="nums3"><div><b>${L.weekDays.length}</b><span>workouts</span></div><div><b>${L.streak||0}</b><span>week streak</span></div><div><b>${L.total||0}</b><span>all time</span></div></div>
@@ -2644,7 +2696,10 @@ function renderBuddy(){
   const useW=pts.some(x=>x.w>0);
   const rec=(L.recent||[]).map(r=>{const t=r.t||BUILTIN[0].days[r.day-1].t;const title=r.title||BUILTIN[0].days[r.day-1].title;
     return `<div class="sess" style="cursor:default"><span class="dot" style="--c:${tinfo(t).bg}"></span><b>${fmtDate(r.d)}</b> ${esc(title)}<small>${r.sets} sets</small></div>`}).join("");
+  const n=liveNow(sum);
   return back+`
+  ${n?`<div class="panel nowbanner" style="--c:${tinfo(n.t).solid}"><span class="kicker"><span class="livedot" aria-hidden="true"></span>Training now</span>
+    <p class="nowtitle">${esc(n.title)}</p><p class="small muted" style="margin:0">${esc(nowDayLabel(n))}</p><p class="small" style="margin:4px 0 0">${nowLine(n)}</p></div>`:""}
   ${personCard(p,sum,false,null)}
   <div class="panel" style="margin-top:16px"><h2>${esc(pname(p)||"Their")} lifts</h2>
     ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option value="${esc(x.n)}" ${x.n===S.buddyEx?"selected":""}>${esc(dn(x.n))}</option>`).join("")}</select>
@@ -2761,7 +2816,7 @@ function renderBuddies(){
     <button class="btn primary" id="pa-yes">Send request</button><button class="btn" id="pa-no">Not now</button></div></div>`:""}
   <div class="panel"><label class="bigswitch"><input type="checkbox" id="sharing" ${S.settings.sharing?"checked":""}>
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
-        ?"Buddies see your plan name, weekly workouts, streak and top sets. Turn off and they see nothing."
+        ?"Buddies see your plan name, weekly workouts, streak, top sets and when you're training (which workout, and how far you are). Turn off and they see nothing."
         :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
   <div class="panel"><label class="bigswitch"><input type="checkbox" id="findable" ${S.settings.findable!==false?"checked":""}>
       <span><b>Show me in Find Buddies</b><br><span class="muted" style="font-size:14px">${S.settings.findable!==false
@@ -2801,7 +2856,8 @@ function renderBuddies(){
   <div class="panel"><div class="sec-h"><h2>Your buddies</h2><button class="link small" data-view="board">Leaderboard</button></div>
     ${SOC.accepted.length?`<ul class="people">${SOC.accepted.map(a=>{const sh=SOC.shared[a.uid];const on=sh&&sh.sharing;const isTr=SOC.trainers.includes(a.uid);
       const open=S.menuFor===a.uid;
-      return person(a.uid,(isTr?"Your trainer":(SOC.profiles[a.uid]||{}).trainer?"Trainer, "+(on?"sharing progress":"not sharing"):(on?"Sharing progress":"Not sharing progress")),
+      const ln=liveNow(sh);
+      return person(a.uid,ln?`<span class="livedot" aria-hidden="true"></span>Training now: ${esc(ln.title)}`:(isTr?"Your trainer":(SOC.profiles[a.uid]||{}).trainer?"Trainer, "+(on?"sharing progress":"not sharing"):(on?"Sharing progress":"Not sharing progress")),
         `${on?`<button class="btn small" data-buddy="${a.uid}">View</button>`:""}
          <button class="iconbtn" data-more="${a.uid}" aria-expanded="${open}" aria-label="More options for ${esc(pname(SOC.profiles[a.uid])||"this buddy")}">&#8943;</button>`,
         open?`<div class="more">
@@ -3383,7 +3439,7 @@ document.addEventListener("click",async e=>{
       if(ri.placeholder){e2.r=num(ri.placeholder);ri.value=ri.placeholder}
       if(wi.placeholder&&e2.w==null){e2.w=num(wi.placeholder);wi.value=wi.placeholder}
     }
-    e2.done=!e2.done;s.updated=Date.now();
+    e2.done=!e2.done;s.updated=Date.now();s.lastEx=ex.n;
     t.setAttribute("aria-pressed",e2.done);tr.classList.toggle("isdone",e2.done);
     updateBeat(tr);markLogged();scheduleSave(curId());
     if(e2.done)startTimer(REST_SECONDS);
@@ -3414,7 +3470,7 @@ document.addEventListener("input",e=>{
   }
   const arr=s.entries[ex.n]||(s.entries[ex.n]=[]);
   const e2=arr[k]||(arr[k]={w:null,r:null,done:false});
-  e2[ds.f]=num(el.value);s.updated=Date.now();
+  e2[ds.f]=num(el.value);s.updated=Date.now();s.lastEx=ex.n;
   updateBeat(tr);markLogged();scheduleSave(curId());
 });
 document.addEventListener("change",async e=>{

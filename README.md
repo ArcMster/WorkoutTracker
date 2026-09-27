@@ -59,6 +59,11 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Tap **Remove trainer** to revoke access immediately. A trainer can also **Stop training** someone from that person's trainer page.
 - When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
 
+## Training now
+
+- Home shows **Training now** when a buddy is working out: which workout (for example Pull), which plan day it is, the exercise they're on, sets done out of planned and when their last set was. The Buddies list marks them too.
+- Someone counts as training until 45 minutes after their last set. It's part of **Share my progress**, so only buddies see it and turning sharing off hides it.
+
 ## Finding buddies
 
 - **Buddies > Find New Buddies** lists members, most recently active first, 50 at a time. Search filters by name, tap **Add** to send a request, or tap a person to see their profile first.
