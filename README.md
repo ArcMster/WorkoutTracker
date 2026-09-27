@@ -44,13 +44,19 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Exercises with the same name share their history across plans, so "last time" numbers and progress charts carry over when you switch.
 - Deleting a plan keeps the workouts you logged with it.
 - **Missed workouts move forward.** If a training day passes with nothing logged, that workout moves to the next training day and the rest of the plan shifts along. Rest days never move. Logging a missed day later puts the schedule back. **Reset to plan days** on the Workout tab snaps back to the original weekdays, and switching plans starts aligned to the plan's weekdays.
+- **Change workout** (Workout tab) changes one date's workout without touching the plan: swap an exercise for another, add or remove exercises, change sets and reps, start from any other plan's workout, or start blank. It counts as the workout that was planned, so the plan moves on as usual. **Back to the plan workout** undoes it; logged sets stay saved.
+- **Swap day** (Workout tab) swaps a training day with another one later this week, for example Pull on Tuesday with Legs on Wednesday. Only days from today on that aren't logged yet can swap. Swaps last for this week only. If a swapped day passes without a workout, its workout moves to the next training day like any missed workout. **Undo swaps** or **Reset to plan days** clears them.
 
 ## Trainers
 
-- On the **Buddies** tab, tap **Make trainer** on any buddy to let them coach you.
+- Being a trainer is part of your profile. New members choose **I'm training for myself** or **I'm a trainer** when they sign up, and anyone can switch **I'm a trainer** on or off in their profile later. Trainers get a **Trainer** badge on their profile and in Find Buddies.
+- A trainer can **Offer to train** any member, from that person's profile or by Google email on the Buddies tab. It takes effect when the member taps **Accept**; offers show on the member's Buddies tab and in the tab count.
+- Members can also add a trainer themselves: **Make my trainer** on a trainer's profile, or **Make trainer** on a buddy who is a trainer. You can have up to 10 trainers.
+- People who already had trainees before this change are marked as trainers automatically, and existing trainer links keep working.
+- The trainer badge, offers and **Stop training** need the updated `firestore.rules` published in the Firebase console (new `coachOffers` collection, `trainer` field on profiles, directory cards and join requests).
 - A trainer can open you from their Buddies tab, create and edit plans for you, assign which plan you follow, and see your logged workouts.
 - A trainer can never change sets you've already logged. The Firestore rules only let them write documents named `plan_*` and `coach`.
-- Tap **Remove trainer** to revoke access immediately.
+- Tap **Remove trainer** to revoke access immediately. A trainer can also **Stop training** someone from that person's trainer page.
 - When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
 
 ## Finding buddies
