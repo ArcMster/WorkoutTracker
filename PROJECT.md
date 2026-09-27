@@ -99,6 +99,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - **Share my progress** publishes a summary that only accepted buddies can read.
 - Buddies list: one main action per row. The trainer toggle and **Remove buddy** sit behind a **⋯** button.
 
+### Training now
+- Buddies who are working out right now show under **Training now** on Home, above This week. Each row shows the workout (Pull), which plan day it is ("Tuesday's workout in Push / Pull / Legs", or "Changed workout"), the exercise they're on, sets done out of planned, and how long ago the last set was. "Finished" once every planned set is in. Tapping a row opens their progress, which starts with the same live card. The Buddies list shows "Training now: Pull" under their name.
+- It comes from `shared/{uid}.now`, published with the rest of the summary after every set (`nowTraining()`): today's session with the latest set. `session.lastEx` records the exercise last edited. Someone counts as training until `LIVE_MIN` (45) minutes after their last set (`liveNow()`); screens refresh once a minute to keep this current.
+- Only buddies see it, and only while **Share my progress** is on. Buddies on older app versions publish no `now` and simply don't appear.
+
 ### Leaderboard
 - Home has a **Leaderboard** dashboard with a **Buddies | Global** switch (remembered on the device). It shows three tiles, **Workouts** this week, **Volume** this week and **Streak**, each with the leader and your rank. Below them, **Top lifts** shows the leader for Bench, Squat, Deadlift and OHP, either this week's heaviest top set or **Records** (best ever). In Buddies it also keeps the "This week" list with each buddy's week dots.
 - Tapping a tile opens the full leaderboard on that metric. **See all** opens it too, as does **Leaderboard** on the Buddies tab. It isn't a top-level tab.
@@ -127,7 +132,7 @@ users/{uid}/log/settings            unit, start (cycle start), sharing, activePl
 users/{uid}/log/plan_{id}           custom plan: { name, days: [{ t, title, focus, note, ex: [{ n, s, lo, hi, u }] } x7] }
 users/{uid}/log/coach               last plan a trainer assigned: { activePlan, by, at }
 users/{uid}/log/{date}_d{day}[_{planId}]
-                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, entries: { exercise: [{ w, r, done }] }, updated }
+                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, lastEx, entries: { exercise: [{ w, r, done }] }, updated }
                                     custom: a changed workout for that date only, same shape as a plan day
 profiles/{uid}                      name, nick, photo, ig, bio, custom, trainer, updated
 directory/{uid}                     Find Buddies card: name, nick, bio (80), photo (96px), seen (YYYY-MM-DD), trainer
@@ -146,7 +151,8 @@ board/{uid}                         global leaderboard card: { name, photo (smal
                                       indexes) and old weeks simply aren't found. Volumes and weights in kg.
 shared/{uid}                        progress summary for buddies, or { sharing: false }:
                                     { sharing, name, photo, ig, planName, weekStart, weekDays, weekTypes, volumeWeek,
-                                      monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated }
+                                      monthStart, monthWorkouts, volumeMonth, streak, total, lastDate, lifts, recent, updated,
+                                      now: { d, at, t, title, src, plan, custom, ex, done, of } or null }: the workout in progress
 ```
 
 Weights are stored in the unit they were logged in (`session.unit`) and converted for display.
