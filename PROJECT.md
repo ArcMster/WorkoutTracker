@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 27 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning on the Advanced tab, changing or swapping a day's workout, and trainers as a profile attribute (cache `infinity-v38`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 29 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, and trainers logging today's workout for a trainee (cache `infinity-v39`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -13,7 +13,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v38` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v39` |
 
 ## Files
 
@@ -123,7 +123,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - A trainer can **Stop training** someone from the trainer page, which removes only themselves from that member's `coaching` list.
 - A trainer can create and edit plans for you, assign your active plan, and read your whole log. Your app switches plans and shows a note on Home.
 - A trainer can open each of your workouts in detail (every set, planned against actual, older and newer navigation) and download CSV or PDF reports.
-- A trainer can never change sets you logged. The rules only let them write `plan_*` and `coach` documents.
+- **Log today's workout** (trainee page) lets a trainer log sets or change the workout for a trainee, today only (`openAct`). The trainee's log (plans, settings, sessions, plan assignment) is read with `readLog()` and swapped into `S`, with the trainer's own state kept in `ACT.own`, so the normal Workout screen and day editor work unchanged in the trainee's plan, schedule and unit. A banner shows who it's for, with **Done**. Other dates, the plan picker, the date picker, Swap day, schedule resets and Share workout are hidden, because they'd write the trainee's settings. Going to any other screen swaps back (`leaveAct()`, also checked at the top of `render()`).
+- While acting, `writeDoc` only writes today's session to the trainee's log and skips everything else (settings, plans). `scheduleSave` fixes the target log when it's called, so a save still waiting when the mode switches goes to the right log, and it stamps `session.coach = { uid, name, at }`. `publishNow` waits until the trainer is back (`ACT.pub`), so the trainer's own summary never picks up the trainee's data.
+- The Workout screen shows **Updated by** (name and time) when a session has `coach`, and so does the trainer's workout detail.
+- **Today stays live on both sides:** `watchToday()` (kept current from `render()`) listens to today's sessions of the log on screen (`where date == today`) and takes the server copy when its `updated` is newer, unless a local save of that session is waiting. So a trainee's open app doesn't overwrite the trainer's sets, or the reverse. On the trainee's side, a change also republishes their summary.
+- Otherwise a trainer can't change your log: the rules let them write `plan_*`, `coach` and today's session only.
 
 ## Data model (Firestore)
 
@@ -132,8 +136,9 @@ users/{uid}/log/settings            unit, start (cycle start), sharing, activePl
 users/{uid}/log/plan_{id}           custom plan: { name, days: [{ t, title, focus, note, ex: [{ n, s, lo, hi, u }] } x7] }
 users/{uid}/log/coach               last plan a trainer assigned: { activePlan, by, at }
 users/{uid}/log/{date}_d{day}[_{planId}]
-                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, lastEx, entries: { exercise: [{ w, r, done }] }, updated }
+                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, coach?, lastEx, entries: { exercise: [{ w, r, done }] }, updated }
                                     custom: a changed workout for that date only, same shape as a plan day
+                                    coach: { uid, name, at }: the trainer who last logged or changed it for the trainee
 profiles/{uid}                      name, nick, photo, ig, bio, custom, trainer, updated
 directory/{uid}                     Find Buddies card: name, nick, bio (80), photo (96px), seen (YYYY-MM-DD), trainer
 emails/{email}                      { uid }, for add by email
@@ -161,7 +166,7 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 
 | Path | Read | Write |
 | --- | --- | --- |
-| `users/{uid}/log/*` | Owner; trainers listed in `coaching/{uid}` | Owner; trainers only for `plan_*` and `coach` |
+| `users/{uid}/log/*` | Owner; trainers listed in `coaching/{uid}` | Owner; trainers only for `plan_*`, `coach`, and create or update of today's session (`trainerToday()`: date matches the id, `coach.uid` is the trainer, and that date is today somewhere, 14 hours before to 36 hours after it starts in UTC) |
 | `profiles/{uid}` | Any signed-in user, one document at a time; only admins can list | Owner, with a fixed set of fields (`trainer` must be true or false) |
 | `directory/{uid}` | Any signed-in user; lists capped at 50 | Owner, with fixed fields and size limits |
 | `emails/{email}` | Any signed-in user, exact match only | Owner, only for the email on their Google sign-in |
@@ -187,6 +192,7 @@ The whole script is one ES module inside `<script type="module">`.
   - `ACCT`: the account document read at sign-in (for the sign-up trainer choice)
   - `ME`: your own nickname, photo, Instagram, bio and trainer flag
   - `TR`: the trainee a trainer has open
+  - `ACT`: whose log `S` holds while a trainer logs today's workout for a trainee, their name, the trainer's own state to restore, and a pending publish
   - `FIND`: the Find Buddies list and paging
   - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
   - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
@@ -201,7 +207,7 @@ The whole script is one ES module inside `<script type="module">`.
   - `admin` (admins only), `join` (sign-up choice), `pending` and `disabled` (the only screens a new or disabled account sees)
 - **Events:** single document-level `click`, `input`, `change` and `keydown` handlers dispatch on element ids and `data-*` attributes.
 - **Sync:** `writeDoc` / `scheduleSave` write to Firestore with offline persistence. Guest mode stores everything in `localStorage` (`ppl-log-v1`).
-- **Live data:** `onSnapshot` listeners for requests, coaching and each buddy's `shared` document.
+- **Live data:** `onSnapshot` listeners for requests, coaching, each buddy's `shared` document, and today's sessions of the log on screen (`watchToday()`).
 - **Summaries:** `tally()` works out week, month, streak and total counts from a list of sessions; `computeSummary()` adds lifts and recent workouts for `shared/{uid}`. `live()` zeroes a summary's week or month once it's out of date. Volumes are stored in kg.
 
 ## Local development and testing

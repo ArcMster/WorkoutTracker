@@ -67,6 +67,9 @@ button{cursor:pointer}
 .plate[aria-pressed="true"] .disc{transform:scale(1.14)}
 .plate .logged{width:5px;height:5px;border-radius:50%;background:var(--ink);opacity:0}
 .plate .logged.on{opacity:1}
+.plate:disabled{cursor:default}
+.actbar{margin-bottom:16px}.actbar .row{flex-wrap:nowrap;align-items:center}.actbar .nm{flex:1;min-width:0}.actbar .nm small{display:block;color:var(--muted)}
+.coachby{margin:6px 0 0}
 
 .hero{padding:18px 0 14px}
 .hero h1{margin:0;font:800 clamp(64px,19vw,112px)/.86 var(--display);letter-spacing:-.01em;color:var(--dc)}
@@ -663,6 +666,9 @@ const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],b
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false,trainer:null};/* trainer: true or false from the profile, null until set */
 const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
+/* logging today's workout for a trainee: whose log S holds (null for my own), their name, my own state to restore,
+   and whether my summary needs publishing once I'm back */
+const ACT={uid:null,name:"",own:null,pub:false};
 /* leaderboard: chosen metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from,
    trainee counts loaded from their logs (uid: summary, or null while loading), and my summary while Home renders */
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
@@ -801,17 +807,24 @@ function knownNames(){
 /* ---------- private storage ---------- */
 const LS="ppl-log-v1";
 const chains={};
+/* a user's whole log: settings, plans, the trainer's plan assignment and sessions */
+async function readLog(who){
+  const L={sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},coachDoc:null};
+  const snap=await getDocs(collection(fs,"users",who,"log"));
+  snap.forEach(d=>{
+    const v=d.data();
+    if(d.id==="settings")Object.assign(L.settings,v);
+    else if(d.id.startsWith("plan_"))L.plans[d.id.slice(5)]=v;
+    else if(d.id==="coach")L.coachDoc=v;
+    else L.sessions[d.id]=v;
+  });
+  return L;
+}
 async function initStore(){
   S.sessions={};S.plans={};S.settings={unit:"kg",start:null,sharing:false,activePlan:"ppl"};
   if(CONFIGURED&&uid){
-    const snap=await getDocs(collection(fs,"users",uid,"log"));
-    snap.forEach(d=>{
-      const v=d.data();
-      if(d.id==="settings")Object.assign(S.settings,v);
-      else if(d.id.startsWith("plan_"))S.plans[d.id.slice(5)]=v;
-      else if(d.id==="coach")S.coachDoc=v;
-      else S.sessions[d.id]=v;
-    });
+    const L=await readLog(uid);
+    S.sessions=L.sessions;S.plans=L.plans;S.settings=L.settings;if(L.coachDoc)S.coachDoc=L.coachDoc;
     S.mode="db";
   }else{
     try{const raw=localStorage.getItem(LS);if(raw){const v=JSON.parse(raw);S.sessions=v.sessions||{};S.plans=v.plans||{};Object.assign(S.settings,v.settings||{})}}catch(e){}
@@ -836,25 +849,34 @@ function applyCoachAssignment(){
   }
   saveSettings();
 }
-function writeDoc(id,data){
+/* owner: whose log to write, by default the log on screen (a trainee's while logging for them).
+   A trainee's log only ever gets today's session; their settings and plans are left alone. */
+function writeDoc(id,data,owner){
   if(S.mode==="db"){
-    const ref=doc(fs,"users",uid,"log",id);
+    const who=owner||ACT.uid||uid;
+    if(who!==uid&&!(data&&data.date===today()&&id.startsWith(data.date+"_d")))return Promise.resolve();
+    const ref=doc(fs,"users",who,"log",id),key=who+"/"+id;
     const run=()=>(data===null?deleteDoc(ref):setDoc(ref,data));
-    chains[id]=(chains[id]||Promise.resolve()).then(run,run);
-    return chains[id];
+    chains[key]=(chains[key]||Promise.resolve()).then(run,run);
+    return chains[key];
   }
+  if(ACT.uid)return Promise.resolve();
   try{localStorage.setItem(LS,JSON.stringify({sessions:S.sessions,settings:S.settings,plans:S.plans}))}catch(e){}
   return Promise.resolve();
 }
 const timers={};
 function scheduleSave(id){
   setStatus("Saving...");
-  clearTimeout(timers[id]);
-  timers[id]=setTimeout(()=>{
-    const s=S.sessions[id];
-    writeDoc(id,s?clone(s):null)
-      .then(()=>{setStatus(S.mode==="db"?"Saved to your account":"Saved on this device");schedulePublish()})
-      .catch(()=>setStatus("Couldn't save. Check your connection and edit a set to try again."));
+  /* the log is fixed now, so a save still waiting when the trainer starts or stops logging for someone goes to the right log */
+  const who=ACT.uid||uid,store=S.sessions,key=who+"/"+id,forName=ACT.name;
+  if(ACT.uid&&store[id])store[id].coach={uid,name:myName(),at:Date.now()};
+  clearTimeout(timers[key]);
+  timers[key]=setTimeout(()=>{
+    delete timers[key];
+    const s=store[id];const here=who===(ACT.uid||uid);
+    writeDoc(id,s?clone(s):null,who)
+      .then(()=>{if(here)setStatus(who!==uid?"Saved to "+forName+"'s log":S.mode==="db"?"Saved to your account":"Saved on this device");if(who===uid)schedulePublish()})
+      .catch(()=>{if(here)setStatus("Couldn't save. Check your connection and edit a set to try again.")});
   },600);
 }
 function saveSettings(){return writeDoc("settings",{...S.settings})}
@@ -956,6 +978,8 @@ function schedulePublish(){
 }
 function publishNow(){
   if(S.mode!=="db")return Promise.resolve();
+  /* S holds a trainee's log while logging for them: publish my own summary once I'm back */
+  if(ACT.uid){ACT.pub=true;return Promise.resolve()}
   const data=S.settings.sharing?computeSummary():{sharing:false,name:myName(),photo:myPhoto(),updated:Date.now()};
   publishBoard(S.settings.sharing?data:null);
   return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
@@ -1250,6 +1274,58 @@ function assignPlan(id){
     .then(()=>{TR.active=id;say(esc(TR.name)+" now follows "+(pl?pl.name:"that plan")+".",true);render()})
     .catch(e=>say(fbError(e,"assign that plan")));
 }
+/* ---------- logging for a trainee ----------
+   A trainer can log today's workout for someone they train, and change it. Their log is swapped into S while the
+   Workout screen is open, so it works exactly as it does for your own log: their plan, schedule, unit and last-time numbers.
+   Only today's session is written (writeDoc), and it records who logged it (session.coach). Anything that would write their
+   settings (swaps, plan switches, schedule resets) is hidden, and saves of settings are skipped. Any other screen swaps back. */
+async function openAct(tid){
+  if(ACT.uid)leaveAct();
+  let L;
+  try{L=await readLog(tid)}catch(e){return say(fbError(e,"open their log")+" They may also have removed your trainer access.")}
+  ACT.own={sessions:S.sessions,plans:S.plans,settings:S.settings,planId:S.planId,date:S.date,day:S.day,coachDoc:S.coachDoc,coachNotice:S.coachNotice};
+  ACT.uid=tid;ACT.name=pname(SOC.profiles[tid])||(TR.uid===tid&&TR.name)||"your trainee";ACT.pub=false;
+  S.sessions=L.sessions;S.plans=L.plans;S.settings=L.settings;S.coachDoc=L.coachDoc;
+  /* a plan assigned since they last opened the app: follow it, as their app will when it opens */
+  applyCoachAssignment();
+  if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
+  ensureAnchor();
+  S.planId=S.settings.activePlan;S.date=today();S.day=dayOf(S.date);S.swapOpen=false;S.msg="";
+  S.view="log";render();window.scrollTo(0,0);
+}
+function leaveAct(){
+  if(!ACT.uid)return;
+  Object.assign(S,ACT.own);S.swapOpen=false;
+  ACT.uid=null;ACT.own=null;ACT.name="";
+  if(ACT.pub){ACT.pub=false;schedulePublish()}
+}
+/* ---------- today's sessions, kept live ----------
+   A trainer and the trainee can both have today's workout open, so each app watches today's sessions of the log on
+   screen and takes the server's copy when it's newer, unless a local save of that session is still waiting.
+   Without this, one side's next set would overwrite the sets the other just logged. */
+let todayWatch=null;
+function stopToday(){if(todayWatch){todayWatch.off();todayWatch=null}}
+function watchToday(){
+  const who=ACT.uid||uid,td=today(),key=who+"/"+td;
+  if(S.mode!=="db"||!who)return stopToday();
+  if(todayWatch&&todayWatch.key===key)return;
+  stopToday();
+  const store=S.sessions;
+  const off=onSnapshot(query(collection(fs,"users",who,"log"),where("date","==",td)),snap=>{
+    /* my own unsent writes are skipped per session: skipping a whole snapshot would lose the other side's changes in it */
+    let changed=false;
+    snap.docChanges().forEach(c=>{
+      const id=c.doc.id,v=c.doc.data(),loc=store[id];
+      if(c.type==="removed"||c.doc.metadata.hasPendingWrites||timers[who+"/"+id]||(loc&&(v.updated||0)<=(loc.updated||0)))return;
+      store[id]=v;changed=true;
+    });
+    if(!changed||store!==S.sessions)return;
+    if(who===uid)schedulePublish();
+    const typing=document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if(S.view==="log"&&!typing)render();
+  },e=>console.warn("today",e));
+  todayWatch={key,off};
+}
 function inviteLink(){return location.origin+location.pathname+"?add="+uid}
 
 /* ---------- workout logic ---------- */
@@ -1402,7 +1478,7 @@ function renderTDay(){
     <button class="btn small" ${newer?`data-tday="${esc(newer.id)}"`:"disabled"}>Newer &rarr;</button></div>
   <div class="panel"><div class="dhead"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><div>
     <h2 class="pv-title">${esc(m.title)}</h2>
-    <p class="small muted" style="margin:2px 0 0">${parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"})}${m.plan?" · "+esc(m.plan.name):""}${s.deload?" · Deload":""}</p></div></div>
+    <p class="small muted" style="margin:2px 0 0">${parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"})}${m.plan?" · "+esc(m.plan.name):""}${s.deload?" · Deload":""}${s.coach?" · Updated by "+(s.coach.uid===uid?"you":esc(s.coach.name||"a trainer")):""}</p></div></div>
     <div class="nums3" style="margin-top:16px"><div><b>${rows.length}</b><span>exercises</span></div><div><b>${setCount(s)}</b><span>sets</span></div>
       <div><b>${vol>0?fmtNum(vol):"-"}</b><span>volume (${u})</span></div></div></div>
   <div class="panel">${exHtml}
@@ -1830,15 +1906,17 @@ const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-lineca
 function softRender(force){if(force||["join","dash","buddies","buddy","person","find","board","admin"].includes(S.view))render()}
 function render(){
   const app=$("#app");
+  if(ACT.uid&&S.view!=="log"&&S.view!=="dayEdit")leaveAct();
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
   const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,admin:renderAdmin};
   const nIn=SOC.incoming.length+SOC.offersIn.filter(o=>!SOC.trainers.includes(o.from)).length;
   const badge=nIn?` (${nIn})`:"";
-  const on=v=>S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView"].includes(S.view))||(v==="log"&&S.view==="dayEdit");
+  const on=v=>ACT.uid?v==="buddies":S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView"].includes(S.view))||(v==="log"&&S.view==="dayEdit");
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
   if(S.view==="disabled"||S.view==="pending"||S.view==="join"){app.innerHTML=S.view==="pending"?renderPending():S.view==="join"?renderJoin():renderDisabled();return}
+  watchToday();
   app.innerHTML=`
   <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
   <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
@@ -1917,19 +1995,22 @@ function renderLog(){
     const ss=S.sessions[sid(date,i+1,S.planId)];const logged=!!ss&&hasSets(ss);
     const st=p?statusFor(p,date):null;
     const dd=p?dayAt(p,date):tp;
-    return `<button class="plate ${st&&st.st==="missed"?"missed":""}" data-day="${i+1}" aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}${st&&st.st==="missed"?", missed":""}">
+    return `<button class="plate ${st&&st.st==="missed"?"missed":""}" data-day="${i+1}" ${ACT.uid&&date!==today()?"disabled":""} aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}${st&&st.st==="missed"?", missed":""}">
       <span class="disc ${dd.t==="rest"?"rest":""}" style="--c:${tinfo(dd.t).bg}"></span>${WD[i]}<span class="logged ${logged?"on":""}"></span></button>`;
   }).join("");
   const stNow=p?statusFor(p,S.date):null;
+  /* logging for a trainee: their settings can't be written, so no swaps or schedule resets */
+  const act=!!ACT.uid,your=act?"Their":"Your";
   let shift="";
-  if(s&&s.custom)shift=`<p class="shift">Changed for ${fmtDate(S.date)} only. Your plan stays the same. <button class="link" id="ovClear">Back to the plan workout</button></p>`;
+  if(s&&s.custom)shift=`<p class="shift">Changed for ${fmtDate(S.date)} only. ${your} plan stays the same. <button class="link" id="ovClear">Back to the plan workout</button></p>`;
   else if(stNow&&stNow.st==="missed")shift=`<p class="shift">Not logged, so ${esc(d.title)} moved to the next training day. You can still log it here.</p>`;
   else if(stNow&&stNow.pin)
-    shift=`<p class="shift">Swapped for this week: ${esc(p.days[stNow.slot-1].title)} was planned. <button class="link" id="swapClear">Undo swaps</button></p>`;
+    shift=`<p class="shift">Swapped for this week: ${esc(p.days[stNow.slot-1].title)} was planned.${act?"":` <button class="link" id="swapClear">Undo swaps</button>`}</p>`;
   else if(stNow&&(stNow.st==="due"||stNow.st==="planned")&&stNow.src!==S.day)
-    shift=`<p class="shift">Moved here from ${WD_LONG[stNow.src-1]}. Rest days stay put. <button class="link" id="resetSched">Reset to plan days</button></p>`;
+    shift=`<p class="shift">Moved here from ${WD_LONG[stNow.src-1]}. Rest days stay put.${act?"":` <button class="link" id="resetSched">Reset to plan days</button>`}</p>`;
+  const by=s&&s.coach&&s.coach.at?`<p class="small muted coachby">Updated by ${s.coach.uid===uid?"you":esc(s.coach.name||"your trainer")} at ${new Date(s.coach.at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</p>`:"";
   /* change this day's workout, or swap it with another day this week */
-  const canSwap=p&&swappable(p,S.date);
+  const canSwap=!act&&p&&swappable(p,S.date);
   const swapWith=canSwap&&S.swapOpen?Array.from({length:7},(_,i)=>addDays(weekStart,i)).filter(x=>x!==S.date&&swappable(p,x)):[];
   const tools=p?`<div class="row daytools">
       <button class="btn small" id="ovEdit">${s&&s.custom?"Edit this workout":"Change workout"}</button>
@@ -1942,7 +2023,8 @@ function renderLog(){
   if(d.t==="rest"){
     body=`<div class="restday">No lifting today. ${esc(d.focus||"Walk, stretch, and sleep well.")} This is when the week's work turns into progress.</div>`;
   }else if(!d.ex.length){
-    body=`<div class="restday">This day has no exercises yet. <button class="link" data-edit="${S.planId}">Add some in the plan editor</button>.</div>`;
+    body=act?`<div class="restday">This day has no exercises yet. Use Change workout to add some.</div>`
+      :`<div class="restday">This day has no exercises yet. <button class="link" data-edit="${S.planId}">Add some in the plan editor</button>.</div>`;
   }else{
     body=d.ex.map((ex,i)=>{
       const last=lastFor(ex.n);const h=hintFor(ex,last);
@@ -1969,21 +2051,24 @@ function renderLog(){
       </section>`;
     }).join("");
   }
-  const note=S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
+  const note=act?"Sets save to "+esc(ACT.name)+"'s log.":S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
   const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
     +(p?"":`<option selected>Deleted plan</option>`);
   return `
-  <div class="planbar"><select id="planSel" aria-label="Workout plan">${planOpts}</select><button class="btn small" data-view="plans">Manage plans</button></div>
+  ${act?`<div class="panel actbar"><div class="row">${avatar(SOC.profiles[ACT.uid])}<div class="nm"><b>Logging for ${esc(ACT.name)}</b>
+      <small>Today's workout${p?" in "+esc(p.name):""}. Weights in ${S.settings.unit}, their unit.</small></div>
+      <button class="btn small primary" id="actDone">Done</button></div></div>`
+    :`<div class="planbar"><select id="planSel" aria-label="Workout plan">${planOpts}</select><button class="btn small" data-view="plans">Manage plans</button></div>`}
   <div class="week">${plates}</div>
-  <div class="hero">${shift}<h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}</div>
+  <div class="hero">${shift}<h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}${by}</div>
   ${tools}
   <div class="meta">
-    <input type="date" id="date" value="${S.date}" aria-label="Workout date">
+    ${act?`<span class="chip">Today, ${fmtDate(S.date)}</span>`:`<input type="date" id="date" value="${S.date}" aria-label="Workout date">`}
     ${wk?`<span class="chip ${wk.cycle===6?"warn":""}">Week ${wk.week}, cycle week ${wk.cycle} of 6${wk.cycle===6?": deload":""}</span>`:""}
     ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""}> Deload (about 40% fewer sets)</label>`:""}
   </div>
   ${body}
-  ${d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
+  ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
 }
 function beatText(e,l,last){
@@ -2365,7 +2450,7 @@ function renderDayEdit(){
   const from=allPlans().map(pl=>{const opts=pl.days.map((x,k)=>x.t!=="rest"&&x.ex.length?`<option value="${esc(pl.id)}:${k}">${WD[k]}: ${esc(x.title)}</option>`:"").join("");
     return opts?`<optgroup label="${esc(pl.name)}">${opts}</optgroup>`:""}).join("");
   return `<p><button class="link" id="ovCancel">Back to the workout without saving</button></p>
-  <div class="panel"><h2>Change ${WD_LONG[o.day-1]}'s workout, ${fmtDate(o.date)}</h2>
+  <div class="panel"><h2>Change ${WD_LONG[o.day-1]}'s workout, ${fmtDate(o.date)}${ACT.uid?" for "+esc(ACT.name):""}</h2>
     <p class="small muted" style="margin:0 0 12px">Only this date changes, and it counts as the workout that was planned. Swap an exercise for another, add or remove some, or start from a different workout.</p>
     <div class="row"><select class="btn small" id="ovFrom" aria-label="Start from another workout"><option value="">Start from another workout...</option>${from}</select>
       <button class="btn small" id="ovBlank">Start blank</button></div></div>
@@ -2792,8 +2877,8 @@ function renderTrainee(){
   };
   return back+`
   <div class="panel"><div class="row">${avatar(SOC.profiles[TR.uid],true)}<div style="flex:1"><h2 class="pv-title" style="margin:0">${esc(TR.name)}</h2>
-    <p class="small muted" style="margin:2px 0 0">You're their trainer. You can change their plans and see their workouts.</p></div></div>
-    <div class="row" style="margin-top:14px"><button class="btn primary" id="newTraineePlan">Create a plan for them</button><button class="btn" id="stopTraining">Stop training</button></div>${msg}</div>
+    <p class="small muted" style="margin:2px 0 0">You're their trainer. You can change their plans, log today's workout for them and see their workouts.</p></div></div>
+    <div class="row" style="margin-top:14px"><button class="btn primary" id="actToday">Log today's workout</button><button class="btn" id="newTraineePlan">Create a plan for them</button><button class="btn" id="stopTraining">Stop training</button></div>${msg}</div>
   <div class="panel"><h2>Their plans</h2>
     ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0 0 10px">No custom plans yet.</p>`}</div>
   <div class="panel"><h2>Ready-made plans</h2><ul class="plans">${BUILTIN.map(row).join("")}</ul></div>
@@ -3320,7 +3405,7 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
-  if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
+  if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;leaveAct();if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);S.swapOpen=false;render();return}
   if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
   if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
@@ -3416,6 +3501,8 @@ document.addEventListener("click",async e=>{
     case "csv-me":case "pdf-me":case "csv-t":case "pdf-t":exportRun(t.id.slice(4)||"",t.id.startsWith("csv"));return;
     case "csv-day":case "pdf-day":exportDay(t.id==="csv-day");return;
     case "importBtn":$("#importFile").click();return;
+    case "actToday":openAct(TR.uid);return;
+    case "actDone":{const tid=ACT.uid;leaveAct();if(tid)openTrainee(tid);else{S.view="buddies";render()}window.scrollTo(0,0);return}
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
     case "genGo":genPlan();return;
@@ -3581,7 +3668,7 @@ function clearAddParam(){if(params.has("add")){params.delete("add");history.repl
 if(CONFIGURED){
   S.view="boot";render();
   onAuthStateChanged(auth,async user=>{
-    stopSocial();
+    stopSocial();stopToday();ACT.uid=null;ACT.own=null;
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
     const hadMe=restoreMe();
