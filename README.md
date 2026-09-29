@@ -55,7 +55,8 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - People who already had trainees before this change are marked as trainers automatically, and existing trainer links keep working.
 - The trainer badge, offers and **Stop training** need the updated `firestore.rules` published in the Firebase console (new `coachOffers` collection, `trainer` field on profiles, directory cards and join requests).
 - A trainer can open you from their Buddies tab, create and edit plans for you, assign which plan you follow, and see your logged workouts.
-- A trainer can never change sets you've already logged. The Firestore rules only let them write documents named `plan_*` and `coach`.
+- A trainer can **Log today's workout** for you from your trainer page: they log sets, tick them done, or use **Change workout**, on the same Workout screen you use, with your plan and unit. Your workout shows **Updated by** and their name. It only works for today: the Firestore rules let a trainer write `plan_*`, `coach` and today's session (which must name them), nothing else, and never delete. Publish the updated `firestore.rules` for this.
+- If you both have today's workout open, each app picks up the other's sets as they're saved.
 - Tap **Remove trainer** to revoke access immediately. A trainer can also **Stop training** someone from that person's trainer page.
 - When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
 
