@@ -217,6 +217,9 @@ tr.isdone input{opacity:.7}
 textarea.field[data-gen]{width:100%;min-height:96px}
 .gen-photo{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .gen-photo img{width:96px;height:128px;object-fit:cover;border-radius:12px;background:var(--field)}
+.chk-tag{display:inline-block;margin:0 0 12px;padding:4px 12px;border-radius:99px;border:1px solid var(--c);color:var(--c);font-size:14px;font-weight:700}
+.chk-out .gen-photo{margin-bottom:14px}
+.chk-out p+p,.chk-out ul+p,.chk-out p+ul{margin-top:10px}
 .gen-busy{display:flex;gap:14px;align-items:center}
 .gen-spin{flex:none;width:28px;height:28px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--ink);animation:genspin 1s linear infinite}
 @keyframes genspin{to{transform:rotate(360deg)}}
@@ -2493,8 +2496,56 @@ const GEN_NOTE="This is a general training plan, not medical advice. If you have
 const GEN_DIETS=[["kerala","Kerala"],["south","South Indian"],["north","North Indian"]];
 const GEN_DIET_NOTE="The diet plan is general guidance, not a dietitian's advice. If you have diabetes, a kidney or heart condition, allergies, are pregnant or have a medical condition, check with a doctor or dietitian first.";
 const GEN_PHOTO_MAX=1024;/* long edge in px: plenty for the AI, and keeps the upload small */
-const GEN={wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"",days:4,level:"beginner",lifts:{},photo:null,plan:null,ins:null,info:"",err:"",busy:false,left:null,
+const GEN={tab:"plan",wt:"",hu:"cm",cm:"",ft:"",inch:"",goal:"",days:4,level:"beginner",lifts:{},photo:null,plan:null,ins:null,info:"",err:"",busy:false,left:null,
   diet:null,dietPlan:null,dietMissing:false};/* diet: null until the diet plan is added, then "" until a GEN_DIETS key is chosen, dietPlan: the AI's diet */
+/* Body check: a photo and a question go to the proxy's ask/ address, a written answer comes back */
+const CHK={q:"",photo:null,answer:"",verdict:"",asked:"",busy:false,err:"",left:null};
+const CHK_VERDICTS={normal:["Looks normal","var(--legs)"],can_improve:["Can be improved","var(--push)"],unclear:["Hard to tell from this photo","var(--muted)"],see_doctor:["Worth a check-up","var(--push)"]};
+const CHK_NOTE="This is general fitness guidance from AI, not medical advice. If something hurts, changed suddenly or worries you, see a doctor.";
+const askUrl=()=>AI_PROXY.replace(/plan\/?$/,"ask/");
+async function chkAsk(){
+  if(CHK.busy)return;
+  const q=CHK.q.trim();
+  if(!CHK.photo){CHK.err="Add a photo so the AI can look.";render();return}
+  if(q.length<3){CHK.err="Type your question.";render();return}
+  if(!AI_PROXY||!auth||!auth.currentUser){CHK.err="Sign in to use AI.";render();return}
+  CHK.busy=true;CHK.err="";render();
+  let res,out=null;
+  try{
+    const token=await auth.currentUser.getIdToken();
+    res=await fetch(askUrl(),{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+      body:JSON.stringify({question:q,photo:{type:"image/jpeg",data:CHK.photo.split(",")[1]}})});
+    out=await res.json().catch(()=>null);
+  }catch(e){console.warn("ai ask",e);CHK.busy=false;CHK.err=navigator.onLine?"Couldn't reach the server. Try again in a minute.":"No connection. Connect to the internet to ask the AI.";render();return}
+  CHK.busy=false;
+  if(!res.ok||!out||!out.answer){CHK.err=genError(res.status,out).replace("make a plan","get an answer").replace("AI plans","AI questions");render();return}
+  CHK.answer=out.answer;CHK.verdict=out.verdict||"";CHK.asked=q;CHK.left=out.remaining??null;
+  render();window.scrollTo(0,0);
+}
+function chkHtml(){
+  if(CHK.busy)return `<div class="panel gen-busy" role="status" aria-live="polite"><span class="gen-spin" aria-hidden="true"></span>
+    <div><b>The AI is looking at your photo</b><p class="small muted" style="margin:4px 0 0">This usually takes 10 to 40 seconds. Keep this screen open.</p></div></div>`;
+  if(CHK.answer){
+    const v=CHK_VERDICTS[CHK.verdict];
+    const body=CHK.answer.split(/\n{2,}/).map(par=>{
+      const lines=par.split("\n"),items=lines.filter(l=>/^\s*[-•*]\s+/.test(l));
+      return items.length===lines.length?`<ul>${lines.map(l=>`<li>${esc(l.replace(/^\s*[-•*]\s+/,""))}</li>`).join("")}</ul>`:`<p>${esc(par)}</p>`}).join("");
+    return `<div class="panel gen-ins chk-out"><div class="gen-photo">${CHK.photo?`<img src="${CHK.photo}" alt="Your photo">`:""}<div><p class="small muted" style="margin:0 0 4px">You asked</p><p>${esc(CHK.asked)}</p></div></div>
+      ${v?`<span class="chk-tag" style="--c:${v[1]}">${v[0]}</span>`:""}${body}</div>
+    <div class="panel"><div class="row"><button class="btn primary" id="chkAgain">Ask another question</button></div>
+      <p class="small muted" style="margin:12px 0 0">${CHK_NOTE}${CHK.left!=null?` You can ask ${CHK.left} more question${CHK.left===1?"":"s"} today.`:""}</p></div>`;
+  }
+  return `<div class="panel"><h2>Your photo</h2>
+    ${CHK.photo?`<div class="gen-photo"><img src="${CHK.photo}" alt="Your photo"><div class="row"><button class="btn small" id="chkPhotoBtn">Change photo</button><button class="btn small" id="chkPhotoClear">Remove</button></div></div>`
+      :`<button class="btn" id="chkPhotoBtn">Add a photo</button>`}
+    <input type="file" id="chkPhotoFile" accept="image/*" hidden>
+    <p class="small muted" style="margin:10px 0 0">Show the area you're asking about in good light, relaxed and flexed if it's a muscle. Front and side views help. It's sent to Google's Gemini AI to answer you. This app never stores it, but on Google's free tier Google may use what's sent to improve its products.</p></div>
+  <div class="panel"><h2>Your question</h2>
+    <textarea class="field" data-chk="q" rows="4" maxlength="1000" aria-label="Your question" placeholder="For example: my left bicep looks shorter than my right. What should I do to balance them, or is this normal?">${esc(CHK.q)}</textarea></div>
+  ${CHK.err?`<p class="msg" style="color:var(--push)">${esc(CHK.err)}</p>`:""}
+  <div class="row"><button class="btn primary" id="chkGo">Ask the AI</button></div>
+  <p class="small muted">${CHK_NOTE}</p>`;
+}
 const dietName=k=>(GEN_DIETS.find(([x])=>x===k)||[])[1]||"";
 
 function genRead(){
@@ -2620,9 +2671,11 @@ function genPrintHtml(){
 }
 function renderGen(){
   const u=S.settings.unit;
-  const head=`<header class="greet"><h1>Advanced</h1><p>An AI-made plan built around your body, your goal and your strength.</p></header>`;
+  const head=`<header class="greet"><h1>Advanced</h1><p>${GEN.tab==="check"?"Send a photo and a question. The AI looks and tells you what to do.":"An AI-made plan built around your body, your goal and your strength."}</p></header>`;
+  const tabs=`<div class="seg wide" role="group" aria-label="Advanced tools"><button data-gtab="plan" aria-pressed="${GEN.tab!=="check"}">Plan</button><button data-gtab="check" aria-pressed="${GEN.tab==="check"}">Body check</button></div>`;
   if(!CONFIGURED||!uid)return head+`<div class="panel"><p class="muted" style="margin:0">Sign in with Google to make an AI plan.</p></div>`;
   if(!AI_PROXY)return head+`<div class="panel"><p class="muted" style="margin:0">AI planning isn't set up yet. The app owner needs to add the planning server address (see PROXY_SETUP.md).</p></div>`;
+  if(GEN.tab==="check")return head+(CHK.busy||CHK.answer?"":tabs)+chkHtml();
   if(GEN.busy)return head+`<div class="panel gen-busy" role="status" aria-live="polite"><span class="gen-spin" aria-hidden="true"></span>
     <div><b>The AI is working on your plan</b><p class="small muted" style="margin:4px 0 0">It's reading your answers${GEN.photo?" and your photo":""}. This usually takes 30 seconds to 2 minutes. Keep this screen open.</p></div></div>`;
   if(GEN.plan){
@@ -2644,7 +2697,7 @@ function renderGen(){
   }
   const opt=(key,val,cur,label)=>`<button data-${key}="${val}" aria-pressed="${String(val)===String(cur)}">${label}</button>`;
   const L=k=>GEN.lifts[k]||{};
-  return head+`<div class="panel"><h2>About you</h2>
+  return head+tabs+`<div class="panel"><h2>About you</h2>
     <label class="gl">Body weight (${u})<input class="field" data-gen="wt" inputmode="decimal" autocomplete="off" value="${esc(GEN.wt)}"></label>
     <div class="gl"><span>Height</span><div class="seg" role="group" aria-label="Height unit">${opt("ghu","cm",GEN.hu,"cm")}${opt("ghu","ft",GEN.hu,"ft and in")}</div>
     ${GEN.hu==="cm"?`<input class="field" data-gen="cm" inputmode="decimal" autocomplete="off" aria-label="Height in cm" placeholder="cm" value="${esc(GEN.cm)}">`
@@ -3424,6 +3477,7 @@ document.addEventListener("click",async e=>{
   if(ds.joinas){S.joinAs=ds.joinas;S.msg="";render();return}
   if(ds.admf){ADM.f=ds.admf;render();return}
   if(ds.bp){BOARD.period=ds.bp;render();return}
+  if(ds.gtab){GEN.tab=ds.gtab;render();return}
   if(ds.ghu){GEN.hu=ds.ghu;render();return}
   if(ds.gdays){GEN.days=+ds.gdays;render();return}
   if(ds.glevel){GEN.level=ds.glevel;GEN.err="";render();return}
@@ -3506,6 +3560,10 @@ document.addEventListener("click",async e=>{
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;
     case "newPlan":S.msg="";openEditor(blankPlan());return;
     case "genGo":genPlan();return;
+    case "chkGo":chkAsk();return;
+    case "chkAgain":CHK.answer="";CHK.verdict="";CHK.q="";CHK.err="";render();window.scrollTo(0,0);return;
+    case "chkPhotoBtn":$("#chkPhotoFile").click();return;
+    case "chkPhotoClear":CHK.photo=null;render();return;
     case "genEdit":GEN.plan=null;GEN.ins=null;GEN.dietPlan=null;render();window.scrollTo(0,0);return;
     case "genSave":case "genSave2":genSave();return;
     case "genPhotoBtn":$("#genPhotoFile").click();return;
@@ -3536,6 +3594,7 @@ document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
+  if(ds.chk){CHK[ds.chk]=el.value;return}
   if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
   if(el.id==="vQ"){ADM.vq=el.value;const l=$("#vList");if(l)l.innerHTML=vidRows();return}
   if(el.id==="vNew"){ADM.newName=el.value;return}
@@ -3574,6 +3633,10 @@ document.addEventListener("change",async e=>{
   else if(el.id==="genPhotoFile"){
     const f=el.files&&el.files[0];el.value="";
     if(f)readGenPhoto(f).then(u=>{GEN.photo=u;GEN.err="";render()}).catch(()=>{GEN.err="Couldn't read that image. Try a JPEG or PNG photo.";render()});
+  }
+  else if(el.id==="chkPhotoFile"){
+    const f=el.files&&el.files[0];el.value="";
+    if(f)readGenPhoto(f).then(u=>{CHK.photo=u;CHK.err="";render()}).catch(()=>{CHK.err="Couldn't read that image. Try a JPEG or PNG photo.";render()});
   }
   else if(el.id==="importFile"){const f=el.files&&el.files[0];el.value="";if(f)importFile(f);}
   else if(el.id==="histEx"){S.histEx=el.value;render()}

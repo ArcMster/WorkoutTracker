@@ -8,6 +8,7 @@ user's Firebase ID token. This view:
   4. tidies the plan into the shape the app stores and returns it.
 
 Nothing the user sends (photo included) is stored. The AI API key never leaves this server.
+The body check (ask) view takes a photo and a question and returns a written answer, with its own daily limit.
 Settings are read from Django settings first, then environment variables (see PROXY_SETUP.md).
 """
 import base64
@@ -39,6 +40,7 @@ def conf(name, default=None):
 FIREBASE_PROJECT_ID = conf("FIREBASE_PROJECT_ID", "")
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in conf("AI_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 DAILY_LIMIT = int(conf("AI_DAILY_LIMIT", "5"))
+ASK_DAILY_LIMIT = int(conf("AI_ASK_DAILY_LIMIT", "10"))  # body check questions
 ADMIN_DAILY_LIMIT = int(conf("AI_ADMIN_DAILY_LIMIT", "50"))  # for admins (admins/{uid} exists in Firestore)
 PROVIDER = conf("AI_PROVIDER", "gemini").lower()  # "gemini" or "claude"
 API_KEY = (conf("GEMINI_API_KEY") or conf("GOOGLE_API_KEY")) if PROVIDER == "gemini" else conf("ANTHROPIC_API_KEY")
@@ -422,7 +424,7 @@ def normalize(result):
 # ---------- the AI call ----------
 # Each returns the reply's JSON text. Gemini needs only requests; Claude needs the anthropic package.
 
-def ask_gemini(photo, text, system, schema):
+def ask_gemini(photo, text, system, schema, max_tokens=16000):
     """Gemini's REST API through requests, so it runs on any Python (the google-genai SDK needs 3.10+).
     The request body is the same one google-genai sends for generate_content."""
     parts = []
@@ -435,7 +437,7 @@ def ask_gemini(photo, text, system, schema):
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseJsonSchema": schema,
-            "maxOutputTokens": 16000,
+            "maxOutputTokens": max_tokens,
         },
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
@@ -470,7 +472,7 @@ def ask_gemini(photo, text, system, schema):
     cand = (data.get("candidates") or [{}])[0]
     reason = cand.get("finishReason", "")
     if reason == "MAX_TOKENS":
-        raise AIError(502, "The plan came back incomplete. Try again.")
+        raise AIError(502, "The reply came back incomplete. Try again.")
     reply = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
     if not reply:
         log.info("Gemini returned no text: %s", reason)
@@ -480,7 +482,7 @@ def ask_gemini(photo, text, system, schema):
     return reply
 
 
-def ask_claude(photo, text, system, schema):
+def ask_claude(photo, text, system, schema, max_tokens=16000):
     global _client
     import anthropic
     if _client is None:
@@ -493,7 +495,7 @@ def ask_claude(photo, text, system, schema):
     try:
         response = _client.beta.messages.create(
             model=MODEL,
-            max_tokens=16000,
+            max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": content}],
             thinking={"type": "adaptive"},
@@ -519,9 +521,21 @@ def ask_claude(photo, text, system, schema):
     if response.stop_reason == "refusal":
         raise AIError(422, "The AI couldn't help with that request. Try rewording your goal or using a different photo.")
     if response.stop_reason == "max_tokens":
-        raise AIError(502, "The plan came back incomplete. Try again.")
+        raise AIError(502, "The reply came back incomplete. Try again.")
     log.info("Claude tokens: %s in, %s out", response.usage.input_tokens, response.usage.output_tokens)
     return next((b.text for b in reversed(response.content) if b.type == "text"), "")
+
+
+def read_photo(p):
+    """(mime type, bytes) from the app's {type, data} photo, None if there isn't one, or ValueError with a message for the user."""
+    if not (isinstance(p, dict) and p.get("data")):
+        return None
+    if len(str(p["data"])) > MAX_PHOTO_CHARS:
+        raise ValueError("That photo is too large. Try a smaller one.")
+    try:
+        return (p.get("type") if p.get("type") in PHOTO_TYPES else "image/jpeg", base64.b64decode(str(p["data"]), validate=True))
+    except (binascii.Error, ValueError):
+        raise ValueError("Couldn't read that photo. Try a different one.")
 
 
 # ---------- the endpoint ----------
@@ -546,7 +560,7 @@ def plan(request):
         return fail(request, 502, "Couldn't check your account. Try again in a minute.")
 
     since = timezone.now() - timedelta(days=1)
-    used = PlanRequest.objects.filter(uid=uid, created__gte=since, ok=True).count()
+    used = PlanRequest.objects.filter(uid=uid, kind="plan", created__gte=since, ok=True).count()
     limit = ADMIN_DAILY_LIMIT if is_admin(uid, token) else DAILY_LIMIT
     if used >= limit:
         return fail(request, 429, f"You've made {limit} AI plans in the last 24 hours. Try again tomorrow.")
@@ -561,16 +575,10 @@ def plan(request):
         return fail(request, 400, "Describe your goal.")
 
     answers = describe(data)
-    photo = None
-    p = data.get("photo")
-    if isinstance(p, dict) and p.get("data"):
-        if len(str(p["data"])) > MAX_PHOTO_CHARS:
-            return fail(request, 413, "That photo is too large. Try a smaller one.")
-        try:
-            photo = (p.get("type") if p.get("type") in PHOTO_TYPES else "image/jpeg",
-                     base64.b64decode(str(p["data"]), validate=True))
-        except (binascii.Error, ValueError):
-            return fail(request, 400, "Couldn't read that photo. Try a different one.")
+    try:
+        photo = read_photo(data.get("photo"))
+    except ValueError as e:
+        return fail(request, 413 if "large" in str(e) else 400, str(e))
     text = ("The attached image is the person's photo, for training insights." if photo else "No photo was given.") + "\n\n" + answers
 
     system, schema = SYSTEM, SCHEMA
@@ -597,3 +605,111 @@ def plan(request):
     result["remaining"] = max(0, limit - used - 1)
     result["model"] = MODEL
     return cors(JsonResponse(result), request)
+
+
+# ---------- body check: a photo and a question in, a written answer out ----------
+
+SYSTEM_ASK = """You are an experienced strength and conditioning coach inside a workout tracking app. \
+The person sends a photo of a body part or their physique and a question about it. You look at the photo and \
+answer their question in plain text.
+
+How to answer:
+- Plain, friendly English. Short sentences. Speak to the person as "you". No markdown symbols such as ** or #.
+- First say what you can actually see that relates to their question. Be honest and specific.
+- Then decide which of these fits and say so clearly:
+  1. It looks normal. Most people are not perfectly symmetrical: one arm, shoulder or leg being a little \
+bigger, shorter or differently shaped is very common, often from handedness, genetics, muscle insertion \
+points or how the photo was taken (angle, flexing, lighting). If this is what you see, reassure them \
+and explain why it is normal, and only add optional tips.
+  2. There is a visible imbalance or posture issue that training can help with. Explain the likely \
+cause, then give corrective steps: specific exercises with sets and reps, unilateral work, starting with \
+the weaker side, matching reps, tempo, mind-muscle focus, how often to train it and how long to give it.
+  3. The photo is unclear, doesn't show what they asked about, or can't answer the question. Say so in \
+one sentence and say what photo would help (angle, lighting, relaxed and flexed).
+- Never say a muscle's shape or length can be changed when it can't. Muscle belly length and insertion \
+points are set by genetics; training changes size and strength, not shape. Be honest about that.
+- Be respectful and encouraging. Never shame, never guess body-fat percentage or weight, never comment on \
+attractiveness, never try to identify the person.
+- Not medical advice. If you see or they describe something that could be medical, such as a lump, a \
+sudden change, a swelling, a bruise that doesn't go away, pain, or a tendon that looks ruptured (for \
+example a sudden bulge in the biceps), tell them to see a doctor soon.
+- Keep it to about 150 to 350 words, with short paragraphs and, where useful, a simple list using "- " lines."""
+
+ASK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["normal", "can_improve", "unclear", "see_doctor"],
+                    "description": "normal: nothing to fix. can_improve: training can help. unclear: photo or question can't be judged. see_doctor: could be medical."},
+        "answer": {"type": "string", "description": "The full reply to the person, as plain text."},
+    },
+    "required": ["verdict", "answer"],
+    "additionalProperties": False,
+}
+VERDICTS = ["normal", "can_improve", "unclear", "see_doctor"]
+
+
+@csrf_exempt
+def ask(request):
+    if request.method == "OPTIONS":
+        return cors(JsonResponse({}), request)
+    if request.method != "POST":
+        return fail(request, 405, "Use POST.")
+    if not API_KEY or not FIREBASE_PROJECT_ID or PROVIDER not in ("gemini", "claude"):
+        return fail(request, 503, "AI isn't set up on the server yet.")
+
+    try:
+        uid, token = verify_user(request)
+        if REQUIRE_ACTIVE and not is_active(uid, token):
+            return fail(request, 403, "Your account needs to be approved before you can use AI.")
+    except PermissionError as e:
+        return fail(request, 401, str(e))
+    except Exception:
+        log.exception("account check failed")
+        return fail(request, 502, "Couldn't check your account. Try again in a minute.")
+
+    since = timezone.now() - timedelta(days=1)
+    used = PlanRequest.objects.filter(uid=uid, kind="ask", created__gte=since, ok=True).count()
+    limit = ADMIN_DAILY_LIMIT if is_admin(uid, token) else ASK_DAILY_LIMIT
+    if used >= limit:
+        return fail(request, 429, f"You've asked {limit} body check questions in the last 24 hours. Try again tomorrow.")
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except RequestDataTooBig:
+        return fail(request, 413, "That photo is too large. Try a smaller one.")
+    except (ValueError, UnicodeDecodeError):
+        return fail(request, 400, "Couldn't read the request.")
+    if not isinstance(data, dict):
+        return fail(request, 400, "Couldn't read the request.")
+    question = text_field(data.get("question"), 1000)
+    if len(question) < 3:
+        return fail(request, 400, "Ask your question.")
+    try:
+        photo = read_photo(data.get("photo"))
+    except ValueError as e:
+        return fail(request, 413 if "large" in str(e) else 400, str(e))
+    if not photo:
+        return fail(request, 400, "Add a photo so the AI can look.")
+    text = f"The attached image is the person's photo.\n\nTheir question: {question}"
+
+    record = PlanRequest.objects.create(uid=uid, kind="ask")
+    reply = ""
+    try:
+        reply = (ask_gemini if PROVIDER == "gemini" else ask_claude)(photo, text, SYSTEM_ASK, ASK_SCHEMA, max_tokens=4000)
+        out = json.loads(reply)
+        answer = re.sub(r"\n{3,}", "\n\n", str(out.get("answer") or "").replace("\r", "")).strip()[:4000]
+        if not answer:
+            raise ValueError("empty answer")
+    except AIError as e:
+        return fail(request, e.status, str(e))
+    except (ValueError, AttributeError, TypeError):
+        log.warning("unparseable reply: %.500s", reply)
+        return fail(request, 502, "The answer came back in a form the app couldn't read. Try again.")
+    except Exception:
+        log.exception("AI ask failed")
+        return fail(request, 500, "Something went wrong on the server. Try again later.")
+
+    record.ok = True
+    record.save(update_fields=["ok"])
+    verdict = out.get("verdict") if out.get("verdict") in VERDICTS else "unclear"
+    return cors(JsonResponse({"answer": answer, "verdict": verdict, "remaining": max(0, limit - used - 1), "model": MODEL}), request)
