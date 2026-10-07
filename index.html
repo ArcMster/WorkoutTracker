@@ -1877,6 +1877,11 @@ async function planCard(){
 }
 
 let SHARE=null;
+/* the message that goes with a shared image: who shared it and a link to install the app */
+function shareGreeting(kind){
+  const nm=(myName()||"").trim(),what=kind==="workout"?"workout":kind==="plan"?"workout plan":"progress";
+  return `Hi! ${nm||"A friend"} shared ${nm?"their":"a"} ${what} with you from ${APP_NAME}. Install the app to track your own progress too: ${location.origin+location.pathname}`;
+}
 async function openShare(kind){
   if(kind==="workout"&&!(cur()&&hasSets(cur()))){setStatus("Log at least one set to share this workout.");return}
   let blob;
@@ -1886,7 +1891,7 @@ async function openShare(kind){
   const file=new File([blob],name,{type:"image/png"});
   const canShare=!!(navigator.canShare&&navigator.canShare({files:[file]}));
   closeShare();
-  SHARE={file,url:URL.createObjectURL(blob)};
+  SHARE={file,kind,url:URL.createObjectURL(blob)};
   let dlg=$("#shareDlg");
   if(!dlg){dlg=document.createElement("dialog");dlg.id="shareDlg";dlg.className="share";document.body.appendChild(dlg);
     dlg.addEventListener("close",closeShare);dlg.addEventListener("click",e=>{if(e.target===dlg)dlg.close()})}
@@ -3550,7 +3555,7 @@ document.addEventListener("click",async e=>{
     case "saveProfile":saveMyProfile();return;
     case "shareProgress":openShare("progress");return;
     case "shareWorkout":openShare("workout");return;
-    case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:APP_NAME}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
+    case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:APP_NAME,text:shareGreeting(SHARE.kind)}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
     case "closeShare":closeShare();return;
     case "csv-me":case "pdf-me":case "csv-t":case "pdf-t":exportRun(t.id.slice(4)||"",t.id.startsWith("csv"));return;
     case "csv-day":case "pdf-day":exportDay(t.id==="csv-day");return;
