@@ -1,10 +1,10 @@
 # Infinity Fitness Tracker: project details
 
-State as of 29 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, and trainers logging today's workout for a trainee (cache `infinity-v39`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, and the calendar with a workout time log and a live Training now list (cache `infinity-v42`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
-A workout tracker you can install as an app (a PWA). You sign in with Google, follow a weekly plan (ready-made or your own), log every set, and train alongside buddies and trainers. It has no build step and no backend code: static files on GitHub Pages, with Firebase Auth and Firestore for sign-in and data.
+A workout tracker you can install as an app (a PWA). You sign in with Google, follow a weekly plan (ready-made or your own), log every set, and train alongside buddies and trainers. The app itself has no build step and no backend code: static files on GitHub Pages, with Firebase Auth and Firestore for sign-in and data. The one server-side piece is the small Django proxy in `proxy/`, used only by the Advanced tab so the AI key stays off the device.
 
 | | |
 | --- | --- |
@@ -13,13 +13,14 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v39` |
+| AI proxy | Django app in `proxy/`, on PythonAnywhere, calling Google Gemini (or Claude). Address in `AI_PROXY_URL` in `firebase-config.js` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v42` |
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The whole app: markup, CSS and JavaScript (about 3,500 lines) |
+| `index.html` | The whole app: markup, CSS and JavaScript (about 4,100 lines) |
 | `firebase-config.js` | Firebase web config. If it's missing, the app runs in guest mode |
 | `firestore.rules` | Security rules. Paste into the Firebase console after every change |
 | `sw.js` | Service worker. Loads app files from the network first and falls back to the cache; serves the Firebase SDK and fonts from the cache first |
@@ -27,6 +28,8 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | `check.html` | Browser page that checks whether the app can be installed |
 | `icons/` | App icons (192, 512, maskable 512, Apple touch) |
 | `lib/` | Bundled Excel and PDF readers |
+| `proxy/` | Django app (`workout_ai`) for the AI proxy: `plan/`, `ask/` and `health/` endpoints, plus a model that counts requests for the daily limits. Runs on PythonAnywhere, not on GitHub Pages. Setup in `PROXY_SETUP.md` |
+| `PROJECT.md`, `README.md`, `PROXY_SETUP.md` | This file, setup and deploy steps, and proxy setup |
 
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
@@ -73,18 +76,20 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Exercises with the same name share history across plans.
 
 ### Advanced (AI planning)
-- Its own top tab, **Advanced** (view `gen`), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
+- Its own top tab, **Advanced** (view `gen`; two sub-tabs, Plan and Body check, below), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
 - Inputs: body weight, height (cm, or ft and in), a free-text goal (up to 1500 characters), days per week (2 to 6), an optional diet plan (**Add a diet plan**, then Kerala, South Indian or North Indian; `GEN.diet` is null, then "" until one is chosen, then `kerala`, `south` or `north`), Beginner or best sets (bench, squat, deadlift, overhead press) and an optional photo, scaled to 1024 px on the long edge as JPEG.
 - `genPlan()` POSTs these to `AI_PROXY_URL` (a named export of `firebase-config.js`) with the Firebase ID token, plus `knownNames()` so the AI reuses existing exercise names.
 - The proxy (`proxy/workout_ai`, Django, runs on PythonAnywhere) verifies the token, checks the account is active the same way as `isActive()` in the rules (reading Firestore with the user's own token), enforces `AI_DAILY_LIMIT` per 24 hours (`AI_ADMIN_DAILY_LIMIT`, default 50, for admins, checked by reading `admins/{uid}` like `isAdmin()`), calls the AI with a JSON schema: Google Gemini (`gemini-3.8-flash`, REST API through `requests`, so it runs on PythonAnywhere's Python 3.8) by default, or Claude (`claude-opus-5`, adaptive thinking, server-side refusal fallback) with `AI_PROVIDER=claude`, and normalizes the reply to 7 days in the app's plan shape. When `diet` is sent, `SYSTEM_DIET` is added to the prompt and `DIET_SCHEMA` to the schema, and the reply's `diet` (daily calorie, protein, carb and fat targets, a summary, 4 to 6 meals each with a time and 2 or 3 options with estimated calories, protein, carbs and fat, tips) is cleaned by `normalize_diet()`; otherwise `diet` is null. It stores no inputs or photos. Setup and settings: `PROXY_SETUP.md`.
 - The result screen shows insights (summary, photo, how the week works, strengths, focus, cautions), then the diet plan if one was asked for, then the read-only plan. **Save to my plans** (workouts only; the diet isn't stored), **Download PDF** (insights, then an overview page, then a diet page if any, then a page per training day), and **Save as image** in installed iOS apps. Nothing is written until Save is pressed.
 - The system prompt keeps it to training advice (no calorie targets or diets) unless a diet plan was asked for, and keeps photo comments to training-relevant, respectful observations.
 - Signed out, guest mode, or `AI_PROXY_URL` empty: the tab says so instead of showing the form.
+- **Body check** (`GEN.tab === "check"`, state in `CHK`): the tab has a **Plan | Body check** switch (`data-gtab`; hidden while a request runs or an answer shows). The person adds a required photo (same `readGenPhoto()` scaling as the plan photo) and a question of 3 to 1000 characters, for example whether one bicep looking shorter than the other is normal. `chkAsk()` POSTs `{ question, photo }` with the ID token to `askUrl()`, which is `AI_PROXY_URL` with its trailing `plan/` swapped for `ask/`. The reply `{ answer, verdict, remaining, model }` is shown as plain paragraphs and `- ` lists (always escaped, never HTML) under a tag from `CHK_VERDICTS`: `normal` (Looks normal), `can_improve` (Can be improved), `unclear` (Hard to tell from this photo), `see_doctor` (Worth a check-up). **Ask another question** (`chkAgain`) clears the answer. It shows how many questions are left today and a not-medical-advice note. Nothing is saved: not the photo, question or answer, on the device or the server.
+- Proxy side (`ask` view): same token, active-account and admin checks as `plan`, then `AI_ASK_DAILY_LIMIT` (default 10; admins use `AI_ADMIN_DAILY_LIMIT`) counted on `PlanRequest` rows with `kind="ask"`, separate from `kind="plan"`. A photo and a question are required. `SYSTEM_ASK` has the AI say what it can see, then choose between normal asymmetry, a fixable imbalance (with exercises, sets and reps, weaker side first) or an unclear photo; it must not claim training changes muscle shape or length, guess body fat, comment on looks or identify the person, and sends possible medical signs to a doctor. Replies are limited to 4000 tokens and the answer is cut at 4000 characters. `ask_gemini` and `ask_claude` take a `max_tokens` argument for this. `read_photo()` is shared by both views. Migration `0002_planrequest_kind` adds the `kind` column, so run `migrate workout_ai` after updating the proxy.
 
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
 - Progress tab: a chart per exercise, the session list, and report downloads.
-- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback.
+- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback. The share menu also gets a message (`shareGreeting(kind)`): "Hi! <name> shared their workout / workout plan / progress with you from Infinity Fitness Tracker. Install the app to track your own progress too: <app link>" ("A friend shared a ..." if there is no name). Save image saves the picture only.
 - **Reports:** Excel (CSV) with one row per set, or a printable report that saves as a PDF. Ranges are the last 4 weeks, last 12 weeks or all time. Rows go oldest to newest, with exercises in the plan's scheduled order.
 
 ### Profile
@@ -99,7 +104,23 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - **Share my progress** publishes a summary that only accepted buddies can read.
 - Buddies list: one main action per row. The trainer toggle and **Remove buddy** sit behind a **⋯** button.
 
+### Calendar
+- **Calendar** top tab (view `cal`, with a count of requests waiting for you): a week strip (Mon to Sun, dots for what's scheduled), the selected day's agenda with the plan's workout for that date, and **Schedule a workout**. Guests can schedule for themselves only; entries are kept on the device (`infinity-cal-v1`).
+- The schedule form offers **Just me**, **My trainer** (if you have trainers), **A buddy** (accepted buddies) and **A trainee** (if you train anyone), with date, length (30 to 90 minutes), start time and an optional note. Times are wall-clock in the viewer's time zone. Past times and clashes with your own confirmed or requested entries are refused.
+- **Training requests:** with **My trainer**, the start time is picked from chips built from the trainer's working hours and busy blocks (`calChips`, `trainerFree`); busy and outside-hours times can't be chosen. Sending creates a pending entry on both calendars' lists; the trainer sees it under **Waiting for your reply** and **Approve** (confirmed, a busy block is written) or **Decline**. A clash with the trainer's own entries asks for confirmation. Either side can cancel a confirmed session, which removes it from both calendars and clears the busy block.
+- **Trainers schedule for trainees:** with **A trainee**, the entry is confirmed straight away on both calendars (the rules need the trainee to have chosen you as trainer).
+- **Working hours:** trainers (profile flag, or anyone who trains someone) get **My working hours** on the Calendar tab: up to four ranges a day, for example `06:00-10:00, 17:00-20:00`. Trainees see only the hours and anonymous **busy** blocks, never who the trainer is booked with. With no hours set, any free time works.
+- **Buddy workouts:** pick an accepted buddy, date and time. The buddy gets **Accept** or **Decline** (no counter-proposal); acceptance puts it on both calendars. The requester sees "Waiting for <name>" or "Declined" (then **Dismiss**).
+- Home shows **Coming up** (the next three entries and any requests waiting for you).
+
+### Workout time log
+- The clock starts when the first set of a workout is logged (`session.t0`); each set carries its time (`at`). The Workout screen shows the running time, minutes left of 90 (`WK_MIN`) and **Finish workout** (`session.t1`). Logging more sets inside the 90 minutes after finishing early reopens the workout.
+- At 90 minutes the workout ends by itself: its length is 90 minutes if sets were still coming in, otherwise the time of the last set ("ended on its own"). Sets logged after the limit still save and are counted as **after the limit** (shown in the clock panel and a trainer's workout detail). `wkClock(s)` works all of this out from `t0`, `t1` and the set times; sessions logged before this have no clock.
+- A trainer logging for a trainee starts and ends the trainee's clock in the same way.
+
 ### Training now
+- **Everyone sees who is training:** Home shows **Training now** (or **Also training now** under the buddy list) and the Calendar tab always shows the list, with each person's workout, the exercise, sets done out of planned, when they started and minutes left. It comes from `live/{uid}`, a small card published while the clock is running (`publishLive`, after each save) and deleted when the workout ends; its `until` (start + 90 minutes) hides a card nobody deleted. Tapping a name opens the profile. **Show when I'm training** (Buddies tab, on by default) stops publishing and deletes the card.
+- The buddy-only list below is unchanged.
 - Buddies who are working out right now show under **Training now** on Home, above This week. Each row shows the workout (Pull), which plan day it is ("Tuesday's workout in Push / Pull / Legs", or "Changed workout"), the exercise they're on, sets done out of planned, and how long ago the last set was. "Finished" once every planned set is in. Tapping a row opens their progress, which starts with the same live card. The Buddies list shows "Training now: Pull" under their name.
 - It comes from `shared/{uid}.now`, published with the rest of the summary after every set (`nowTraining()`): today's session with the latest set. `session.lastEx` records the exercise last edited. Someone counts as training until `LIVE_MIN` (45) minutes after their last set (`liveNow()`); screens refresh once a minute to keep this current.
 - Only buddies see it, and only while **Share my progress** is on. Buddies on older app versions publish no `now` and simply don't appear.
@@ -136,13 +157,19 @@ users/{uid}/log/settings            unit, start (cycle start), sharing, activePl
 users/{uid}/log/plan_{id}           custom plan: { name, days: [{ t, title, focus, note, ex: [{ n, s, lo, hi, u }] } x7] }
 users/{uid}/log/coach               last plan a trainer assigned: { activePlan, by, at }
 users/{uid}/log/{date}_d{day}[_{planId}]
-                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, coach?, lastEx, entries: { exercise: [{ w, r, done }] }, updated }
+                                    session: { date, day, src, slot, planId, t, title, unit, deload, custom?, coach?, lastEx, t0?, t1?, entries: { exercise: [{ w, r, done, at? }] }, updated }
+                                    t0: ms when the first set was logged; t1: ms when Finish was tapped; at: ms a set was last edited
                                     custom: a changed workout for that date only, same shape as a plan day
                                     coach: { uid, name, at }: the trainer who last logged or changed it for the trainee
 profiles/{uid}                      name, nick, photo, ig, bio, custom, trainer, updated
 directory/{uid}                     Find Buddies card: name, nick, bio (80), photo (96px), seen (YYYY-MM-DD), trainer
 emails/{email}                      { uid }, for add by email
 requests/{fromUid}_{toUid}          { from, to, status: pending | accepted, created }
+events/{id}                         calendar entry: { kind: solo | train | buddy, members: [uid, ...], from, to?, trainer?, date, start (HH:MM), dur (min),
+                                      title, status: pending | confirmed | declined, created }
+slots/{eventId}                     a confirmed training session as a bare time block: { trainer, members, date, start, dur }
+avail/{trainerUid}                  { hours: { "1": ["06:00-10:00", ...], ... "7": [] }, updated }: working hours, Mon = 1
+live/{uid}                          who is training now: { name, title, t, t0, until (t0 + 90 min), at, ex, done, of, plan }
 coaching/{uid}                      { trainers: [uid, ...] }, max 10
 coachOffers/{trainerUid}_{memberUid} { from, to, created }: a trainer's offer to train someone
 admins/{uid}                        { by, at }: presence means admin
@@ -173,6 +200,10 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `requests/{id}` | The two people involved | Sender creates as pending; receiver accepts; either side deletes |
 | `coaching/{uid}` | Owner and listed trainers | Owner; a listed trainer can only remove themselves |
 | `coachOffers/{id}` | The trainer and the member | Trainer creates (their profile must have `trainer: true`); either side deletes |
+| `events/{id}` | Everyone in `members` | Create as yourself: solo (confirmed), buddy (pending, to an accepted buddy), train (pending to a trainer you chose, or confirmed by a trainer for their trainee); only the receiver of a pending entry can set confirmed or declined; any member deletes |
+| `slots/{id}` | The trainer and the trainers' trainees (anyone whose `coaching` list has the trainer) | The trainer creates; the trainer or the trainee deletes |
+| `avail/{uid}` | The trainer and their trainees | The trainer, hours map only |
+| `live/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, fixed fields and size limits; owner can always delete |
 | `shared/{uid}` | Owner and accepted buddies | Owner |
 | `board/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, at most 24 fields, name and photo size limits; owner can always delete |
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
@@ -194,12 +225,14 @@ The whole script is one ES module inside `<script type="module">`.
   - `TR`: the trainee a trainer has open
   - `ACT`: whose log `S` holds while a trainer logs today's workout for a trainee, their name, the trainer's own state to restore, and a pending publish
   - `FIND`: the Find Buddies list and paging
-  - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
+  - `GEN`: Advanced tab answers, which sub-tab is open (`tab`), photo, loading state, and the AI plan and insights (not saved until the user saves it)
+  - `CHK`: Body check question, photo, loading state, the AI's answer and verdict, and questions left today (never saved)
+  - `CAL`: calendar entries, trainers' busy blocks and working hours, the live Training now cards, the selected day and week, the open form and the hours draft
   - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
   - `BOARD`: leaderboard metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from, and trainee counts loaded from their logs
   - `GLOB`: global leaderboard query results per field, cached for 3 minutes
 - **Views** are string-template renderers chosen by `S.view`, and `render()` redraws `#app`:
-  - main tabs: `dash` (Home), `log` (Workout), `plans`, `gen` (Advanced, AI planning), `buddies`, `history` (Progress)
+  - main tabs: `dash` (Home), `log` (Workout), `plans`, `gen` (Advanced, AI planning), `cal` (Calendar), `buddies`, `history` (Progress)
   - plan screens: `planView`, `planEdit`, and `dayEdit` (change one date's workout)
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
@@ -207,7 +240,7 @@ The whole script is one ES module inside `<script type="module">`.
   - `admin` (admins only), `join` (sign-up choice), `pending` and `disabled` (the only screens a new or disabled account sees)
 - **Events:** single document-level `click`, `input`, `change` and `keydown` handlers dispatch on element ids and `data-*` attributes.
 - **Sync:** `writeDoc` / `scheduleSave` write to Firestore with offline persistence. Guest mode stores everything in `localStorage` (`ppl-log-v1`).
-- **Live data:** `onSnapshot` listeners for requests, coaching, each buddy's `shared` document, and today's sessions of the log on screen (`watchToday()`).
+- **Live data:** `onSnapshot` listeners (started by `startCal()`) for my `events` (`members array-contains`), my own `avail`, the `live` list (`until > now`, 50 at most), and for each of my trainers their `slots` (by trainer; no composite index) and `avail` (`calSync()`); plus requests, coaching, each buddy's `shared` document, and today's sessions of the log on screen (`watchToday()`).
 - **Summaries:** `tally()` works out week, month, streak and total counts from a list of sessions; `computeSummary()` adds lifts and recent workouts for `shared/{uid}`. `live()` zeroes a summary's week or month once it's out of date. Volumes are stored in kg.
 
 ## Local development and testing
