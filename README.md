@@ -60,6 +60,13 @@ When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13
 - Tap **Remove trainer** to revoke access immediately. A trainer can also **Stop training** someone from that person's trainer page.
 - When a trainer assigns you a plan, your app switches to it and shows a note on Home the next time you open it.
 
+## Calendar, workout time and who is training
+
+- **Calendar** tab: schedule your own workouts, request a session with a trainer you chose (their working hours and busy times show, and it's confirmed when they approve), schedule a trainee's session if you're a trainer, or ask a buddy to train together (confirmed when they accept). Confirmed entries show on both calendars. Trainers set their weekly hours at the bottom of the tab.
+- The workout clock starts when you log your first set and gives you 90 minutes; **Finish workout** ends it sooner. Sets after the limit still save and are marked as after the limit.
+- **Training now** shows every member whose clock is running (Home and the Calendar tab). **Show when I'm training** on the Buddies tab turns it off for you.
+- This needs the updated `firestore.rules` published (new `events`, `slots`, `avail` and `live` collections). No indexes are needed.
+
 ## Training now
 
 - Home shows **Training now** when a buddy is working out: which workout (for example Pull), which plan day it is, the exercise they're on, sets done out of planned and when their last set was. The Buddies list marks them too.

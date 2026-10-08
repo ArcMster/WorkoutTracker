@@ -540,6 +540,37 @@ dialog.share p{margin:12px 0 0;text-align:center}
 @media (prefers-reduced-motion:reduce){.l-tap,.enter-anim{animation:none}}
 .planrow{display:grid;gap:8px}
 .planrow .nm{flex-basis:auto}
+/* calendar and workout clock */
+.calnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.caldays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:14px}
+.calday{border:1px solid var(--line);background:var(--field);border-radius:10px;padding:6px 0 2px;display:flex;flex-direction:column;align-items:center;min-width:0}
+.calday small{color:var(--muted);font-size:12px}
+.calday b{font:700 20px/1.2 var(--display)}
+.calday.today b{color:var(--push)}
+.calday[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.calday[aria-pressed="true"] small,.calday[aria-pressed="true"] b{color:inherit}
+.calct{font-size:12px;height:14px;line-height:14px;color:var(--pull)}
+.calday[aria-pressed="true"] .calct{color:inherit}
+.agenda{list-style:none;margin:0;padding:0}
+.agenda li{display:flex;gap:12px;padding:10px 0 10px 12px;border-left:3px solid var(--c);border-top:1px solid var(--line)}
+.agenda li:first-child{border-top:0}
+.agenda .tm{min-width:74px;font-weight:700}
+.agenda .tm small,.agenda .nm small{display:block;color:var(--muted);font-size:13px;font-weight:400}
+.agenda .nm{flex:1;min-width:0}
+.agenda .acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.calform label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+.calform .field,.calform select{width:100%}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+button.chip{cursor:pointer;font-weight:600}
+button.chip.on{background:var(--ink);color:var(--bg)}
+button.chip:disabled{opacity:.45;cursor:default}
+button.chip small{font-weight:400}
+.hrs{display:grid;grid-template-columns:48px 1fr;gap:6px 10px;align-items:center}
+.hrs.ro span:nth-child(odd){color:var(--muted)}
+.hrs label{margin:0;font-size:14px}
+.wkpanel{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;background:var(--surface);border-radius:14px;padding:12px 14px;margin:0 0 12px;font-size:14px}
+.wkpanel .wkt b{font:700 30px/1 var(--display)}
+.wkpanel .btn{margin-left:auto}
 </style>
 </head>
 <body>
@@ -564,7 +595,7 @@ const CONFIGURED=!!(firebaseConfig&&firebaseConfig.apiKey&&!String(firebaseConfi
 const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
 const FB=CONFIGURED?Object.assign({},...await Promise.all(["firebase-app.js","firebase-auth.js","firebase-firestore.js"].map(f=>import(SDK+f)))):{};
 const {initializeApp,getAuth,onAuthStateChanged,GoogleAuthProvider,signInWithPopup,signInWithRedirect,signOut,
-  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp,arrayRemove,orderBy,limit,startAfter,getCountFromServer}=FB;
+  initializeFirestore,persistentLocalCache,persistentMultipleTabManager,collection,doc,getDoc,getDocs,setDoc,deleteDoc,updateDoc,query,where,onSnapshot,serverTimestamp,arrayRemove,orderBy,limit,startAfter,getCountFromServer,writeBatch}=FB;
 
 (function(){
 "use strict";
@@ -676,6 +707,7 @@ const ACT={uid:null,name:"",own:null,pub:false};
    trainee counts loaded from their logs (uid: summary, or null while loading), and my summary while Home renders */
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
+const CAL={events:[],slots:{},avail:{},live:[],week:null,sel:today(),form:null,hoursOpen:false,hoursDraft:null,msg:"",un:[],slotUn:{},availUn:{},cleaned:new Set(),livePub:false};
 const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
 
 /* ---------- plans ---------- */
@@ -831,7 +863,7 @@ async function initStore(){
     S.mode="db";
   }else{
     try{const raw=localStorage.getItem(LS);if(raw){const v=JSON.parse(raw);S.sessions=v.sessions||{};S.plans=v.plans||{};Object.assign(S.settings,v.settings||{})}}catch(e){}
-    S.mode="local";
+    S.mode="local";calLoadLocal();
   }
   applyCoachAssignment();
   if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
@@ -878,7 +910,7 @@ function scheduleSave(id){
     delete timers[key];
     const s=store[id];const here=who===(ACT.uid||uid);
     writeDoc(id,s?clone(s):null,who)
-      .then(()=>{if(here)setStatus(who!==uid?"Saved to "+forName+"'s log":S.mode==="db"?"Saved to your account":"Saved on this device");if(who===uid)schedulePublish()})
+      .then(()=>{if(here)setStatus(who!==uid?"Saved to "+forName+"'s log":S.mode==="db"?"Saved to your account":"Saved on this device");if(who===uid){schedulePublish();scheduleLive()}})
       .catch(()=>{if(here)setStatus("Couldn't save. Check your connection and edit a set to try again.")});
   },600);
 }
@@ -934,13 +966,92 @@ function computeSummary(){
   return {sharing:true,name:myName(),photo:myPhoto(),ig:ME.ig,planName:activePlan().name,...tally(list),weekDays:Object.keys(weekTypes).map(Number),weekTypes,
     lifts:liftArr,recent,now:nowTraining(),updated:Date.now()};
 }
+/* ---------- workout time log ----------
+   The clock starts at the first set logged (session.t0) and a workout has WK_MIN minutes. Each logged set
+   carries its time (x.at). The workout ends when the person taps Finish (session.t1), or by itself:
+   at the limit if sets were still coming in, otherwise at the last set. Sets logged after the limit
+   still save and are counted as "after time". */
+const WK_MIN=90,WK_MS=WK_MIN*60000;
+function setTimes(s){const a=[];Object.values(s.entries||{}).forEach(arr=>filled(arr).forEach(x=>{if(x.at)a.push(x.at)}));return a}
+function logTick(s,e2){
+  if(e2.r==null&&!e2.done)return;
+  const now=Date.now();
+  if(!s.t0)s.t0=now;
+  if(s.t1&&now<s.t0+WK_MS)delete s.t1;/* more sets inside the time: the workout isn't over */
+  e2.at=now;
+  const pn=$("#wkpanel");if(pn&&S.view==="log")pn.outerHTML=clockHtml(s);
+}
+/* null until a set is logged; otherwise { running, ms (time so far, or the workout's length), left, late, auto } */
+function wkClock(s){
+  if(!s||!s.t0)return null;
+  const now=Date.now(),cap=s.t0+WK_MS,at=setTimes(s);
+  const late=at.filter(t=>t>cap).length;
+  if(!s.t1&&now<cap)return {running:true,ms:now-s.t0,left:cap-now,late:0};
+  const end=s.t1?Math.min(s.t1,cap):late?cap:Math.max(s.t0,...at.filter(t=>t<=cap));
+  return {running:false,ms:Math.max(0,end-s.t0),left:0,late,auto:!s.t1};
+}
+function mmss(ms){const t=Math.floor(ms/1000);return Math.floor(t/60)+":"+String(t%60).padStart(2,"0")}
+function minText(ms){const m=Math.max(1,Math.round(ms/60000));return m+" min"}
+function clockHtml(s,rest){
+  const c=wkClock(s);
+  let inner;
+  if(!c)inner=rest?"":`<span class="muted">The clock starts when you log your first set. You have ${WK_MIN} minutes.</span>`;
+  else if(c.running)inner=`<span class="wkt"><span class="livedot" aria-hidden="true"></span><b id="wkclock" data-run="1">${mmss(c.ms)}</b></span>
+    <span class="muted"><span id="wkleft">${Math.ceil(c.left/60000)} min</span> left of ${WK_MIN}</span><button class="btn small" id="wkFinish">Finish workout</button>`;
+  else inner=`<span class="wkt"><b>${minText(c.ms)}</b></span><span class="muted">${c.auto?"Workout time (ended on its own)":"Workout time"}${c.late?` · ${c.late} set${c.late===1?"":"s"} logged after the ${WK_MIN} minute limit`:""}</span>`;
+  return inner?`<div class="wkpanel" id="wkpanel">${inner}</div>`:`<div id="wkpanel"></div>`;
+}
+setInterval(()=>{
+  const el=$("#wkclock");if(!el||S.view!=="log")return;
+  const c=wkClock(cur());
+  if(c&&c.running){el.textContent=mmss(c.ms);const l=$("#wkleft");if(l)l.textContent=Math.ceil(c.left/60000)+" min"}
+  else{const p=$("#wkpanel");if(p)p.outerHTML=clockHtml(cur())}
+},1000);
+
+/* ---------- training now, for everyone ----------
+   live/{uid}: a small card while someone's workout clock is running, so any member can see who is
+   training. It's deleted when the workout ends, and 'until' (start + the limit) stops anyone showing
+   after that even if the app was closed. Turned off with settings.live === false. */
+function liveSession(){
+  const s=todaySess();const c=s&&wkClock(s);
+  return c&&c.running?s:null;
+}
+let liveTimer=null;
+function scheduleLive(){if(S.mode!=="db"||ACT.uid)return;clearTimeout(liveTimer);liveTimer=setTimeout(publishLive,1500)}
+function publishLive(){
+  if(S.mode!=="db"||!uid)return Promise.resolve();
+  if(ACT.uid){return Promise.resolve()}
+  const ref=doc(fs,"live",uid),s=S.settings.live===false?null:liveSession();
+  if(!s){if(!CAL.livePub)return Promise.resolve();CAL.livePub=false;return deleteDoc(ref).catch(e=>console.warn("live",e))}
+  const n=nowTraining();if(!n)return Promise.resolve();
+  CAL.livePub=true;
+  return setDoc(ref,{name:String(myName()).slice(0,80),title:String(n.title||"Workout").slice(0,60),t:n.t||"other",t0:s.t0,until:s.t0+WK_MS,at:n.at,
+    ex:String(n.ex||"").slice(0,80),done:n.done,of:n.of,plan:String(n.plan||"").slice(0,80)}).catch(e=>console.warn("live",e));
+}
+function liveList(){
+  const now=Date.now();
+  return CAL.live.filter(l=>l.id!==uid&&l.until>now).sort((a,b)=>(b.at||0)-(a.at||0));
+}
+function renderLiveBox(skip,title,always){
+  const list=liveList().filter(l=>!skip||!skip.has(l.id));
+  if(!list.length&&!always)return "";
+  return `<section class="sec nowtr"><div class="sec-h"><span class="kicker"><span class="livedot" aria-hidden="true"></span>${title||"Training now"}</span></div>
+    ${list.length?`<ul class="nowlist">${list.map(l=>{const p={name:l.name,...SOC.profiles[l.id]};const left=Math.max(0,Math.ceil((l.until-Date.now())/60000));
+      return `<li style="--c:${tinfo(l.t).solid}">${avatar(p)}<span class="nm"><button class="link" data-person="${esc(l.id)}"><b>${esc(pname(SOC.profiles[l.id])||l.name||"Member")}</b></button> · <span class="wt">${esc(l.title)}</span>
+        <small class="one">${l.ex?"On "+esc(dn(l.ex))+" · ":""}${l.done}${l.of?" of "+l.of:""} sets · started ${agoText(l.t0)} · ${left} min left</small></span></li>`}).join("")}</ul>`
+      :`<p class="small muted" style="margin:0">Nobody is working out right now.</p>`}</section>`;
+}
 /* ---------- training now ----------
    The workout I logged a set in most recently today, for buddies' "Training now".
    at: time of the last set, so buddies can tell whether I'm still going. */
 const LIVE_MIN=45;/* minutes after the last set that someone still counts as training */
-function nowTraining(){
+function todaySess(){
   const td=today();let s=null;
   Object.values(S.sessions).forEach(x=>{if(x.date===td&&hasSets(x)&&(!s||(x.updated||0)>(s.updated||0)))s=x});
+  return s;
+}
+function nowTraining(){
+  const s=todaySess();
   if(!s)return null;
   const p=getPlan(s.planId||"ppl"),m=sessionMeta(s);
   const d=s.custom||(p&&p.days[sessSrc(s)-1]);
@@ -964,7 +1075,7 @@ function trainingNow(){return SOC.accepted.map(a=>({uid:a.uid,n:liveNow(SOC.shar
 /* keep "last set 3 min ago" current, and drop people once their workout is over */
 setInterval(()=>{
   const typing=document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-  if(!typing&&["dash","buddy","buddies"].includes(S.view)&&SOC.accepted.some(a=>SOC.shared[a.uid]&&SOC.shared[a.uid].now))render();
+  if(!typing&&["dash","buddy","buddies","cal"].includes(S.view)&&(CAL.live.length||SOC.accepted.some(a=>SOC.shared[a.uid]&&SOC.shared[a.uid].now)))render();
 },60000);
 function renderNowDash(){
   const list=trainingNow();if(!list.length)return "";
@@ -1068,6 +1179,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]});
   BOARD.tr={};
+  stopCal();
   Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
@@ -1152,7 +1264,7 @@ function startSocial(){
   SOC.unsubs.push(onSnapshot(query(rq,where("from","==",uid)),s=>{fromMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(rq,where("to","==",uid)),s=>{toMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   /* who I let train me */
-  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);softRender()},e=>console.warn(e)));
+  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);calSync();softRender()},e=>console.warn(e)));
   /* who I train */
   SOC.unsubs.push(onSnapshot(query(collection(fs,"coaching"),where("trainers","array-contains",uid)),
     s=>{SOC.trainees=s.docs.map(d=>d.id);SOC.trainees.forEach(loadProfile);settleTrainer();softRender()},e=>console.warn(e)));
@@ -1162,6 +1274,7 @@ function startSocial(){
     s=>{SOC.offersOut=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersOut.forEach(o=>loadProfile(o.to));softRender()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(co,where("to","==",uid)),
     s=>{SOC.offersIn=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersIn.forEach(o=>loadProfile(o.from));softRender()},e=>console.warn(e)));
+  startCal();
 }
 function watchBuddy(b,recompute){
   SOC.buddyUnsubs[b]=onSnapshot(doc(fs,"shared",b),snap=>{
@@ -1482,6 +1595,7 @@ function renderTDay(){
   <div class="panel"><div class="dhead"><span class="dot" style="--c:${tinfo(m.t).bg}"></span><div>
     <h2 class="pv-title">${esc(m.title)}</h2>
     <p class="small muted" style="margin:2px 0 0">${parseISO(s.date).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"})}${m.plan?" · "+esc(m.plan.name):""}${s.deload?" · Deload":""}${s.coach?" · Updated by "+(s.coach.uid===uid?"you":esc(s.coach.name||"a trainer")):""}</p></div></div>
+    ${(()=>{const c=wkClock(s);return c?`<p class="small muted" style="margin:10px 0 0">${c.running?"Still going":"Workout time "+minText(c.ms)+(c.auto?" (ended on its own)":"")}${c.late?` · ${c.late} set${c.late===1?"":"s"} after the ${WK_MIN} minute limit`:""}</p>`:""})()}
     <div class="nums3" style="margin-top:16px"><div><b>${rows.length}</b><span>exercises</span></div><div><b>${setCount(s)}</b><span>sets</span></div>
       <div><b>${vol>0?fmtNum(vol):"-"}</b><span>volume (${u})</span></div></div></div>
   <div class="panel">${exHtml}
@@ -1911,12 +2025,12 @@ function closeShare(){
 
 /* ---------- render ---------- */
 const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-function softRender(force){if(force||["join","dash","buddies","buddy","person","find","board","admin"].includes(S.view))render()}
+function softRender(force){if(S.view==="cal"&&document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return;if(force||["join","dash","buddies","buddy","person","find","board","admin","cal"].includes(S.view))render()}
 function render(){
   const app=$("#app");
   if(ACT.uid&&S.view!=="log"&&S.view!=="dayEdit")leaveAct();
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,admin:renderAdmin};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,admin:renderAdmin};
   const nIn=SOC.incoming.length+SOC.offersIn.filter(o=>!SOC.trainers.includes(o.from)).length;
   const badge=nIn?` (${nIn})`:"";
   const on=v=>ACT.uid?v==="buddies":S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView"].includes(S.view))||(v==="log"&&S.view==="dayEdit");
@@ -1927,7 +2041,7 @@ function render(){
   watchToday();
   app.innerHTML=`
   <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
-  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   const tb=app.querySelector('.tabs');
@@ -2070,6 +2184,7 @@ function renderLog(){
   <div class="week">${plates}</div>
   <div class="hero">${shift}<h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}${by}</div>
   ${tools}
+  ${d.t!=="rest"&&d.ex.length?clockHtml(s):""}
   <div class="meta">
     ${act?`<span class="chip">Today, ${fmtDate(S.date)}</span>`:`<input type="date" id="date" value="${S.date}" aria-label="Workout date">`}
     ${wk?`<span class="chip ${wk.cycle===6?"warn":""}">Week ${wk.week}, cycle week ${wk.cycle} of 6${wk.cycle===6?": deload":""}</span>`:""}
@@ -2818,6 +2933,8 @@ function renderDash(){
   <header class="greet"><h1>${greeting()}${nm?", "+esc(nm):""}</h1><p>${new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</p></header>
   ${todayHtml}
   ${S.mode==="db"?renderNowDash():""}
+  ${S.mode==="db"?renderLiveBox(new Set(trainingNow().map(x=>x.uid)),trainingNow().length?"Also training now":"Training now"):""}
+  ${renderNextDash()}
   <section class="sec"><div class="sec-h"><span class="kicker">This week</span><span class="small muted">${esc(plan.name)}</span></div>
     <div class="weekrow">${week}</div>
     <div class="nums3"><div><b>${L.weekDays.length}</b><span>workouts</span></div><div><b>${L.streak||0}</b><span>week streak</span></div><div><b>${L.total||0}</b><span>all time</span></div></div>
@@ -2961,6 +3078,10 @@ function renderBuddies(){
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
         ?"Buddies see your plan name, weekly workouts, streak, top sets and when you're training (which workout, and how far you are). Turn off and they see nothing."
         :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
+  <div class="panel"><label class="bigswitch"><input type="checkbox" id="liveShow" ${S.settings.live!==false?"checked":""}>
+      <span><b>Show when I'm training</b><br><span class="muted" style="font-size:14px">${S.settings.live!==false
+        ?"While your workout clock is running, every member can see your name, the workout and how far you are in Training now."
+        :"Off. Nobody sees you in Training now."}</span></span></label></div>
   <div class="panel"><label class="bigswitch"><input type="checkbox" id="findable" ${S.settings.findable!==false?"checked":""}>
       <span><b>Show me in Find Buddies</b><br><span class="muted" style="font-size:14px">${S.settings.findable!==false
         ?"Other members can see your name, photo and bio in the list and send you a request."
@@ -3453,6 +3574,279 @@ function renderAdmin(){
   ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}<small class="by">by ${a.by===uid?"you":a.by?`<button class="link" data-person="${esc(a.by)}">${esc(pname(SOC.profiles[a.by])||"an admin")}</button>`:"an admin"}</small></span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
 }
 
+/* ---------- calendar ----------
+   events/{id}: one entry for everyone in `members` (so it sits on both calendars).
+     kind solo  : just me, confirmed.
+     kind train : trainee and trainer. A trainee's request starts 'pending' and the trainer (to) approves or
+                  declines; a trainer scheduling for a trainee is 'confirmed' straight away.
+     kind buddy : a buddy workout. Pending until the buddy (to) accepts or declines.
+   slots/{eventId}: a confirmed training session as a bare time block, so a trainer's trainees can see when
+     the trainer is busy without seeing who with.
+   avail/{trainer}: the trainer's weekly working hours ({ hours: { "1": ["06:00-10:00"], ... "7": [] } }, Mon = 1).
+   Times are wall-clock "HH:MM" on a YYYY-MM-DD date, in the viewer's time zone. */
+const CAL_KEY="infinity-cal-v1";
+const CAL_DURS=[30,45,60,75,90];
+const CAL_KINDS={solo:"Just me",train:"My trainer",buddy:"A buddy",trainee:"A trainee"};
+function hm(min){return String(Math.floor(min/60)).padStart(2,"0")+":"+String(min%60).padStart(2,"0")}
+function toMin(t){const [h,m]=String(t).split(":").map(Number);return h*60+m}
+function fmtClock(t){const m=toMin(t);return new Date(2000,0,1,Math.floor(m/60),m%60).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+function evEnd(e){return toMin(e.start)+e.dur}
+function overlap(a,b){return a.date===b.date&&toMin(a.start)<toMin(b.start)+b.dur&&toMin(b.start)<toMin(a.start)+a.dur}
+function nowMin(){const n=new Date();return n.getHours()*60+n.getMinutes()}
+function calCmp(a,b){return a.date<b.date?-1:a.date>b.date?1:toMin(a.start)-toMin(b.start)}
+function calLoadLocal(){try{const raw=localStorage.getItem(CAL_KEY);CAL.events=raw?JSON.parse(raw):[]}catch(e){CAL.events=[]}}
+function calSaveLocal(){try{localStorage.setItem(CAL_KEY,JSON.stringify(CAL.events))}catch(e){}}
+function calPending(){return CAL.events.filter(e=>e.status==="pending"&&e.to===uid).sort(calCmp)}
+/* what blocks my own time: confirmed entries and my own open requests */
+function myBusy(){return CAL.events.filter(e=>e.status==="confirmed"||(e.status==="pending"&&e.from===uid))}
+function isTrainerUser(){return S.mode==="db"&&(ME.trainer===true||SOC.trainees.length>0)}
+function personName(u){return pname(SOC.profiles[u])||"Member"}
+
+function startCal(){
+  CAL.livePub=true;/* the first publish clears a card left behind by an earlier session */
+  CAL.un.push(onSnapshot(query(collection(fs,"events"),where("members","array-contains",uid)),s=>{
+    CAL.events=s.docs.map(d=>({id:d.id,...d.data()}));
+    CAL.events.forEach(e=>e.members.forEach(m=>{if(m!==uid)loadProfile(m)}));
+    calClean();softRender();
+  },e=>console.warn(e)));
+  CAL.un.push(onSnapshot(doc(fs,"avail",uid),d=>{CAL.avail[uid]=d.exists()?d.data():null;softRender()},e=>console.warn(e)));
+  CAL.un.push(onSnapshot(query(collection(fs,"live"),where("until",">",Date.now()),orderBy("until"),limit(50)),s=>{
+    CAL.live=s.docs.map(d=>({id:d.id,...d.data()}));CAL.live.forEach(l=>loadProfile(l.id));softRender();
+  },e=>console.warn(e)));
+  calSync();
+  setTimeout(publishLive,2000);
+}
+function stopCal(){
+  CAL.un.forEach(u=>u());CAL.un=[];
+  Object.values(CAL.slotUn).forEach(u=>u());Object.values(CAL.availUn).forEach(u=>u());
+  clearTimeout(liveTimer);
+  Object.assign(CAL,{events:[],slots:{},avail:{},live:[],slotUn:{},availUn:{},form:null,hoursOpen:false,hoursDraft:null,msg:"",livePub:false});
+  CAL.cleaned.clear();
+}
+/* watch the busy blocks and working hours of each of my trainers */
+function calSync(){
+  if(S.mode!=="db"||!uid)return;
+  const want=new Set(SOC.trainers);
+  Object.keys(CAL.slotUn).forEach(t=>{
+    if(want.has(t))return;
+    CAL.slotUn[t]();CAL.availUn[t]();delete CAL.slotUn[t];delete CAL.availUn[t];delete CAL.slots[t];delete CAL.avail[t];
+  });
+  want.forEach(t=>{
+    if(CAL.slotUn[t])return;
+    CAL.slotUn[t]=onSnapshot(query(collection(fs,"slots"),where("trainer","==",t)),s=>{CAL.slots[t]=s.docs.map(d=>({id:d.id,...d.data()}));softRender()},e=>console.warn(e));
+    CAL.availUn[t]=onSnapshot(doc(fs,"avail",t),d=>{CAL.avail[t]=d.exists()?d.data():null;softRender()},e=>console.warn(e));
+  });
+}
+/* a trainer clears the busy blocks of sessions that are over, so the trainees' lists stay short */
+function calClean(){
+  const old=addDays(today(),-1);
+  CAL.events.forEach(e=>{
+    if(e.kind==="train"&&e.status==="confirmed"&&e.trainer===uid&&e.date<old&&!CAL.cleaned.has(e.id)){
+      CAL.cleaned.add(e.id);deleteDoc(doc(fs,"slots",e.id)).catch(()=>{});
+    }
+  });
+}
+
+function hasHours(a){return !!(a&&a.hours&&Object.values(a.hours).some(w=>w&&w.length))}
+/* free, busy (another session) or outside (not in their working hours) */
+function trainerFree(t,date,start,dur){
+  const a=CAL.avail[t],m=toMin(start);
+  if(hasHours(a)){
+    const wins=a.hours[String(dayOf(date))]||[];
+    if(!wins.some(w=>{const [x,y]=w.split("-").map(toMin);return m>=x&&m+dur<=y}))return "outside";
+  }
+  if((CAL.slots[t]||[]).some(x=>overlap(x,{date,start,dur})))return "busy";
+  return "free";
+}
+function whoList(kind){return kind==="train"?SOC.trainers:kind==="buddy"?SOC.accepted.map(a=>a.uid):kind==="trainee"?SOC.trainees:[]}
+function plannedTitle(date){const d=dayAt(activePlan(),date);return d&&d.t!=="rest"?d.title:"Workout"}
+function calOpenForm(date){
+  CAL.form={kind:"solo",who:"",date:date||CAL.sel,start:"18:00",dur:60,title:"",err:""};CAL.msg="";render();
+}
+function calCheck(f){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f.date))return "Pick a date.";
+  if(f.date<today())return "That date has passed.";
+  if(!/^\d{2}:\d{2}$/.test(f.start))return "Pick a start time.";
+  if(f.date===today()&&toMin(f.start)+ +f.dur<=nowMin())return "That time has passed.";
+  if(f.kind!=="solo"&&!f.who)return "Choose who it's with.";
+  const mine=myBusy().find(e=>overlap(e,{date:f.date,start:f.start,dur:+f.dur}));
+  if(mine)return "You already have "+mine.title+" at "+fmtClock(mine.start)+" then.";
+  if(f.kind==="train"){
+    const r=trainerFree(f.who,f.date,f.start,+f.dur);
+    if(r==="outside")return personName(f.who)+" isn't available then. Pick a time from the list.";
+    if(r==="busy")return personName(f.who)+" is busy then. Pick a free time from the list.";
+  }
+  return "";
+}
+function calSave(){
+  const f=CAL.form;if(!f)return;
+  const err=calCheck(f);if(err){f.err=err;render();return}
+  const dur=+f.dur;
+  const title=(f.title||"").trim().slice(0,60)||(f.kind==="solo"?plannedTitle(f.date):f.kind==="buddy"?"Buddy workout":"Training session");
+  const base={date:f.date,start:f.start,dur,title};
+  const done=msg=>{CAL.form=null;CAL.sel=f.date;CAL.week=mondayOf(f.date);CAL.msg=msg;render();window.scrollTo(0,0)};
+  if(S.mode!=="db"){
+    CAL.events.push({id:"l"+newId(),kind:"solo",members:["me"],from:"me",status:"confirmed",...base});
+    calSaveLocal();done("Added to your calendar.");return;
+  }
+  const ref=doc(collection(fs,"events")),b=writeBatch(fs);
+  let ev,msg="Added to your calendar.";
+  if(f.kind==="solo")ev={kind:"solo",members:[uid],from:uid,status:"confirmed",...base};
+  else if(f.kind==="buddy"){ev={kind:"buddy",members:[uid,f.who],from:uid,to:f.who,status:"pending",...base};msg="Request sent to "+personName(f.who)+". It joins both calendars when they accept."}
+  else if(f.kind==="train"){ev={kind:"train",members:[uid,f.who],from:uid,to:f.who,trainer:f.who,status:"pending",...base};msg="Request sent to "+personName(f.who)+". It joins both calendars when they approve."}
+  else{ev={kind:"train",members:[uid,f.who],from:uid,to:f.who,trainer:uid,status:"confirmed",...base};msg="Scheduled on your calendar and "+personName(f.who)+"'s."}
+  b.set(ref,{...ev,created:serverTimestamp()});
+  if(f.kind==="trainee")b.set(doc(fs,"slots",ref.id),{trainer:uid,members:[uid,f.who],date:f.date,start:f.start,dur});
+  b.commit().catch(e=>{CAL.msg=fbError(e,"save that");softRender(true)});
+  done(msg);
+}
+function calAct(act,id){
+  const e=CAL.events.find(x=>x.id===id);if(!e)return;
+  const fail=er=>{CAL.msg=fbError(er,"update that");softRender(true)};
+  if(S.mode!=="db"){
+    if(act==="cancel"&&confirm("Remove this from your calendar?")){CAL.events=CAL.events.filter(x=>x.id!==id);calSaveLocal();render()}
+    return;
+  }
+  if(act==="approve"){
+    const clash=myBusy().find(x=>x.id!==e.id&&overlap(x,e));
+    if(clash&&!confirm("This overlaps "+clash.title+" at "+fmtClock(clash.start)+". Confirm it anyway?"))return;
+    const b=writeBatch(fs);
+    b.update(doc(fs,"events",id),{status:"confirmed"});
+    if(e.kind==="train")b.set(doc(fs,"slots",id),{trainer:uid,members:e.members,date:e.date,start:e.start,dur:e.dur});
+    b.commit().catch(fail);CAL.msg=e.kind==="train"?"Session confirmed. It's on both calendars.":"Workout confirmed. It's on both calendars.";render();
+  }else if(act==="decline"){
+    updateDoc(doc(fs,"events",id),{status:"declined"}).catch(fail);CAL.msg="Declined.";render();
+  }else if(act==="cancel"||act==="dismiss"){
+    const o=e.members.find(m=>m!==uid);
+    const ask=e.status==="confirmed"&&o?"Cancel this? It will be removed from "+personName(o)+"'s calendar too.":e.status==="pending"&&o?"Withdraw this request?":"";
+    if(act==="cancel"&&ask&&!confirm(ask))return;
+    if(act==="cancel"&&!ask&&!confirm("Remove this from your calendar?"))return;
+    const b=writeBatch(fs);
+    b.delete(doc(fs,"events",id));
+    if(e.kind==="train"&&e.status==="confirmed")b.delete(doc(fs,"slots",id));
+    b.commit().catch(fail);CAL.msg="Removed.";render();
+  }
+}
+function hoursText(w){return w&&w.length?w.map(x=>x.split("-").map(fmtClock).join(" - ")).join(", "):"Off"}
+function hoursSave(){
+  const out={};
+  for(let i=1;i<=7;i++){
+    const raw=(CAL.hoursDraft[i]||"").trim(),wins=[];
+    if(raw)for(const part of raw.split(/[,;]+/)){
+      const m=part.trim().match(/^(\d{1,2}):(\d{2})\s*(?:-|–|to)\s*(\d{1,2}):(\d{2})$/i);
+      const a=m?+m[1]*60+ +m[2]:0,b=m?+m[3]*60+ +m[4]:0;
+      if(!m||+m[2]>59||+m[4]>59||a>=b||b>1440){CAL.msg=WD_LONG[i-1]+": write hours like 06:00-10:00, 17:00-20:00.";render();return}
+      wins.push(hm(a)+"-"+hm(b));
+    }
+    if(wins.length>4){CAL.msg=WD_LONG[i-1]+": up to 4 time ranges a day.";render();return}
+    out[String(i)]=wins;
+  }
+  setDoc(doc(fs,"avail",uid),{hours:out,updated:Date.now()}).catch(e=>{CAL.msg=fbError(e,"save your hours");softRender(true)});
+  CAL.hoursOpen=false;CAL.msg="Working hours saved. Your trainees see them now.";render();
+}
+
+function evRow(e,full,showDate){
+  const o=e.members.find(m=>m!==uid),nm=o?esc(personName(o)):"";
+  const col=e.kind==="train"?"var(--pull)":e.kind==="buddy"?"var(--core)":"var(--push)";
+  const sub=e.kind==="solo"?"Just you":e.kind==="train"?(e.trainer===uid?"Training "+nm:"Trainer: "+nm):"Buddy: "+nm;
+  const tag=e.status==="pending"?(e.to===uid?`<span class="tag warn">Needs your reply</span>`:`<span class="tag warn">Waiting for ${nm}</span>`)
+    :e.status==="declined"?`<span class="tag plain">Declined</span>`:e.kind!=="solo"?`<span class="tag">Confirmed</span>`:"";
+  let acts="";
+  if(full){
+    const b=(a,l,p)=>`<button class="btn small${p?" primary":""}" data-evact="${a}" data-ev="${esc(e.id)}">${l}</button>`;
+    if(e.status==="pending"&&e.to===uid)acts=b("approve",e.kind==="train"?"Approve":"Accept",true)+b("decline","Decline");
+    else if(e.status==="pending")acts=b("cancel","Withdraw request");
+    else if(e.status==="declined")acts=b("dismiss","Dismiss");
+    else acts=b("cancel",e.kind==="solo"?"Remove":"Cancel");
+  }
+  return `<li style="--c:${col}"><span class="tm">${showDate?`<small>${esc(fmtDate(e.date))}</small>`:""}${fmtClock(e.start)}<small>${e.dur} min</small></span>
+    <span class="nm"><b>${esc(e.title||"Workout")}</b> ${tag}<small>${sub}</small>${acts?`<span class="acts">${acts}</span>`:""}</span></li>`;
+}
+function renderNextDash(){
+  const td=today(),nm=nowMin();
+  const list=CAL.events.filter(e=>e.status!=="declined"&&(e.date>td||(e.date===td&&evEnd(e)>nm))).sort(calCmp).slice(0,3);
+  const n=calPending().length;
+  if(!list.length&&!n)return "";
+  return `<section class="sec"><div class="sec-h"><span class="kicker">Coming up</span><button class="link" data-view="cal">Calendar</button></div>
+    ${n?`<p class="small" style="margin:0 0 6px"><button class="link" data-view="cal">${n} request${n===1?"":"s"} waiting for your reply</button></p>`:""}
+    ${list.length?`<ul class="agenda">${list.map(e=>evRow(e,false,e.date!==td)).join("")}</ul>`:""}</section>`;
+}
+function calChips(f){
+  const t=f.who,nm=esc(personName(t)),a=CAL.avail[t],dur=+f.dur,date=f.date;
+  if(!t)return "";
+  const hrs=hasHours(a);
+  const wins=hrs?(a.hours[String(dayOf(date))]||[]).map(w=>w.split("-").map(toMin)):[[360,1320]];
+  const slots=CAL.slots[t]||[];
+  const busyToday=slots.filter(x=>x.date===date).sort((x,y)=>toMin(x.start)-toMin(y.start));
+  const starts=[];
+  wins.forEach(([s,e])=>{for(let m=s;m+dur<=e;m+=30)starts.push(m)});
+  const mine=myBusy();
+  const chips=starts.filter(m=>date!==today()||m>nowMin()).map(m=>{
+    const st=hm(m),clash=slots.some(x=>overlap(x,{date,start:st,dur}))?"busy":mine.some(x=>overlap(x,{date,start:st,dur}))?"mine":"";
+    return `<button class="chip${f.start===st?" on":""}" data-cstart="${st}" aria-pressed="${f.start===st}" ${clash?"disabled":""} title="${clash==="busy"?"Busy":clash==="mine"?"You have something then":""}">${fmtClock(st)}${clash?` <small>${clash==="busy"?"busy":"you're busy"}</small>`:""}</button>`;
+  }).join("");
+  return `<p class="small muted" style="margin:10px 0 6px">${hrs?(wins.length?nm+"'s hours that day: "+hoursText((a.hours[String(dayOf(date))]||[]))+".":nm+" isn't available that day."):nm+" hasn't set working hours, so any free time works."}
+    ${busyToday.length?` Busy: ${busyToday.map(x=>fmtClock(x.start)+" - "+fmtClock(hm(evEnd(x)))).join(", ")}.`:""}</p>
+    ${chips?`<div class="chips" role="group" aria-label="Start time">${chips}</div>`:`<p class="small" style="margin:0">No free start times that day for ${dur} minutes.</p>`}`;
+}
+function calFormHtml(){
+  const f=CAL.form;if(!f)return "";
+  const kinds=["solo"];
+  if(S.mode==="db"){if(SOC.trainers.length)kinds.push("train");if(SOC.accepted.length)kinds.push("buddy");if(SOC.trainees.length)kinds.push("trainee")}
+  const who=whoList(f.kind);
+  if(f.kind!=="solo"&&!who.includes(f.who))f.who=who[0]||"";
+  const nm=f.who?esc(personName(f.who)):"";
+  const note={solo:"Goes on your calendar.",train:`Sends ${nm||"your trainer"} a request. It joins both calendars once they approve.`,
+    buddy:`Sends ${nm||"your buddy"} a request. It joins both calendars once they accept.`,trainee:`Goes straight onto your calendar and ${nm||"your trainee"}'s.`}[f.kind];
+  return `<div class="panel calform"><div class="sec-h"><h2>Schedule a workout</h2></div>
+    <div class="seg wide" role="group" aria-label="Who with">${kinds.map(k=>`<button data-ckind="${k}" aria-pressed="${k===f.kind}">${CAL_KINDS[k]}</button>`).join("")}</div>
+    ${f.kind!=="solo"?`<label for="cfWho">${f.kind==="train"?"Trainer":f.kind==="buddy"?"Buddy":"Trainee"}</label>
+      <select id="cfWho" data-cf="who">${who.map(u=>`<option value="${esc(u)}" ${u===f.who?"selected":""}>${esc(personName(u))}</option>`).join("")}</select>`:""}
+    <div class="row" style="margin-top:4px"><div style="flex:1 1 150px"><label for="cfDate">Date</label><input type="date" class="field" id="cfDate" data-cf="date" min="${today()}" value="${esc(f.date)}"></div>
+      <div style="flex:1 1 120px"><label for="cfDur">Length</label><select id="cfDur" data-cf="dur">${CAL_DURS.map(d=>`<option value="${d}" ${d===+f.dur?"selected":""}>${d} min</option>`).join("")}</select></div></div>
+    ${f.kind==="train"?`<label>Start time</label>${calChips(f)}`
+      :`<label for="cfStart">Start time</label><input type="time" class="field" id="cfStart" data-cf="start" step="900" value="${esc(f.start)}">`}
+    <label for="cfTitle">Note (optional)</label><input class="field" id="cfTitle" data-cf="title" maxlength="60" placeholder="${esc(f.kind==="solo"?plannedTitle(f.date):f.kind==="buddy"?"Buddy workout":"Training session")}" value="${esc(f.title)}">
+    <p class="small muted" style="margin:10px 0 0">${note}</p>
+    ${f.err?`<p class="small" style="color:var(--push);margin:8px 0 0" role="alert">${esc(f.err)}</p>`:""}
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="calSave">${f.kind==="train"||f.kind==="buddy"?"Send request":"Save"}</button><button class="btn" id="calCancel">Cancel</button></div></div>`;
+}
+function calHoursHtml(){
+  if(!isTrainerUser())return "";
+  const h=(CAL.avail[uid]&&CAL.avail[uid].hours)||{};
+  if(CAL.hoursOpen&&!CAL.hoursDraft)CAL.hoursDraft=Object.fromEntries(WD.map((_,i)=>[i+1,(h[String(i+1)]||[]).join(", ")]));
+  return `<div class="panel"><div class="sec-h"><h2>My working hours</h2><button class="link small" id="hoursToggle">${CAL.hoursOpen?"Close":"Edit"}</button></div>
+    <p class="small muted" style="margin:0 0 8px">Trainees who chose you see these hours and book inside them. Sessions you confirm show them as busy.</p>
+    ${CAL.hoursOpen?`<div class="hrs">${WD.map((d,i)=>`<label for="hr${i+1}">${d}</label><input class="field" id="hr${i+1}" data-hr="${i+1}" placeholder="Off, or 06:00-10:00, 17:00-20:00" value="${esc(CAL.hoursDraft[i+1])}">`).join("")}</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="hoursSave">Save hours</button></div>`
+      :hasHours(CAL.avail[uid])?`<div class="hrs ro">${WD.map((d,i)=>`<span>${d}</span><span>${esc(hoursText(h[String(i+1)]))}</span>`).join("")}</div>`
+      :`<p class="small" style="margin:0">Not set yet. Until you set hours, trainees can pick any time you're free.</p>`}</div>`;
+}
+function renderCal(){
+  const wk=CAL.week||(CAL.week=mondayOf(CAL.sel));
+  const days=Array.from({length:7},(_,i)=>addDays(wk,i)),td=today();
+  const vis=e=>!(e.status==="declined"&&e.to===uid);
+  const on=CAL.events.filter(e=>e.date===CAL.sel&&vis(e)).sort(calCmp);
+  const pend=calPending();
+  const dd=dayAt(activePlan(),CAL.sel);
+  const strip=days.map((d,i)=>{const n=CAL.events.filter(e=>e.date===d&&vis(e)).length;
+    return `<button class="calday${d===td?" today":""}" data-cday="${d}" aria-pressed="${d===CAL.sel}" aria-label="${WD_LONG[i]} ${parseISO(d).getDate()}${n?", "+n+" scheduled":""}"><small>${WD[i]}</small><b>${parseISO(d).getDate()}</b><span class="calct" aria-hidden="true">${"&bull;".repeat(Math.min(n,3))}</span></button>`}).join("");
+  return `<header class="greet"><h1>Calendar</h1><p>Schedule your workouts${S.mode==="db"?" with trainers and buddies":""}.</p></header>
+  ${CAL.msg?`<p class="coachnote" role="status">${esc(CAL.msg)}</p>`:""}
+  ${pend.length?`<div class="panel"><div class="sec-h"><h2>Waiting for your reply</h2></div><ul class="agenda">${pend.map(e=>evRow(e,true,true)).join("")}</ul></div>`:""}
+  <div class="panel"><div class="calnav"><button class="btn small" data-cweek="-1" aria-label="Previous week">&lsaquo;</button>
+      <b>${fmtDate(days[0])} - ${fmtDate(days[6])}</b><button class="btn small" data-cweek="1" aria-label="Next week">&rsaquo;</button></div>
+    <div class="caldays">${strip}</div>
+    <div class="sec-h"><h2>${parseISO(CAL.sel).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"})}</h2>
+      <button class="link small" data-ctoday>Today</button></div>
+    <p class="small muted" style="margin:0 0 8px">${dd.t==="rest"?"Plan: rest day":"Plan: "+esc(dd.title)}</p>
+    ${on.length?`<ul class="agenda">${on.map(e=>evRow(e,true)).join("")}</ul>`:`<p class="small muted" style="margin:0 0 4px">Nothing scheduled.</p>`}
+    ${CAL.form?"":`<div class="row" style="margin-top:12px"><button class="btn primary" id="calNew">Schedule a workout</button></div>`}</div>
+  ${calFormHtml()}
+  ${S.mode==="db"?calHoursHtml():""}
+  ${S.mode==="db"?renderLiveBox(null,"Training now",true):""}`;
+}
+
 function leaveEditor(){
   if(S.draft&&!confirm("Leave without saving your changes to this "+(S.ovFor?"workout":"plan")+"?"))return false;
   S.draft=null;S.draftId=null;S.coachFor=null;S.ovFor=null;return true;
@@ -3471,6 +3865,12 @@ document.addEventListener("click",async e=>{
   const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.buddy){S.buddyId=ds.buddy;S.view="buddy";render();window.scrollTo(0,0);return}
   if(ds.person){openPerson(ds.person);return}
+  if(ds.cday){CAL.sel=ds.cday;CAL.msg="";render();return}
+  if(ds.cweek){CAL.week=addDays(CAL.week||mondayOf(CAL.sel),7*+ds.cweek);CAL.sel=CAL.week;CAL.msg="";render();return}
+  if(t.hasAttribute("data-ctoday")){CAL.sel=today();CAL.week=mondayOf(CAL.sel);render();return}
+  if(ds.ckind&&CAL.form){CAL.form.kind=ds.ckind;CAL.form.who="";CAL.form.err="";render();return}
+  if(ds.cstart&&CAL.form){CAL.form.start=ds.cstart;CAL.form.err="";render();return}
+  if(ds.evact){calAct(ds.evact,ds.ev);return}
   if(ds.add){sendRequest(ds.add);return}
   if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
   if(t.id==="findMore"){loadFind();return}
@@ -3531,6 +3931,12 @@ document.addEventListener("click",async e=>{
     case "signout":signOut(auth);return;
     case "checkAgain":location.reload();return;
     case "joinSend":sendJoin();return;
+    case "wkFinish":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
+    case "calNew":calOpenForm();return;
+    case "calSave":calSave();return;
+    case "calCancel":CAL.form=null;render();return;
+    case "hoursToggle":CAL.hoursOpen=!CAL.hoursOpen;CAL.hoursDraft=null;CAL.msg="";render();return;
+    case "hoursSave":hoursSave();return;
     case "restart":S.settings.start=mondayOf(today());saveSettings();render();return;
     case "addEmail":addByEmail($("#email").value);return;
     case "offerEmailBtn":offerByEmail($("#offerEmail").value);return;
@@ -3589,7 +3995,7 @@ document.addEventListener("click",async e=>{
       if(ri.placeholder){e2.r=num(ri.placeholder);ri.value=ri.placeholder}
       if(wi.placeholder&&e2.w==null){e2.w=num(wi.placeholder);wi.value=wi.placeholder}
     }
-    e2.done=!e2.done;s.updated=Date.now();s.lastEx=ex.n;
+    e2.done=!e2.done;s.updated=Date.now();s.lastEx=ex.n;logTick(s,e2);
     t.setAttribute("aria-pressed",e2.done);tr.classList.toggle("isdone",e2.done);
     updateBeat(tr);markLogged();scheduleSave(curId());
     if(e2.done)startTimer(REST_SECONDS);
@@ -3599,6 +4005,8 @@ document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
+  if(ds.cf&&CAL.form){CAL.form[ds.cf]=el.value;return}
+  if(ds.hr&&CAL.hoursDraft){CAL.hoursDraft[ds.hr]=el.value;return}
   if(ds.chk){CHK[ds.chk]=el.value;return}
   if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
   if(el.id==="vQ"){ADM.vq=el.value;const l=$("#vList");if(l)l.innerHTML=vidRows();return}
@@ -3621,14 +4029,16 @@ document.addEventListener("input",e=>{
   }
   const arr=s.entries[ex.n]||(s.entries[ex.n]=[]);
   const e2=arr[k]||(arr[k]={w:null,r:null,done:false});
-  e2[ds.f]=num(el.value);s.updated=Date.now();s.lastEx=ex.n;
+  e2[ds.f]=num(el.value);s.updated=Date.now();s.lastEx=ex.n;logTick(s,e2);
   updateBeat(tr);markLogged();scheduleSave(curId());
 });
 document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
+  if(ds.cf&&CAL.form){CAL.form[ds.cf]=el.value;if(ds.cf!=="title"){CAL.form.err="";render()}return}
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="range"){S.range=el.value}
   else if(el.id==="profTrainer"&&S.profileDraft){S.profileDraft.trainer=el.checked;render()}
+  else if(el.id==="liveShow"){S.settings.live=el.checked;await saveSettings();await publishLive();render()}
   else if(el.id==="findable"){S.settings.findable=el.checked;await saveSettings();syncDirectory(true);render()}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
   else if(el.id==="photoFile"){
