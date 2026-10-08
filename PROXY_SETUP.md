@@ -15,7 +15,9 @@ What the proxy does on every request:
 4. **Calls Gemini** (`gemini-3.8-flash`) with a JSON schema, so the reply is always JSON in the expected shape.
 5. **Tidies the reply** into the app's plan format: exactly 7 days from Monday, known day types and units, and sets and reps in range.
 
-The proxy stores nothing the user sends, photo included. It keeps only a row per request (user id, time, success) for the daily limit.
+The proxy stores nothing the user sends, photo included. It keeps only a row per request (user id, time, success, and `kind`: `plan` or `ask`) for the daily limit.
+
+It has a second endpoint for the app's **Body check** (Advanced > Body check): a photo and a question in, a written answer out. It goes through the same token, approval and Gemini/Claude steps, with its own daily limit so questions don't use up plans.
 
 It can use Claude instead of Gemini with one setting (`AI_PROVIDER`, below), if you get an Anthropic key later.
 
@@ -45,7 +47,8 @@ Everything is in `proxy/` in this repo:
 | `FIREBASE_PROJECT_ID` | yes | `fitness-tracker-472ec` | Sign-in tokens must come from this Firebase project. |
 | `AI_ALLOWED_ORIGINS` | yes | `https://arcmster.github.io` | Sites allowed to call the proxy (CORS). Comma-separated for more than one, for example add `http://localhost:8000` for testing. |
 | `AI_DAILY_LIMIT` | no | `5` | Successful AI plans per user per 24 hours. |
-| `AI_ADMIN_DAILY_LIMIT` | no | `50` | The same limit for admins (users with a document in `admins`). |
+| `AI_ASK_DAILY_LIMIT` | no | `10` | Successful Body check questions per user per 24 hours. Counted separately from plans. |
+| `AI_ADMIN_DAILY_LIMIT` | no | `50` | The same limit for admins (users with a document in `admins`), for both plans and Body check questions. |
 | `AI_MODEL` | no | `gemini-3.8-flash` | The model. `gemini-3.5-flash-lite` is cheaper and faster, and less thorough. |
 | `AI_REQUIRE_ACTIVE` | no | `1` | Set `0` to skip the approved-account check. Not recommended. |
 | `AI_PROVIDER` | no | `gemini` | `gemini` (default) or `claude`. For `claude`, also install `anthropic` and set `ANTHROPIC_API_KEY`. `AI_MODEL` then defaults to `claude-opus-5`, and `AI_EFFORT` (`low`, `medium`, `high`) applies. |
@@ -122,7 +125,8 @@ urlpatterns = [
 
 That gives you two addresses:
 
-- `https://yourname.pythonanywhere.com/ai/plan/`: the endpoint the app calls
+- `https://yourname.pythonanywhere.com/ai/plan/`: the endpoint the app calls for plans
+- `https://yourname.pythonanywhere.com/ai/ask/`: the Body check endpoint. The app builds this address from `AI_PROXY_URL` by replacing the trailing `plan/` with `ask/`, so keep `AI_PROXY_URL` ending in `plan/`
 - `https://yourname.pythonanywhere.com/ai/health/`: a quick check that it's set up
 
 ### 4. Put in the secrets
@@ -137,7 +141,7 @@ os.environ["AI_ALLOWED_ORIGINS"] = "https://arcmster.github.io"
 os.environ["AI_DAILY_LIMIT"] = "5"
 ```
 
-### 5. Create the table for the daily limit
+### 5. Create the table for the daily limits
 
 In the Bash console (with `workon` first, if you use a virtualenv):
 
@@ -145,6 +149,8 @@ In the Bash console (with `workon` first, if you use a virtualenv):
 cd ~/mysite
 python manage.py migrate workout_ai
 ```
+
+Run this again after updating the proxy: the Body check update added a `kind` column (migration `0002_planrequest_kind`). Existing rows count as plans.
 
 ### 6. Reload and check
 
@@ -194,7 +200,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 | --- | --- |
 | 401 | No token, or it expired or belongs to another Firebase project |
 | 403 | The account is pending or disabled |
-| 429 | The user reached the daily limit (`AI_DAILY_LIMIT`, or `AI_ADMIN_DAILY_LIMIT` for admins) |
+| 429 | The user reached the daily limit (`AI_DAILY_LIMIT` for plans, `AI_ASK_DAILY_LIMIT` for Body check, or `AI_ADMIN_DAILY_LIMIT` for admins) |
 | 413 | The photo is too large |
 | 400 | The AI couldn't read the request or photo |
 | 422 | The AI declined the request (safety filter) |
@@ -207,6 +213,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 The instructions are `SYSTEM` in `proxy/workout_ai/views.py`. The same text is used for Gemini and Claude. Two choices made there that you can change:
 
 - **Diet only when asked.** Without a diet plan, no calorie targets, diets or supplements. When the user adds a diet plan (Kerala, South Indian or North Indian), `SYSTEM_DIET` is added to the instructions and `DIET_SCHEMA` to the reply format. Edit `SYSTEM_DIET` to change how diet plans are written, and `DIETS` to add a cuisine (add it to `GEN_DIETS` in `index.html` too).
+- **Body check** uses `SYSTEM_ASK` and `ASK_SCHEMA` (a `verdict`: `normal`, `can_improve`, `unclear` or `see_doctor`, and the plain-text `answer`, kept to about 150 to 350 words). Edit `SYSTEM_ASK` to change how it answers. It refuses to guess body fat or judge looks, and sends possible medical signs to a doctor.
 - **Photo comments** are limited to training-relevant things (build, muscle balance, posture), without body-fat guesses or appearance judgments.
 
 After editing, reload the web app. The app doesn't need an update unless you change the reply format.

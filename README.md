@@ -92,7 +92,9 @@ The **Advanced** tab in the top menu makes a plan with AI: Google Gemini by defa
 - It needs you signed in and approved. It goes through your own proxy server, which keeps the Gemini API key, checks the account and limits plans per person per day. The photo is scaled down to 1024 px and sent for that plan only. Neither the app nor the proxy stores it, but on Gemini's free tier Google may use what's sent to improve its products (the tab says so).
 - Without a diet plan it gives training suggestions only. It's a general plan, not medical or dietitian advice.
 
-**Setup:** the proxy is a small Django app in `proxy/`. [PROXY_SETUP.md](PROXY_SETUP.md) walks through installing it on PythonAnywhere, its settings, and setting `AI_PROXY_URL` in `firebase-config.js`.
+**Body check.** The Advanced tab has two sub-tabs, **Plan** and **Body check**. In Body check you add a photo of a body part or your physique and type a question (for example "my left bicep looks shorter than my right, is this normal?"). The AI replies in plain text with a tag: **Looks normal**, **Can be improved** (with corrective steps), **Hard to tell from this photo** or **Worth a check-up**. **Ask another question** starts again. A photo is required. It goes to the proxy's `ask/` address (derived from `AI_PROXY_URL`), needs a signed-in, approved account, and has its own daily limit (default 10 per person, `AI_ASK_DAILY_LIMIT`; admins use `AI_ADMIN_DAILY_LIMIT`), separate from the plan limit. The photo is handled like the plan photo: not stored, and the same Gemini free-tier note applies. It's general guidance, not medical advice.
+
+**Setup:** the proxy is a small Django app in `proxy/`. [PROXY_SETUP.md](PROXY_SETUP.md) walks through installing it on PythonAnywhere, its settings, and setting `AI_PROXY_URL` in `firebase-config.js`. After updating the proxy, run `python manage.py migrate workout_ai` (a new `kind` field separates plan and body-check usage) and reload the web app.
 
 ## Admin
 
@@ -136,6 +138,7 @@ The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline 
 - Only your accepted buddies can read that summary. Turning sharing off replaces it with `{ sharing: false }`.
 - While sharing is on, a smaller card goes to `board/{uid}` for the global leaderboard, which every member can read: name, thumbnail, weekly and monthly workouts and volume, streak, total, and top Bench, Squat, Deadlift and OHP sets. Turn off **Show me on the global leaderboard** to delete it.
 - Buddies are added by Google email or invite link. The other person has to accept.
+- **Share as image** (workout, plan or progress) on a phone or in the installed app opens the share sheet with the image and a short message: who shared it and a link to install the app. **Save image** saves the picture only.
 
 ## Data layout
 

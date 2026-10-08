@@ -1,10 +1,10 @@
 # Infinity Fitness Tracker: project details
 
-State as of 29 Sept 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, and trainers logging today's workout for a trainee (cache `infinity-v39`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images (cache `infinity-v41`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
-A workout tracker you can install as an app (a PWA). You sign in with Google, follow a weekly plan (ready-made or your own), log every set, and train alongside buddies and trainers. It has no build step and no backend code: static files on GitHub Pages, with Firebase Auth and Firestore for sign-in and data.
+A workout tracker you can install as an app (a PWA). You sign in with Google, follow a weekly plan (ready-made or your own), log every set, and train alongside buddies and trainers. The app itself has no build step and no backend code: static files on GitHub Pages, with Firebase Auth and Firestore for sign-in and data. The one server-side piece is the small Django proxy in `proxy/`, used only by the Advanced tab so the AI key stays off the device.
 
 | | |
 | --- | --- |
@@ -13,13 +13,14 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Firebase SDK | v10.12.2, loaded as ES modules from `www.gstatic.com` while the app runs |
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
-| Offline | Service worker in `sw.js`, current cache `infinity-v39` |
+| AI proxy | Django app in `proxy/`, on PythonAnywhere, calling Google Gemini (or Claude). Address in `AI_PROXY_URL` in `firebase-config.js` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v41` |
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The whole app: markup, CSS and JavaScript (about 3,500 lines) |
+| `index.html` | The whole app: markup, CSS and JavaScript (about 3,800 lines) |
 | `firebase-config.js` | Firebase web config. If it's missing, the app runs in guest mode |
 | `firestore.rules` | Security rules. Paste into the Firebase console after every change |
 | `sw.js` | Service worker. Loads app files from the network first and falls back to the cache; serves the Firebase SDK and fonts from the cache first |
@@ -27,6 +28,8 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | `check.html` | Browser page that checks whether the app can be installed |
 | `icons/` | App icons (192, 512, maskable 512, Apple touch) |
 | `lib/` | Bundled Excel and PDF readers |
+| `proxy/` | Django app (`workout_ai`) for the AI proxy: `plan/`, `ask/` and `health/` endpoints, plus a model that counts requests for the daily limits. Runs on PythonAnywhere, not on GitHub Pages. Setup in `PROXY_SETUP.md` |
+| `PROJECT.md`, `README.md`, `PROXY_SETUP.md` | This file, setup and deploy steps, and proxy setup |
 
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
@@ -73,18 +76,20 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Exercises with the same name share history across plans.
 
 ### Advanced (AI planning)
-- Its own top tab, **Advanced** (view `gen`), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
+- Its own top tab, **Advanced** (view `gen`; two sub-tabs, Plan and Body check, below), between Plans and Buddies. It replaced the on-device rule-based generator that used to be under Plans.
 - Inputs: body weight, height (cm, or ft and in), a free-text goal (up to 1500 characters), days per week (2 to 6), an optional diet plan (**Add a diet plan**, then Kerala, South Indian or North Indian; `GEN.diet` is null, then "" until one is chosen, then `kerala`, `south` or `north`), Beginner or best sets (bench, squat, deadlift, overhead press) and an optional photo, scaled to 1024 px on the long edge as JPEG.
 - `genPlan()` POSTs these to `AI_PROXY_URL` (a named export of `firebase-config.js`) with the Firebase ID token, plus `knownNames()` so the AI reuses existing exercise names.
 - The proxy (`proxy/workout_ai`, Django, runs on PythonAnywhere) verifies the token, checks the account is active the same way as `isActive()` in the rules (reading Firestore with the user's own token), enforces `AI_DAILY_LIMIT` per 24 hours (`AI_ADMIN_DAILY_LIMIT`, default 50, for admins, checked by reading `admins/{uid}` like `isAdmin()`), calls the AI with a JSON schema: Google Gemini (`gemini-3.8-flash`, REST API through `requests`, so it runs on PythonAnywhere's Python 3.8) by default, or Claude (`claude-opus-5`, adaptive thinking, server-side refusal fallback) with `AI_PROVIDER=claude`, and normalizes the reply to 7 days in the app's plan shape. When `diet` is sent, `SYSTEM_DIET` is added to the prompt and `DIET_SCHEMA` to the schema, and the reply's `diet` (daily calorie, protein, carb and fat targets, a summary, 4 to 6 meals each with a time and 2 or 3 options with estimated calories, protein, carbs and fat, tips) is cleaned by `normalize_diet()`; otherwise `diet` is null. It stores no inputs or photos. Setup and settings: `PROXY_SETUP.md`.
 - The result screen shows insights (summary, photo, how the week works, strengths, focus, cautions), then the diet plan if one was asked for, then the read-only plan. **Save to my plans** (workouts only; the diet isn't stored), **Download PDF** (insights, then an overview page, then a diet page if any, then a page per training day), and **Save as image** in installed iOS apps. Nothing is written until Save is pressed.
 - The system prompt keeps it to training advice (no calorie targets or diets) unless a diet plan was asked for, and keeps photo comments to training-relevant, respectful observations.
 - Signed out, guest mode, or `AI_PROXY_URL` empty: the tab says so instead of showing the form.
+- **Body check** (`GEN.tab === "check"`, state in `CHK`): the tab has a **Plan | Body check** switch (`data-gtab`; hidden while a request runs or an answer shows). The person adds a required photo (same `readGenPhoto()` scaling as the plan photo) and a question of 3 to 1000 characters, for example whether one bicep looking shorter than the other is normal. `chkAsk()` POSTs `{ question, photo }` with the ID token to `askUrl()`, which is `AI_PROXY_URL` with its trailing `plan/` swapped for `ask/`. The reply `{ answer, verdict, remaining, model }` is shown as plain paragraphs and `- ` lists (always escaped, never HTML) under a tag from `CHK_VERDICTS`: `normal` (Looks normal), `can_improve` (Can be improved), `unclear` (Hard to tell from this photo), `see_doctor` (Worth a check-up). **Ask another question** (`chkAgain`) clears the answer. It shows how many questions are left today and a not-medical-advice note. Nothing is saved: not the photo, question or answer, on the device or the server.
+- Proxy side (`ask` view): same token, active-account and admin checks as `plan`, then `AI_ASK_DAILY_LIMIT` (default 10; admins use `AI_ADMIN_DAILY_LIMIT`) counted on `PlanRequest` rows with `kind="ask"`, separate from `kind="plan"`. A photo and a question are required. `SYSTEM_ASK` has the AI say what it can see, then choose between normal asymmetry, a fixable imbalance (with exercises, sets and reps, weaker side first) or an unclear photo; it must not claim training changes muscle shape or length, guess body fat, comment on looks or identify the person, and sends possible medical signs to a doctor. Replies are limited to 4000 tokens and the answer is cut at 4000 characters. `ask_gemini` and `ask_claude` take a `max_tokens` argument for this. `read_photo()` is shared by both views. Migration `0002_planrequest_kind` adds the `kind` column, so run `migrate workout_ai` after updating the proxy.
 
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
 - Progress tab: a chart per exercise, the session list, and report downloads.
-- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback.
+- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback. The share menu also gets a message (`shareGreeting(kind)`): "Hi! <name> shared their workout / workout plan / progress with you from Infinity Fitness Tracker. Install the app to track your own progress too: <app link>" ("A friend shared a ..." if there is no name). Save image saves the picture only.
 - **Reports:** Excel (CSV) with one row per set, or a printable report that saves as a PDF. Ranges are the last 4 weeks, last 12 weeks or all time. Rows go oldest to newest, with exercises in the plan's scheduled order.
 
 ### Profile
@@ -194,7 +199,8 @@ The whole script is one ES module inside `<script type="module">`.
   - `TR`: the trainee a trainer has open
   - `ACT`: whose log `S` holds while a trainer logs today's workout for a trainee, their name, the trainer's own state to restore, and a pending publish
   - `FIND`: the Find Buddies list and paging
-  - `GEN`: Advanced tab answers, photo, loading state, and the AI plan and insights (not saved until the user saves it)
+  - `GEN`: Advanced tab answers, which sub-tab is open (`tab`), photo, loading state, and the AI plan and insights (not saved until the user saves it)
+  - `CHK`: Body check question, photo, loading state, the AI's answer and verdict, and questions left today (never saved)
   - `ADM`: admin status, user list and paging, current filter, admin, disabled and trainer sets, counts, recent actions
   - `BOARD`: leaderboard metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from, and trainee counts loaded from their logs
   - `GLOB`: global leaderboard query results per field, cached for 3 minutes
