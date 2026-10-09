@@ -710,7 +710,7 @@ const ACT={uid:null,name:"",own:null,pub:false};
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
 const CAL={events:[],slots:{},avail:{},live:[],week:null,sel:today(),form:null,hoursOpen:false,hoursDraft:null,msg:"",un:[],slotUn:{},availUn:{},cleaned:new Set(),livePub:false};
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[]};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -1182,7 +1182,7 @@ function stopSocial(){
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]});
   BOARD.tr={};
   stopCal();stopBrand();
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[]});
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -3450,7 +3450,7 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand"};
+const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand",brandcreate:"Created the brand",brandowner:"Changed the owner of"};
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
@@ -3836,19 +3836,80 @@ async function admBrands(){
   try{
     const snap=await getDocs(collection(fs,"brands"));
     ADM.brands=snap.docs.map(d=>({...brandOf(d.id,d.data()),created:d.data().created||0})).sort((a,b)=>b.created-a.created);
-    ADM.brands.forEach(b=>loadProfile(b.id));
+    const bm=await getDocs(collection(fs,"brandMember"));
+    ADM.bmem=bm.docs.map(d=>({id:d.id,brand:d.data().brand}));
+    ADM.brands.forEach(b=>loadProfile(b.id));ADM.bmem.forEach(m=>loadProfile(m.id));
   }catch(e){console.warn("admin brands",e)}
   softRender();
 }
 function admBrandPanel(){
-  if(!ADM.brands.length)return "";
   const row=b=>{const o=pname(SOC.profiles[b.id])||"a trainer";
     const acts={pending:[["approved","Approve","primary"],["rejected","Decline","danger"]],approved:[["disabled","Disable","danger"]],rejected:[["approved","Approve",""]],disabled:[["approved","Enable",""]]}[b.status]||[];
-    return `<li>${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:`<span class="av"></span>`}
-      <span class="nm"><b>${esc(b.name)}</b> <span class="tag ${b.status==="approved"?"":"plain"}">${BR_STATUS[b.status]}</span><small class="one">Owner: ${esc(o)}</small></span><span></span>
-      <div class="adm-acts">${acts.map(([k,l,c])=>`<button class="btn small ${c}" data-badm="${k}" data-u="${b.id}">${l}</button>`).join("")}</div></li>`};
+    const mem=ADM.bmem.filter(m=>m.brand===b.id).map(m=>pname(SOC.profiles[m.id])||"a trainer");
+    return `<li data-bown-row="${b.id}">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:`<span class="av"></span>`}
+      <span class="nm"><b>${esc(b.name)}</b> <span class="tag ${b.status==="approved"?"":"plain"}">${BR_STATUS[b.status]}</span><small class="one">Owner: ${esc(o)}${mem.length?" · Also: "+esc(mem.join(", ")):""}</small></span><span></span>
+      <div class="adm-acts">${acts.map(([k,l,c])=>`<button class="btn small ${c}" data-badm="${k}" data-u="${b.id}">${l}</button>`).join("")}</div>
+      <div class="row" style="grid-column:1/-1;flex-wrap:nowrap"><input class="field" data-bownin type="email" placeholder="New owner's Google email" autocomplete="off" aria-label="New owner for ${esc(b.name)}"><button class="btn small" data-bown="${b.id}">Change owner</button></div></li>`};
   const pend=ADM.brands.filter(b=>b.status==="pending"),rest=ADM.brands.filter(b=>b.status!=="pending");
-  return `<div class="panel"><h2>Brands${pend.length?` (${pend.length} waiting)`:""}</h2><ul class="people">${[...pend,...rest].map(row).join("")}</ul></div>`;
+  return `<div class="panel"><h2>Brands (${ADM.brands.length})${pend.length?`, ${pend.length} waiting`:""}</h2>
+    ${ADM.brands.length?`<ul class="people">${[...pend,...rest].map(row).join("")}</ul>`:`<p class="small muted" style="margin:0 0 10px">No brands yet.</p>`}
+    <h2 style="margin-top:14px">Create a brand</h2>
+    <p class="small muted" style="margin:0 0 10px">Make a brand for a trainer who isn't in one. It is approved straight away and they become its owner. They add the logo.</p>
+    <div class="row"><input class="field" id="admBrandEmail" type="email" placeholder="Owner's Google email" autocomplete="off"><input class="field" id="admBrandName" maxlength="40" placeholder="App name" autocomplete="off"><button class="btn primary" id="admBrandCreate">Create</button></div>
+    <p class="small muted" style="margin:10px 0 0">Changing the owner moves the whole brand, its logo, videos and trainers, to another trainer. They must not be in or own another brand. The old owner stops being part of it.</p></div>`;
+}
+/* the trainer behind a Google email, who is free to own or join a brand (not an owner, and in no brand unless it is \`except\`) */
+async function admBrandPerson(email,except){
+  const e=(email||"").trim().toLowerCase();
+  if(!e){say("Enter their Google email.");return null}
+  const d=await getDoc(doc(fs,"emails",e));
+  if(!d.exists()){say("No one with that email has signed in yet.");return null}
+  const u=d.data().uid;loadProfile(u);
+  const [pr,ob,mb]=await Promise.all([getDoc(doc(fs,"profiles",u)),getDoc(doc(fs,"brands",u)),getDoc(doc(fs,"brandMember",u))]);
+  if(!(pr.exists()&&pr.data().trainer===true)){say("They aren't a trainer. They can turn on \"I'm a trainer\" in their profile.");return null}
+  if(ob.exists()){say("They already own a brand.");return null}
+  if(mb.exists()&&mb.data().brand!==except){say("They are a trainer in another brand. Remove them from it first.");return null}
+  return {u,member:mb.exists()};
+}
+function admAudit(action,target,name){
+  const entry={action,target,name:String(name).slice(0,80),by:uid,at:serverTimestamp()};
+  ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
+  setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
+}
+async function admBrandCreate(){
+  const name=($("#admBrandName")?.value||"").trim().slice(0,40);
+  if(!name)return say("Give the brand a name.");
+  try{
+    const o=await admBrandPerson($("#admBrandEmail")?.value);if(!o)return;
+    await setDoc(doc(fs,"brands",o.u),{name,logo:"",videos:{},status:"approved",created:Date.now(),by:uid,at:serverTimestamp()});
+    admAudit("brandcreate",o.u,name);
+    say("Created "+name+" for "+(pname(SOC.profiles[o.u])||"the trainer")+".",true);admBrands();
+  }catch(e){say(fbError(e,"create that brand"))}
+}
+/* The brand id is its owner's uid, so a new owner means a new document. Done in three steps, because the rules
+   check the state before each batch: free the new owner, move the brand, then re-add the trainers. */
+async function admBrandOwner(id,email){
+  const b=ADM.brands.find(x=>x.id===id);if(!b)return;
+  try{
+    const o=await admBrandPerson(email,id);if(!o)return;
+    const nm=pname(SOC.profiles[o.u])||"this trainer";
+    if(!confirm("Make "+nm+" the owner of "+b.name+"? "+(pname(SOC.profiles[id])||"The current owner")+" stops being part of it. The logo, videos and trainers move with it."))return;
+    const full=(await getDoc(doc(fs,"brands",id))).data();
+    const mem=(await getDocs(query(collection(fs,"brandMember"),where("brand","==",id)))).docs.map(d=>d.id).filter(t=>t!==o.u);
+    const inv=await getDocs(query(collection(fs,"brandInvites"),where("brand","==",id)));
+    if(o.member)await deleteDoc(doc(fs,"brandMember",o.u));
+    const b1=writeBatch(fs);
+    b1.set(doc(fs,"brands",o.u),{...full,by:uid,at:serverTimestamp(),updated:Date.now()});
+    b1.delete(doc(fs,"brands",id));
+    mem.forEach(t=>b1.delete(doc(fs,"brandMember",t)));
+    inv.docs.forEach(d=>b1.delete(d.ref));
+    await b1.commit();
+    const b2=writeBatch(fs);
+    mem.forEach(t=>b2.set(doc(fs,"brandMember",t),{brand:o.u,created:Date.now()}));
+    await b2.commit();
+    admAudit("brandowner",o.u,b.name);
+    say(nm+" now owns "+b.name+".",true);admBrands();
+  }catch(e){say(fbError(e,"change the owner")+" Reload the Brands list to see where it stopped.")}
 }
 async function admBrand(status,u){
   const b=ADM.brands.find(x=>x.id===u);if(!b)return;
@@ -4184,6 +4245,7 @@ document.addEventListener("click",async e=>{
   if(ds.bacc){acceptBrandInvite(ds.bacc);return}
   if(ds.bdrop){dropBrandInvite(ds.bdrop);return}
   if(ds.bleave){leaveBrand(ds.bleave);return}
+  if(ds.bown){admBrandOwner(ds.bown,t.closest("li").querySelector("[data-bownin]").value);return}
   if(ds.badm){admBrand(ds.badm,ds.u);return}
   if(ds.bvsave!=null){saveBrandVideo(ds.bvsave);return}
   if(t.id==="admMore"){admLoad();return}
@@ -4257,6 +4319,7 @@ document.addEventListener("click",async e=>{
     case "brandLogoBtn":$("#brandLogoFile").click();return;
     case "brandLogoClear":BR.form.logo="";render();return;
     case "brandSave":saveBrand();return;
+    case "admBrandCreate":admBrandCreate();return;
     case "brandInviteBtn":inviteTrainer($("#brandInviteEmail").value);return;
     case "brandDelete":deleteBrand();return;
     case "shareProgress":openShare("progress");return;
