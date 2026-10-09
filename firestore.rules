@@ -82,6 +82,65 @@ service cloud.firestore {
       allow delete: if isAdmin() && active();
     }
 
+    // Brands: one per trainer, keyed by the owner's uid. A trainer asks for it (status 'pending'); an admin approves,
+    // declines or disables it. The owner edits the name, logo and video links (a map of exercise slug to YouTube id)
+    // but never the status, except sending a declined brand again. Everyone signed in can read an approved brand
+    // (their trainer's), the owner reads their own, admins read all.
+    function validBrand(d) {
+      return d.keys().hasOnly(['name', 'logo', 'videos', 'status', 'created', 'updated', 'by', 'at'])
+        && d.keys().hasAll(['name', 'status', 'created'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && d.get('logo', '') is string && d.get('logo', '').size() <= 200000
+        && d.get('videos', {}) is map && d.get('videos', {}).size() <= 400;
+    }
+    // Is the signed-in user a trainer in this brand?
+    function isBrandMember(owner) {
+      let p = /databases/$(database)/documents/brandMember/$(request.auth.uid);
+      return exists(p) && get(p).data.brand == owner;
+    }
+    match /brands/{owner} {
+      allow read: if signedIn() && (resource == null || isMe(owner) || isAdmin() || resource.data.status == 'approved' || isBrandMember(owner));
+      allow create: if isMe(owner) && active() && isTrainer(owner) && validBrand(request.resource.data)
+        && request.resource.data.status == 'pending'
+        && !exists(/databases/$(database)/documents/brandMember/$(owner))
+        && !('by' in request.resource.data) && !('at' in request.resource.data);
+      allow update: if isMe(owner) && active() && validBrand(request.resource.data)
+        && request.resource.data.created == resource.data.created
+        && request.resource.data.get('by', null) == resource.data.get('by', null)
+        && request.resource.data.get('at', null) == resource.data.get('at', null)
+        && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'rejected' && request.resource.data.status == 'pending'));
+      allow update: if isAdmin() && active()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'by', 'at'])
+        && request.resource.data.status in ['approved', 'rejected', 'disabled']
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time;
+      allow delete: if (isMe(owner) && active()) || (isAdmin() && active());
+    }
+
+    // A brand can have several trainers; a trainer is in one brand only. The owner invites a trainer
+    // (brandInvites, id "{brand}_{trainer}"); the trainer accepts by creating brandMember/{trainer}, whose id is the
+    // trainer's uid so a second membership can't exist. A brand owner can't join another brand. Either side can end it.
+    match /brandInvites/{id} {
+      allow read: if signedIn() && (isMe(resource.data.brand) || isMe(resource.data.to));
+      allow create: if active() && isMe(request.resource.data.brand)
+        && id == request.resource.data.brand + '_' + request.resource.data.to
+        && request.resource.data.keys().hasOnly(['brand', 'to', 'created'])
+        && exists(/databases/$(database)/documents/brands/$(request.auth.uid))
+        && isTrainer(request.resource.data.to);
+      allow delete: if active() && (isMe(resource.data.brand) || isMe(resource.data.to));
+    }
+    match /brandMember/{trainer} {
+      allow read: if signedIn();
+      allow create: if isMe(trainer) && active() && isTrainer(trainer)
+        && request.resource.data.keys().hasOnly(['brand', 'created'])
+        && request.resource.data.brand is string
+        && exists(/databases/$(database)/documents/brandInvites/$(request.resource.data.brand + '_' + trainer))
+        && exists(/databases/$(database)/documents/brands/$(request.resource.data.brand))
+        && !exists(/databases/$(database)/documents/brands/$(trainer));
+      allow delete: if active() && (isMe(trainer) || isMe(resource.data.brand));
+    }
+
     // A buddy link is an accepted request in either direction.
     function accepted(a, b) {
       let p = /databases/$(database)/documents/requests/$(a + '_' + b);

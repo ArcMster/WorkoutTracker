@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, and the calendar with a workout time log and a live Training now list (cache `infinity-v42`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v43`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -14,7 +14,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
 | AI proxy | Django app in `proxy/`, on PythonAnywhere, calling Google Gemini (or Claude). Address in `AI_PROXY_URL` in `firebase-config.js` |
-| Offline | Service worker in `sw.js`, current cache `infinity-v42` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v43` |
 
 ## Files
 
@@ -34,6 +34,14 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
 
 ## Features
+
+### Brands
+- A brand can have several trainers; a trainer is in only one. The owner invites trainers by Google email (`brandInvites`); accepting writes `brandMember/{trainerUid}`, whose id enforces one brand per trainer. A trainer who owns a brand can't join another. Either side can end it, and only the owner edits the brand and its videos. Trainers in the same brand count as one brand for their trainees.
+- A trainer opens Profile > Your brand and requests a brand: an app name (40 characters) and a logo. It is stored in `brands/{ownerUid}` (one per trainer) with status `pending`. Admins approve, decline or disable it from the Brands panel on the Admin tab; the owner then edits the name, logo and video links live.
+- The owner and everyone the owner trains see the logo and name in place of Infinity: header, welcome screen, shared images, share text, reports and the tab title. If a member's trainers (plus their own brand, if they own one) don't add up to exactly one approved brand, the plain Infinity look is used. `brandPick` decides; `appName()` and `brandMark()` render it.
+- Video links: the owner sets a YouTube link per exercise (`videos` map of exercise slug to id). `vidFor` uses the brand's link first and falls back to the admin default.
+- Installed icon: while signed in as a brand member the page swaps the favicon, apple-touch-icon and manifest for the brand's, so an install made then picks them up. An app that is already installed keeps its icon; that can't change per user.
+- Rules for `brands` are in `firestore.rules` (must be republished). Not yet tested against a live Firebase project.
 
 ### Exercise catalogue (renames and new exercises)
 - **Admin > Exercises** lists every exercise with a "name shown" field, a YouTube field and Save. Renaming (Squat to Weighted Squat) changes what everyone sees, everywhere: Workout screen, plan views, plan editor and its suggestions, Progress chart picker, reports (CSV and PDF), share images, buddy lifts, trainer views and the Advanced tab.

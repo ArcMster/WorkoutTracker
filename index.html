@@ -360,6 +360,8 @@ body.landing-on .timer{display:none}
 .top{margin:6px 0 10px}
 .brand{display:inline-flex;align-items:center;gap:8px;font:700 18px/1 var(--display);letter-spacing:.14em;text-transform:uppercase}
 .mini-mark{width:30px;height:15px;overflow:visible}
+.brand-logo{height:30px;width:auto;max-width:56px;object-fit:contain;border-radius:6px}
+.brand-hero{height:72px;width:auto;max-width:160px;object-fit:contain;display:block;margin:0 auto 6px}
 .av{width:32px;height:32px;border-width:0}
 .av.lg{width:44px;height:44px}
 /* nav: plain text with a small dot under the active item */
@@ -708,7 +710,7 @@ const ACT={uid:null,name:"",own:null,pub:false};
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
 const CAL={events:[],slots:{},avail:{},live:[],week:null,sel:today(),form:null,hoursOpen:false,hoursDraft:null,msg:"",un:[],slotUn:{},availUn:{},cleaned:new Set(),livePub:false};
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[]};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -1179,8 +1181,8 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]});
   BOARD.tr={};
-  stopCal();
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[]});
+  stopCal();stopBrand();
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -1264,7 +1266,7 @@ function startSocial(){
   SOC.unsubs.push(onSnapshot(query(rq,where("from","==",uid)),s=>{fromMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(rq,where("to","==",uid)),s=>{toMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   /* who I let train me */
-  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);calSync();softRender()},e=>console.warn(e)));
+  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);calSync();brandSync(true);softRender()},e=>console.warn(e)));
   /* who I train */
   SOC.unsubs.push(onSnapshot(query(collection(fs,"coaching"),where("trainers","array-contains",uid)),
     s=>{SOC.trainees=s.docs.map(d=>d.id);SOC.trainees.forEach(loadProfile);settleTrainer();softRender()},e=>console.warn(e)));
@@ -1637,7 +1639,7 @@ function ytId(v){
   }catch(e){}
   return null;
 }
-function vidFor(name){const v=VIDS[slug(name)];return v?v.id:""}
+function vidFor(name){const k=slug(name),bv=BR.active&&BR.active.videos[k];if(bv)return bv;const v=VIDS[k];return v?v.id:""}
 /* The name people see. Admins can rename an exercise; the data keeps the original name, so
    history, charts and "last time" stay connected. A combined entry like "Barbell or Dumbbell Curl"
    is rebuilt from its options when one of them was renamed. */
@@ -1742,7 +1744,7 @@ function reportHtml(title,sub,list,getP){
       <table><thead><tr><th>Exercise</th><th>Sets (${u} × reps)</th><th>Planned</th></tr></thead><tbody>
       ${exList(s,m).map(x=>`<tr><td>${esc(dn(x.n))}</td><td>${x.f.map(z=>fmtS(z,s)).join(", ")}</td><td>${x.ex?esc(target(x.ex,setsFor(x.ex,s.deload))):""}</td></tr>`).join("")}
       </tbody></table></section>`}).join("");
-  return `<h1>${esc(title)}</h1><p>${esc(sub)} · Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
+  return `<h1>${esc(title)}</h1><p>${esc(sub)} · Generated ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${appName()}</p>
     <div class="rp-stats"><div><b>${asc.length}</b>workouts</div><div><b>${sets}</b>sets</div><div><b>${fmtNum(vol)}</b>volume (${u})</div><div><b>${weeks}</b>active weeks</div></div>
     ${asc.length>1&&bestRows?`<h2>Best sets</h2><table><thead><tr><th>Exercise</th><th>Best</th><th>Date</th></tr></thead><tbody>${bestRows}</tbody></table>`:""}
     <h2>Workouts</h2>${days||"<p>No workouts in this period.</p>"}`;
@@ -1828,14 +1830,22 @@ function cardStart(H){
   ctx.fillStyle=CARD.bg;ctx.fillRect(0,0,CW,H);
   const g=ctx.createLinearGradient(0,0,CW,0);g.addColorStop(0,CARD.push);g.addColorStop(.5,CARD.pull);g.addColorStop(1,CARD.legs);
   ctx.fillStyle=g;ctx.fillRect(0,0,CW,10);
+  if(BR.active&&BR.img){
+    const h=54,w=Math.min(90,BR.img.width*h/BR.img.height),x=PAD+w+18;
+    ctx.drawImage(BR.img,PAD,62,w,h);
+    ctx.fillStyle=CARD.ink;let fz=46;ctx.font=cf(800,fz,true);const t=BR.active.name.toUpperCase();
+    while(fz>24&&ctx.measureText(t).width>CW-PAD-x){fz-=2;ctx.font=cf(800,fz,true)}
+    ctx.fillText(t,x,112);
+  }else{
   ctx.save();ctx.translate(PAD-10,62);ctx.scale(0.9,0.9);
   const gm=ctx.createLinearGradient(12,0,108,0);gm.addColorStop(0,CARD.push);gm.addColorStop(.5,CARD.pull);gm.addColorStop(1,CARD.legs);ctx.strokeStyle=gm;ctx.lineWidth=9;ctx.lineCap="round";ctx.stroke(new Path2D(INF_D));ctx.restore();
   ctx.fillStyle=CARD.ink;ctx.font=cf(800,46,true);ctx.fillText("INFINITY",PAD+110,112);
+  }
   return {c,ctx};
 }
 function cardEnd(ctx,H){
   ctx.fillStyle=CARD.muted;ctx.font=cf(500,28);
-  ctx.fillText(APP_NAME,PAD,H-70);
+  ctx.fillText(appName(),PAD,H-70);
   ctx.textAlign="right";ctx.fillText(new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}),CW-PAD,H-70);ctx.textAlign="left";
 }
 function kicker(ctx,t,y){ctx.fillStyle=CARD.muted;ctx.font=cf(600,28);ctx.fillText(t.toUpperCase().split("").join(String.fromCharCode(8202)),PAD,y)}
@@ -1994,7 +2004,7 @@ let SHARE=null;
 /* the message that goes with a shared image: who shared it and a link to install the app */
 function shareGreeting(kind){
   const nm=(myName()||"").trim(),what=kind==="workout"?"workout":kind==="plan"?"workout plan":"progress";
-  return `Hi! ${nm||"A friend"} shared ${nm?"their":"a"} ${what} with you from ${APP_NAME}. Install the app to track your own progress too: ${location.origin+location.pathname}`;
+  return `Hi! ${nm||"A friend"} shared ${nm?"their":"a"} ${what} with you from ${appName()}. Install the app to track your own progress too: ${location.origin+location.pathname}`;
 }
 async function openShare(kind){
   if(kind==="workout"&&!(cur()&&hasSets(cur()))){setStatus("Log at least one set to share this workout.");return}
@@ -2030,7 +2040,7 @@ function render(){
   const app=$("#app");
   if(ACT.uid&&S.view!=="log"&&S.view!=="dayEdit")leaveAct();
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,admin:renderAdmin};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,brand:renderBrand,admin:renderAdmin};
   const nIn=SOC.incoming.length+SOC.offersIn.filter(o=>!SOC.trainers.includes(o.from)).length;
   const badge=nIn?` (${nIn})`:"";
   const on=v=>ACT.uid?v==="buddies":S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView"].includes(S.view))||(v==="log"&&S.view==="dayEdit");
@@ -2040,7 +2050,7 @@ function render(){
   if(S.view==="disabled"||S.view==="pending"||S.view==="join"){app.innerHTML=S.view==="pending"?renderPending():S.view==="join"?renderJoin():renderDisabled();return}
   watchToday();
   app.innerHTML=`
-  <div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span>${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
+  <div class="top">${brandMark()}${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
   <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
@@ -2087,8 +2097,8 @@ function renderLanding(mode){
     </div>`;
   return `<main class="landing ${enter?"tappable":""}" ${enter?'role="button" tabindex="0" aria-label="Enter the app"':""}>
     <div class="l-top">
-      ${INFINITY_SVG}
-      <h1 class="l-title">Infinity</h1>
+      ${BR.active&&BR.active.logo?`<img class="brand-hero" src="${BR.active.logo}" alt="">`:INFINITY_SVG}
+      <h1 class="l-title">${esc(BR.active?BR.active.name:"Infinity")}</h1>
       <p class="l-sub">Fitness tracker</p>
     </div>
     <figure class="l-quote" ${booting||enter?"":'id="quote" role="button" tabindex="0" aria-label="Show another quote"'}>
@@ -2783,7 +2793,7 @@ function genPrintHtml(){
     <table><thead><tr><th>Exercise</th><th>Sets</th><th>Target</th></tr></thead><tbody>
     ${d.ex.map(x=>`<tr><td>${esc(dn(x.n))}</td><td>${x.s}</td><td>${esc(genTarget(x))}</td></tr>`).join("")}</tbody></table>
     ${d.note?`<p class="gp-note">${esc(d.note)}</p>`:""}</section>`).join("");
-  return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Made with AI ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${APP_NAME}</p>
+  return `<h1>${esc(p.name)}</h1><p>${esc(GEN.info)}</p><p>Made with AI ${new Date().toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})} · ${appName()}</p>
     ${genInsightsHtml("h3")}
     <h2>Your week</h2><table><thead><tr><th>Day</th><th>Workout</th><th>Focus</th></tr></thead><tbody>${week}</tbody></table>
     <p class="gp-note">${GEN_NOTE}</p>
@@ -3032,6 +3042,7 @@ function renderProfile(){
       <span><b>I'm a trainer</b><br><span class="muted" style="font-size:14px">${d.trainer
         ?"Members see a Trainer badge and you can offer to train them. People you already train stay with you either way."
         :"Turn on to offer to train other members: build their plans and follow their workouts."}</span></span></label>
+    ${d.trainer||BR.docs[uid]||BR.mem[uid]?`<div class="row" style="align-items:center;margin-bottom:16px"><button class="btn" data-view="brand">Your brand${BR.invIn.length&&!BR.docs[uid]&&!BR.mem[uid]?" ("+BR.invIn.length+")":""}</button><span class="small muted">${BR.docs[uid]?esc(BR.docs[uid].name)+" · "+BR_STATUS[BR.docs[uid].status]:BR.mem[uid]&&BR.docs[BR.mem[uid]]?"Member of "+esc(BR.docs[BR.mem[uid]].name):BR.invIn.length?"You have a brand invite.":"Give yourself and your trainees your own logo and app name."}</span></div>`:""}
     <p class="small muted" style="margin:0 0 14px">Your nickname, photo, Instagram, bio and trainer badge are visible to other members.</p>
     <div class="row"><button class="btn primary" id="saveProfile">Save profile</button><button class="btn" data-view="history">Cancel</button></div>
     ${msg}
@@ -3368,9 +3379,9 @@ async function sendJoin(){
 function renderJoin(){
   const opt=(v,t,d)=>`<button class="joinopt" data-joinas="${v}" aria-pressed="${S.joinAs===v}"><b>${t}</b><span>${d}</span></button>`;
   const msg=S.msg?`<p class="msg" style="color:var(--push)">${esc(S.msg)}</p>`:"";
-  return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
+  return `<div class="top">${brandMark()}</div>
   <div class="calm"><h1>Welcome${firstName()?", "+esc(firstName()):""}</h1>
-    <p>How will you use ${APP_NAME}?</p>
+    <p>How will you use ${appName()}?</p>
     <div class="joinopts">
       ${opt("member","I'm training for myself","Follow a plan, log your workouts and train with buddies.")}
       ${opt("trainer","I'm a trainer","Everything above, plus you can offer to train other members: build their plans and follow their workouts.")}
@@ -3381,18 +3392,18 @@ function renderJoin(){
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}</div>`;
 }
 function renderPending(){
-  return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
+  return `<div class="top">${brandMark()}</div>
   <div class="calm"><h1>Request sent</h1>
-    <p>Thanks for signing up. An admin needs to approve your account before you can use ${APP_NAME}. Check back soon.</p>
+    <p>Thanks for signing up. An admin needs to approve your account before you can use ${appName()}. Check back soon.</p>
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
     <div class="row" style="justify-content:center"><button class="btn primary" id="checkAgain">Check again</button><button class="btn" id="signout">Sign out</button></div></div>`;
 }
 
 /* ---------- disabled account ---------- */
 function renderDisabled(){
-  return `<div class="top"><span class="brand">${MINI_MARK}<span>Infinity</span></span></div>
+  return `<div class="top">${brandMark()}</div>
   <div class="calm"><h1>This account has been disabled</h1>
-    <p>You can't use ${APP_NAME} with this account right now. If you think this is a mistake, contact the person who runs the app.</p>
+    <p>You can't use ${appName()} with this account right now. If you think this is a mistake, contact the person who runs the app.</p>
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
     <button class="btn" id="signout">Sign out</button></div>`;
 }
@@ -3402,7 +3413,7 @@ function renderDisabled(){
    They get no access to anyone's workout log. Disabling is enforced by the rules, not Firebase Auth. */
 function admStart(){
   if(ADM.started||!ADM.is||S.mode!=="db")return;
-  ADM.started=true;admCounts();admLoad();admLog();loadVids(true);
+  ADM.started=true;admCounts();admLoad();admLog();admBrands();loadVids(true);
 }
 async function admCounts(){
   try{
@@ -3439,7 +3450,7 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise"};
+const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand"};
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
@@ -3552,6 +3563,7 @@ function renderAdmin(){
   ${ADM.pending.length?`<div class="panel"><h2>Requested to join</h2><ul class="people">${ADM.pending.map(r=>`<li>${avatar({name:r.name,photo:r.photo})}
       <span class="nm"><b>${esc(r.name||"Unnamed")}</b> <span class="tag plain">Requested to join</span>${r.trainer?` <span class="tag plain">Trainer</span>`:""}<small class="one">${esc(r.email||"")}${r.requested&&r.requested.toDate?" · "+r.requested.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):""}</small></span><span></span>
       <div class="adm-acts"><button class="btn small primary" data-adm="approve" data-u="${r.uid}">Approve</button><button class="btn small danger" data-adm="decline" data-u="${r.uid}">Decline</button></div></li>`).join("")}</ul></div>`:""}
+  ${admBrandPanel()}
   ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
   <div class="panel"><h2>Users</h2>
     <input class="field" id="admQ" type="search" placeholder="Search by name" autocomplete="off" value="${esc(ADM.q)}" style="width:100%;margin-bottom:10px">
@@ -3572,6 +3584,284 @@ function renderAdmin(){
       ${ADM.newName&&ADM.vmsg[slug(ADM.newName)]?`<small>${esc(ADM.vmsg[slug(ADM.newName)])}</small>`:""}</li></ul>
   </div>
   ${ADM.log.length?`<div class="panel"><h2>Recent actions</h2><ul class="hlist">${ADM.log.map(a=>`<li><span>${esc(ADM_ACTS[a.action]||a.action)} ${esc(a.name||"a user")}<small class="by">by ${a.by===uid?"you":a.by?`<button class="link" data-person="${esc(a.by)}">${esc(pname(SOC.profiles[a.by])||"an admin")}</button>`:"an admin"}</small></span><span class="muted">${when(a.at)}</span></li>`).join("")}</ul></div>`:""}`;
+}
+
+/* ---------- brands ----------
+   brands/{ownerUid}: one brand per trainer. A trainer asks for it (status pending); an admin approves it. It carries
+   an app name, a logo (a small data URL) and `videos`, a map of exercise slug -> YouTube id that overrides the admin's
+   default video for everyone in the brand. The owner and everyone the owner trains see the brand. If a member's
+   trainers (and the member, if they own one) add up to anything but exactly one approved brand, the plain Infinity
+   look is used. Trainers in the same brand count as one.
+   A brand can have several trainers, but a trainer is in one brand only. The owner invites a trainer
+   (brandInvites/{brand}_{trainer}); accepting writes brandMember/{trainer} {brand}. Its id is the trainer's uid, so a
+   second membership can't exist, and a trainer who owns a brand can't join another. */
+const BR={docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,active:null,img:null,form:null,msg:"",ok:false,vmsg:{},vq:"",icons:null,manifestUrl:""};
+const BR_KEY="infinity-brand-";
+const BR_STATUS={pending:"Waiting for approval",approved:"Approved",rejected:"Declined",disabled:"Disabled by an admin"};
+const LOGO_OK=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/;
+function appName(){return BR.active?BR.active.name:APP_NAME}
+function brandMark(){
+  const b=BR.active;
+  return b?`<span class="brand">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:""}<span>${esc(b.name)}</span></span>`
+    :`<span class="brand">${MINI_MARK}<span>Infinity</span></span>`;
+}
+function brandOf(id,v){
+  v=v||{};const videos={};
+  Object.entries(v.videos&&typeof v.videos==="object"?v.videos:{}).forEach(([k,x])=>{if(YT_ID.test(x||""))videos[k]=x});
+  return {id,name:String(v.name||"").slice(0,40),logo:LOGO_OK.test(v.logo||"")?v.logo:"",videos,status:v.status||"pending"};
+}
+/* a picked logo, fitted inside 192 x 192 and kept transparent */
+function readLogo(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let n=192,url="";
+        do{
+          const k=Math.min(1,n/Math.max(img.width,img.height)),c=document.createElement("canvas");
+          c.width=Math.max(1,Math.round(img.width*k));c.height=Math.max(1,Math.round(img.height*k));
+          c.getContext("2d").drawImage(img,0,0,c.width,c.height);url=c.toDataURL("image/png");n-=48;
+        }while(url.length>150000&&n>=48);
+        url.length>190000?rej(new Error("big")):res(url);
+      };
+      img.onerror=()=>rej(new Error("image"));img.src=fr.result;
+    };
+    fr.onerror=()=>rej(new Error("read"));fr.readAsDataURL(file);
+  });
+}
+function stopBrand(){
+  Object.values(BR.un).forEach(u=>u());Object.values(BR.unM).forEach(u=>u());BR.unq.forEach(u=>u());
+  Object.assign(BR,{docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,form:null,msg:"",vmsg:{},vq:""});
+  setBrand(null,true);
+}
+/* the last brand shown on this device, so the logo and name are there from the first frame */
+function restoreBrand(){
+  if(!uid)return;
+  try{const v=JSON.parse(localStorage.getItem(BR_KEY+uid)||"null");if(v&&v.name)setBrand(brandOf(v.id,{...v,status:"approved"}),true)}catch(e){}
+}
+/* A person's brand: the one they own, or the one they were accepted into. */
+function brandIdOf(p){return BR.docs[p]?p:BR.mem[p]||null}
+/* watch the brand membership of me and each of my trainers, and the brands those lead to */
+function brandSync(coached){
+  if(S.mode!=="db"||!uid)return;
+  if(coached)BR.coached=true;
+  if(!BR.unq.length){
+    const bad=e=>console.warn("brand",e);
+    BR.unq.push(onSnapshot(query(collection(fs,"brandInvites"),where("to","==",uid)),s=>{BR.invIn=s.docs.map(d=>({id:d.id,...d.data()}));BR.invIn.forEach(i=>loadProfile(i.brand));softRender()},bad));
+    BR.unq.push(onSnapshot(query(collection(fs,"brandInvites"),where("brand","==",uid)),s=>{BR.invOut=s.docs.map(d=>({id:d.id,...d.data()}));BR.invOut.forEach(i=>loadProfile(i.to));if(S.view!=="brand")softRender();else render()},bad));
+    BR.unq.push(onSnapshot(query(collection(fs,"brandMember"),where("brand","==",uid)),s=>{BR.members=s.docs.map(d=>d.id);BR.members.forEach(loadProfile);if(S.view!=="brand")softRender();else render()},bad));
+  }
+  const people=new Set([uid,...SOC.trainers]);
+  Object.keys(BR.unM).forEach(p=>{if(!people.has(p)){BR.unM[p]();delete BR.unM[p];delete BR.mem[p]}});
+  people.forEach(p=>{
+    if(BR.unM[p])return;
+    BR.unM[p]=onSnapshot(doc(fs,"brandMember",p),d=>{BR.mem[p]=d.exists()?d.data().brand:null;brandSync()},e=>{console.warn("brand",e);BR.mem[p]=null;brandSync()});
+  });
+  const want=new Set([...people,...[...people].map(p=>BR.mem[p]).filter(Boolean)]);
+  Object.keys(BR.un).forEach(o=>{if(!want.has(o)){BR.un[o]();delete BR.un[o];delete BR.docs[o]}});
+  want.forEach(o=>{
+    if(BR.un[o])return;
+    BR.un[o]=onSnapshot(doc(fs,"brands",o),d=>{BR.docs[o]=d.exists()?brandOf(o,d.data()):null;brandSync();if(S.view!=="brand")softRender()},
+      e=>{console.warn("brand",e);BR.docs[o]=null;brandSync()});
+  });
+  brandPick();
+}
+function brandPick(){
+  const people=[uid,...SOC.trainers];
+  if(!BR.coached||!people.every(p=>p in BR.mem&&p in BR.docs))return;/* wait until everything has answered, so a saved brand doesn't flicker away */
+  const ids=[...new Set(people.map(brandIdOf).filter(Boolean))];
+  if(!ids.every(i=>i in BR.docs))return;
+  const ok=ids.filter(i=>BR.docs[i]&&BR.docs[i].status==="approved");
+  setBrand(ok.length===1?BR.docs[ok[0]]:null);
+}
+function setBrand(b,quiet){
+  const same=(!b&&!BR.active)||(b&&BR.active&&b.id===BR.active.id&&b.name===BR.active.name&&b.logo===BR.active.logo);
+  BR.active=b;
+  if(!same){
+    BR.img=null;
+    if(b&&b.logo){const im=new Image();im.onload=()=>{if(BR.active===b){BR.img=im;applyBrandMeta()}};im.src=b.logo}
+    applyBrandMeta();
+  }
+  if(b&&uid&&!quiet)try{localStorage.setItem(BR_KEY+uid,JSON.stringify({id:b.id,name:b.name,logo:b.logo}))}catch(e){}
+  if(!b&&uid&&!quiet&&BR.coached)try{localStorage.removeItem(BR_KEY+uid)}catch(e){}
+}
+/* the tab title, and the icon and name used if the app is installed while signed in as a brand member.
+   An app that is already installed keeps its icon: that comes from the manifest the browser stored at install. */
+function brandIcon(size){
+  const c=document.createElement("canvas");c.width=c.height=size;const x=c.getContext("2d");
+  x.fillStyle="#18202C";x.fillRect(0,0,size,size);
+  const box=size*.64,k=Math.min(box/BR.img.width,box/BR.img.height),w=BR.img.width*k,h=BR.img.height*k;
+  x.drawImage(BR.img,(size-w)/2,(size-h)/2,w,h);
+  return c.toDataURL("image/png");
+}
+function applyBrandMeta(){
+  const b=BR.active,q=s=>document.querySelector(s);
+  document.title=b?b.name:"Infinity Fitness Tracker";
+  const t=q('meta[name="apple-mobile-web-app-title"]');if(t)t.content=b?b.name:"Infinity";
+  const man=q('link[rel="manifest"]'),ic=q('link[rel="icon"]'),ap=q('link[rel="apple-touch-icon"]');
+  if(BR.manifestUrl){URL.revokeObjectURL(BR.manifestUrl);BR.manifestUrl=""}
+  if(b&&BR.img){
+    const i192=brandIcon(192),i512=brandIcon(512),base=new URL("./",location.href).href;
+    if(ic)ic.href=i192;if(ap)ap.href=i192;
+    BR.manifestUrl=URL.createObjectURL(new Blob([JSON.stringify({id:base,name:b.name,short_name:b.name.slice(0,12),description:"Workout tracker",start_url:base,scope:base,
+      display:"standalone",orientation:"portrait",background_color:"#18202C",theme_color:"#18202C",
+      icons:[{src:i192,sizes:"192x192",type:"image/png",purpose:"any"},{src:i512,sizes:"512x512",type:"image/png",purpose:"any"}]})],{type:"application/manifest+json"}));
+    if(man)man.href=BR.manifestUrl;
+  }else{
+    if(ic)ic.href="icons/icon-192.png";if(ap)ap.href="icons/apple-touch-icon.png";if(man)man.href="manifest.webmanifest";
+  }
+}
+function brandSay(t,ok){BR.msg=t;BR.ok=!!ok;render()}
+async function saveBrand(){
+  const f=BR.form,name=(f.name||"").trim().slice(0,40),cur=BR.docs[uid];
+  if(!name)return brandSay("Give your brand a name.");
+  const data={name,logo:f.logo||"",updated:Date.now()};
+  try{
+    if(!cur)await setDoc(doc(fs,"brands",uid),{...data,videos:{},status:"pending",created:Date.now()});
+    else await updateDoc(doc(fs,"brands",uid),{...data,...(cur.status==="rejected"?{status:"pending"}:{})});
+  }catch(e){return brandSay(fbError(e,"save your brand"))}
+  BR.form=null;
+  brandSay(!cur||cur.status==="rejected"?"Sent. An admin needs to approve your brand before anyone sees it.":"Saved.",true);
+}
+async function deleteBrand(){
+  if(!confirm("Delete your brand? You, your brand's other trainers and everyone you train go back to the Infinity logo and name. Your video links are lost."))return;
+  try{
+    const b=writeBatch(fs);
+    BR.members.forEach(t=>b.delete(doc(fs,"brandMember",t)));
+    BR.invOut.forEach(i=>b.delete(doc(fs,"brandInvites",i.id)));
+    b.delete(doc(fs,"brands",uid));await b.commit();
+  }catch(e){return brandSay(fbError(e,"delete your brand"))}
+  BR.form=null;brandSay("Brand deleted.",true);
+}
+async function saveBrandVideo(name){
+  const cur=BR.docs[uid],k=slug(name);
+  if(!cur||cur.status!=="approved")return;
+  const input=document.querySelector(`li[data-bex="${CSS.escape(name)}"] [data-bvurl]`);
+  const id=ytId(input?input.value:"");
+  const note=t=>{BR.vmsg[k]=t;const sm=input&&input.closest("li").querySelector("small");if(sm)sm.textContent=t;else render()};
+  if(id===null)return note("That doesn't look like a YouTube link or video id.");
+  const videos={...cur.videos};if(id)videos[k]=id;else delete videos[k];
+  try{await updateDoc(doc(fs,"brands",uid),{videos,updated:Date.now()})}catch(e){return note(fbError(e,"save that video"))}
+  note(id?"Saved. Your members see this video.":"Removed. Members see the default video again.");
+}
+/* trainers in a brand */
+async function inviteTrainer(email){
+  const e=(email||"").trim().toLowerCase();
+  if(!e)return brandSay("Enter the trainer's Google email.");
+  try{
+    const d=await getDoc(doc(fs,"emails",e));
+    if(!d.exists())return brandSay("No one with that email has signed in yet.");
+    const to=d.data().uid;
+    if(to===uid)return brandSay("That's you.");
+    if(BR.members.includes(to))return brandSay("They're already in your brand.");
+    loadProfile(to);
+    await setDoc(doc(fs,"brandInvites",uid+"_"+to),{brand:uid,to,created:Date.now()});
+    brandSay("Invite sent. They need to be a trainer, and not in another brand, to join.",true);
+  }catch(err){brandSay(fbError(err,"send that invite"))}
+}
+async function acceptBrandInvite(id){
+  const inv=BR.invIn.find(i=>i.id===id);if(!inv)return;
+  if(BR.docs[uid])return brandSay("You own a brand. A trainer can only be in one brand.");
+  if(BR.mem[uid])return brandSay("You're already in a brand. Leave it first.");
+  const nm=(BR.docs[inv.brand]||{}).name||pname(SOC.profiles[inv.brand])||"this brand";
+  if(!confirm("Join "+nm+"? You and the people you train will see its logo and name. You can leave any time."))return;
+  try{await setDoc(doc(fs,"brandMember",uid),{brand:inv.brand,created:Date.now()});await deleteDoc(doc(fs,"brandInvites",id))}
+  catch(e){return brandSay(fbError(e,"join that brand"))}
+  brandSay("You're in the brand.",true);
+}
+async function dropBrandInvite(id){try{await deleteDoc(doc(fs,"brandInvites",id))}catch(e){brandSay(fbError(e,"change that invite"))}}
+async function leaveBrand(t){
+  const me2=t===uid;
+  if(!confirm(me2?"Leave this brand? You and the people you train go back to the Infinity logo and name.":"Remove "+(pname(SOC.profiles[t])||"this trainer")+" from your brand? They and their trainees go back to the Infinity look."))return;
+  try{await deleteDoc(doc(fs,"brandMember",t))}catch(e){return brandSay(fbError(e,"change that"))}
+  brandSay(me2?"You left the brand.":"Removed.",true);
+}
+function renderBrand(){
+  const back=`<p><button class="link" data-view="profile">Back to profile</button></p>`;
+  if(S.mode!=="db")return back+`<div class="panel"><p class="muted" style="margin:0">Brands need an account.</p></div>`;
+  const cur=BR.docs[uid],mb=!cur&&BR.mem[uid]?BR.docs[BR.mem[uid]]:null;
+  const msg0=BR.msg?`<p class="msg" style="color:${BR.ok?"var(--good)":"var(--push)"}">${esc(BR.msg)}</p>`:"";
+  const invs=!cur&&!mb&&BR.invIn.length?`<div class="panel"><h2>Brand invites</h2><ul class="people">${BR.invIn.map(i=>{const b=(SOC.profiles[i.brand]||{});
+    return `<li>${avatar(b)}<span class="nm"><b>${esc(pname(b)||"A trainer")}</b><small class="one">Invites you to their brand</small></span><span></span>
+      <div class="adm-acts"><button class="btn small primary" data-bacc="${i.id}">Join</button><button class="btn small" data-bdrop="${i.id}">Decline</button></div></li>`}).join("")}</ul>${msg0}</div>`:"";
+  if(mb||(!cur&&BR.mem[uid]))return back+`<div class="panel"><h2>Your brand</h2>
+    ${mb?`<div class="row" style="align-items:center;margin-bottom:12px">${mb.logo?`<img class="brand-hero" style="margin:0" src="${mb.logo}" alt="Logo">`:""}<b>${esc(mb.name)}</b></div>
+      <p class="small muted">${BR_STATUS[mb.status]}. You're a trainer in this brand, so you and the people you train see its logo and name. Only the owner changes it.</p>`
+      :`<p class="small muted">Loading...</p>`}
+    <div class="row"><button class="btn danger" data-bleave="${uid}">Leave brand</button></div>${msg0}</div>`;
+  if(!BR.form)BR.form={name:cur?cur.name:"",logo:cur?cur.logo:""};
+  if(!cur&&!ME.trainer)return back+invs+`<div class="panel"><p class="muted" style="margin:0">Turn on "I'm a trainer" in your profile to create a brand or join one.</p></div>`;
+  const f=BR.form,msg=BR.msg?`<p class="msg" style="color:${BR.ok?"var(--good)":"var(--push)"}">${esc(BR.msg)}</p>`:"";
+  const st=cur?{pending:"An admin needs to approve your brand. Until then nobody sees it.",approved:"Approved. You and everyone you train see this logo and name.",
+    rejected:"An admin declined this brand. Change it and send it again.",disabled:"An admin turned this brand off. Contact them to have it enabled."}[cur.status]:"";
+  const logo=f.logo?`<img class="brand-hero" style="margin:0" src="${f.logo}" alt="Logo">`:`<div class="muted small">No logo yet</div>`;
+  const vids=cur&&cur.status==="approved"?`<div class="panel"><h2>Your video links</h2>
+    <p class="small muted" style="margin:0 0 10px">The app's YouTube tutorials are the defaults. A link you add here replaces the default for you and everyone you train. Clear a link and save to go back to the default.</p>
+    <input class="field" id="bvQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(BR.vq)}" style="width:100%">
+    <ul class="vids" id="bvList">${brandVidRows()}</ul></div>`:"";
+  return back+invs+`<div class="panel"><h2>Your brand</h2>
+    ${cur?`<p style="margin:0 0 12px"><span class="tag ${cur.status==="approved"?"":"plain"}">${BR_STATUS[cur.status]}</span></p><p class="small muted" style="margin:0 0 12px">${st}</p>`
+      :`<p class="small muted" style="margin:0 0 12px">Give yourself and the people you train your own logo and app name. An admin approves a new brand before it shows.</p>`}
+    <div class="row" style="align-items:center;margin-bottom:14px">${logo}
+      <div class="row" style="flex:1"><button class="btn small" id="brandLogoBtn">${f.logo?"Change logo":"Upload logo"}</button>${f.logo?`<button class="btn small" id="brandLogoClear">Remove logo</button>`:""}</div></div>
+    <input type="file" id="brandLogoFile" accept="image/png,image/jpeg,image/webp" hidden>
+    <label class="stack" style="margin-bottom:14px"><span>App name</span>
+      <input class="field" data-bf="name" value="${esc(f.name)}" maxlength="40" placeholder="Name your members see"></label>
+    <p class="small muted" style="margin:0 0 14px">The logo and name replace Infinity in the header, the welcome screen, shared images and the browser tab. A phone app that is already installed keeps its old icon; people who install after signing in get the brand icon.</p>
+    <div class="row"><button class="btn primary" id="brandSave">${cur?(cur.status==="rejected"?"Send again":"Save"):"Request brand"}</button>${cur?`<button class="btn danger" id="brandDelete">Delete brand</button>`:""}</div>
+    ${msg}</div>${cur?brandTrainersPanel():""}${vids}`;
+}
+function brandTrainersPanel(){
+  const row=(u,extra)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm"><b>${esc(pname(p)||"A trainer")}</b>${extra[0]}</span><span></span><div class="adm-acts">${extra[1]}</div></li>`};
+  return `<div class="panel"><h2>Trainers in your brand</h2>
+    <p class="small muted" style="margin:0 0 10px">Invite other trainers. Each one, and the people they train, will see your logo and name. A trainer can be in only one brand.</p>
+    <ul class="people">${row(uid,[` <span class="tag plain">Owner, you</span>`,""])}
+      ${BR.members.map(t=>row(t,["",`<button class="btn small" data-bleave="${t}">Remove</button>`])).join("")}
+      ${BR.invOut.map(i=>row(i.to,[` <span class="tag plain">Invited</span>`,`<button class="btn small" data-bdrop="${i.id}">Cancel</button>`])).join("")}</ul>
+    <div class="row"><input class="field" id="brandInviteEmail" type="email" placeholder="Trainer's Google email" autocomplete="off"><button class="btn primary" id="brandInviteBtn">Invite</button></div></div>`;
+}
+function brandVidRows(){
+  const cur=BR.docs[uid],q=BR.vq.trim().toLowerCase();
+  const names=vidNames().filter(n=>!q||n.toLowerCase().includes(q)||dn(n).toLowerCase().includes(q));
+  if(!names.length)return `<li class="muted" style="display:block">No exercise matches that.</li>`;
+  return names.map(n=>{const k=slug(n),mine=cur.videos[k]||"",def=(VIDS[k]||{}).id||"",m=BR.vmsg[k];
+    return `<li data-bex="${esc(n)}"><b>${esc(dn(n))}</b>
+      <input class="field" data-bvurl inputmode="url" autocomplete="off" placeholder="${def?"Default video in use. Paste your link":"YouTube link"}" value="${mine?"https://youtu.be/"+mine:""}" aria-label="Your YouTube link for ${esc(n)}">
+      <span class="row" style="flex-wrap:nowrap"><button class="btn small" data-bvsave="${esc(n)}">Save</button></span>
+      <small>${m?esc(m):mine?"Your video":def?"Using the default video":"No video yet"}</small></li>`}).join("");
+}
+/* admin side */
+async function admBrands(){
+  try{
+    const snap=await getDocs(collection(fs,"brands"));
+    ADM.brands=snap.docs.map(d=>({...brandOf(d.id,d.data()),created:d.data().created||0})).sort((a,b)=>b.created-a.created);
+    ADM.brands.forEach(b=>loadProfile(b.id));
+  }catch(e){console.warn("admin brands",e)}
+  softRender();
+}
+function admBrandPanel(){
+  if(!ADM.brands.length)return "";
+  const row=b=>{const o=pname(SOC.profiles[b.id])||"a trainer";
+    const acts={pending:[["approved","Approve","primary"],["rejected","Decline","danger"]],approved:[["disabled","Disable","danger"]],rejected:[["approved","Approve",""]],disabled:[["approved","Enable",""]]}[b.status]||[];
+    return `<li>${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:`<span class="av"></span>`}
+      <span class="nm"><b>${esc(b.name)}</b> <span class="tag ${b.status==="approved"?"":"plain"}">${BR_STATUS[b.status]}</span><small class="one">Owner: ${esc(o)}</small></span><span></span>
+      <div class="adm-acts">${acts.map(([k,l,c])=>`<button class="btn small ${c}" data-badm="${k}" data-u="${b.id}">${l}</button>`).join("")}</div></li>`};
+  const pend=ADM.brands.filter(b=>b.status==="pending"),rest=ADM.brands.filter(b=>b.status!=="pending");
+  return `<div class="panel"><h2>Brands${pend.length?` (${pend.length} waiting)`:""}</h2><ul class="people">${[...pend,...rest].map(row).join("")}</ul></div>`;
+}
+async function admBrand(status,u){
+  const b=ADM.brands.find(x=>x.id===u);if(!b)return;
+  const kind={approved:b.status==="pending"?"brandapprove":"brandon",rejected:"branddecline",disabled:"brandoff"}[status];
+  const ask={brandapprove:"Approve the brand "+b.name+"? Its owner and everyone they train will see its logo and name.",branddecline:"Decline the brand "+b.name+"?",
+    brandoff:"Disable the brand "+b.name+"? Its owner and trainees go back to the Infinity look.",brandon:"Enable the brand "+b.name+" again?"}[kind];
+  if(!confirm(ask))return;
+  try{await updateDoc(doc(fs,"brands",u),{status,by:uid,at:serverTimestamp()})}catch(e){return say(fbError(e,"change that brand"))}
+  b.status=status;
+  const entry={action:kind,target:u,name:b.name.slice(0,80),by:uid,at:serverTimestamp()};
+  ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
+  setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
+  say(ADM_ACTS[kind]+" "+b.name+".",true);
 }
 
 /* ---------- calendar ----------
@@ -3891,6 +4181,11 @@ document.addEventListener("click",async e=>{
   if(ds.vsave!=null){admExercise(ds.vsave);return}
   if(ds.vdel!=null){admExercise(ds.vdel,true);return}
   if(ds.adm){admAct(ds.adm,ds.u);return}
+  if(ds.bacc){acceptBrandInvite(ds.bacc);return}
+  if(ds.bdrop){dropBrandInvite(ds.bdrop);return}
+  if(ds.bleave){leaveBrand(ds.bleave);return}
+  if(ds.badm){admBrand(ds.badm,ds.u);return}
+  if(ds.bvsave!=null){saveBrandVideo(ds.bvsave);return}
   if(t.id==="admMore"){admLoad();return}
   if(ds.more){S.menuFor=S.menuFor===ds.more?null:ds.more;render();return}
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
@@ -3947,7 +4242,7 @@ document.addEventListener("click",async e=>{
       try{await navigator.clipboard.writeText(inviteLink());say("Invite link copied.",true)}
       catch(err){prompt("Copy your invite link:",inviteLink())}
       return;
-    case "shareLink":navigator.share({title:APP_NAME,text:"Be my gym buddy on "+APP_NAME,url:inviteLink()}).catch(()=>{});return;
+    case "shareLink":navigator.share({title:appName(),text:"Be my gym buddy on "+appName(),url:inviteLink()}).catch(()=>{});return;
     case "resetSched":resetSchedule();render();return;
     case "ovEdit":openDayEdit();return;
     case "ovClear":clearDayEdit();return;
@@ -3959,9 +4254,14 @@ document.addEventListener("click",async e=>{
     case "photoBtn":$("#photoFile").click();return;
     case "photoClear":S.profileDraft.photo="";render();return;
     case "saveProfile":saveMyProfile();return;
+    case "brandLogoBtn":$("#brandLogoFile").click();return;
+    case "brandLogoClear":BR.form.logo="";render();return;
+    case "brandSave":saveBrand();return;
+    case "brandInviteBtn":inviteTrainer($("#brandInviteEmail").value);return;
+    case "brandDelete":deleteBrand();return;
     case "shareProgress":openShare("progress");return;
     case "shareWorkout":openShare("workout");return;
-    case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:APP_NAME,text:shareGreeting(SHARE.kind)}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
+    case "shareImg":if(SHARE)navigator.share({files:[SHARE.file],title:appName(),text:shareGreeting(SHARE.kind)}).catch(err=>{if(err.name!=="AbortError")alert("Couldn't share. Try Save image instead.")});return;
     case "closeShare":closeShare();return;
     case "csv-me":case "pdf-me":case "csv-t":case "pdf-t":exportRun(t.id.slice(4)||"",t.id.startsWith("csv"));return;
     case "csv-day":case "pdf-day":exportDay(t.id==="csv-day");return;
@@ -4001,14 +4301,16 @@ document.addEventListener("click",async e=>{
     if(e2.done)startTimer(REST_SECONDS);
   }
 });
-document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value);if(e.key==="Enter"&&e.target.id==="offerEmail")offerByEmail(e.target.value);if(e.key==="Enter"&&e.target.dataset.gen&&e.target.tagName!=="TEXTAREA")genPlan()});
+document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value);if(e.key==="Enter"&&e.target.id==="offerEmail")offerByEmail(e.target.value);if(e.key==="Enter"&&e.target.id==="brandInviteEmail")inviteTrainer(e.target.value);if(e.key==="Enter"&&e.target.dataset.gen&&e.target.tagName!=="TEXTAREA")genPlan()});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
+  if(ds.bf&&BR.form){BR.form[ds.bf]=el.value;return}
   if(ds.cf&&CAL.form){CAL.form[ds.cf]=el.value;return}
   if(ds.hr&&CAL.hoursDraft){CAL.hoursDraft[ds.hr]=el.value;return}
   if(ds.chk){CHK[ds.chk]=el.value;return}
   if(ds.gen){const [f,k]=ds.gen.split(".");if(k)(GEN.lifts[k]||(GEN.lifts[k]={}))[f==="lw"?"w":"r"]=el.value;else GEN[f]=el.value;return}
+  if(el.id==="bvQ"){BR.vq=el.value;const l=$("#bvList");if(l)l.innerHTML=brandVidRows();return}
   if(el.id==="vQ"){ADM.vq=el.value;const l=$("#vList");if(l)l.innerHTML=vidRows();return}
   if(el.id==="vNew"){ADM.newName=el.value;return}
   if(el.id==="admQ"){ADM.q=el.value;const l=$("#admList");if(l)l.innerHTML=admRows();return}
@@ -4044,6 +4346,10 @@ document.addEventListener("change",async e=>{
   else if(el.id==="photoFile"){
     const f=el.files&&el.files[0];el.value="";
     if(f)readPhoto(f).then(u=>{S.profileDraft.photo=u;render()}).catch(()=>say("Couldn't read that image. Try another one."));
+  }
+  else if(el.id==="brandLogoFile"){
+    const f=el.files&&el.files[0];el.value="";
+    if(f)readLogo(f).then(u=>{BR.form.logo=u;BR.msg="";render()}).catch(()=>{BR.msg="Couldn't read that image. Try a PNG or JPEG.";BR.ok=false;render()});
   }
   else if(el.id==="genPhotoFile"){
     const f=el.files&&el.files[0];el.value="";
@@ -4125,8 +4431,8 @@ const bar=$("#install");
 function showInstall(kind){
   if(standalone()||sessionStorage.getItem("ppl-install-later"))return;
   $("#install-text").textContent=kind==="ios"
-    ?"Install "+APP_NAME+": tap the Share button, then Add to Home Screen."
-    :"Install "+APP_NAME+" on this device for one-tap access at the gym.";
+    ?"Install "+appName()+": tap the Share button, then Add to Home Screen."
+    :"Install "+appName()+" on this device for one-tap access at the gym.";
   $("#install-go").hidden=kind==="ios";
   bar.classList.add("on");
 }
@@ -4149,7 +4455,7 @@ if(CONFIGURED){
     stopSocial();stopToday();ACT.uid=null;ACT.own=null;
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
-    const hadMe=restoreMe();
+    const hadMe=restoreMe();restoreBrand();
     if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
     /* A disabled account gets one calm screen: no log, no listeners, no writes. */
     const [acct,adm,prof]=await Promise.all(["accounts","admins","profiles"].map(c=>getDoc(doc(fs,c,uid)).catch(()=>null)));
@@ -4163,7 +4469,7 @@ if(CONFIGURED){
       const prof=loadMyProfile();
       if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
+      startSocial();brandSync();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
