@@ -110,6 +110,11 @@ service cloud.firestore {
         && request.resource.data.get('at', null) == resource.data.get('at', null)
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'rejected' && request.resource.data.status == 'pending'));
+      // An admin can make a brand for a trainer who owns none and is in none, and move a brand to a new owner (a new document).
+      allow create: if isAdmin() && active() && isTrainer(owner) && validBrand(request.resource.data)
+        && request.resource.data.status in ['approved', 'pending', 'rejected', 'disabled']
+        && !exists(/databases/$(database)/documents/brandMember/$(owner))
+        && request.resource.data.by == request.auth.uid;
       allow update: if isAdmin() && active()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'by', 'at'])
         && request.resource.data.status in ['approved', 'rejected', 'disabled']
@@ -138,7 +143,13 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/brandInvites/$(request.resource.data.brand + '_' + trainer))
         && exists(/databases/$(database)/documents/brands/$(request.resource.data.brand))
         && !exists(/databases/$(database)/documents/brands/$(trainer));
-      allow delete: if active() && (isMe(trainer) || isMe(resource.data.brand));
+      // An admin can re-add a brand's trainers when the brand moves to a new owner.
+      allow create: if isAdmin() && active() && isTrainer(trainer)
+        && request.resource.data.keys().hasOnly(['brand', 'created'])
+        && request.resource.data.brand is string
+        && exists(/databases/$(database)/documents/brands/$(request.resource.data.brand))
+        && !exists(/databases/$(database)/documents/brands/$(trainer));
+      allow delete: if active() && (isMe(trainer) || isMe(resource.data.brand) || isAdmin());
     }
 
     // A buddy link is an accepted request in either direction.
