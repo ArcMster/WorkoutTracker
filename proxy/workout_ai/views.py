@@ -129,7 +129,8 @@ def is_active(uid, token):
 def is_admin(uid, token):
     """Same rule as isAdmin() in firestore.rules. If Firestore can't be read, they get the normal limit."""
     try:
-        return firestore_get(f"admins/{uid}", token).status_code == 200
+        return (firestore_get(f"admins/{uid}", token).status_code == 200
+                or firestore_get(f"superAdmins/{uid}", token).status_code == 200)
     except requests.RequestException:
         log.warning("couldn't check admin status for %s", uid)
         return False

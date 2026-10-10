@@ -5,9 +5,21 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isMe(uid) { return signedIn() && request.auth.uid == uid; }
 
-    // Admins: presence of admins/{uid} makes that user an admin.
+    // Super Admins: presence of superAdmins/{uid} makes that user a Super Admin. Created by hand in the console;
+    // no client can write it. A Super Admin is also a user admin, and alone approves, creates and edits brands
+    // and assigns their trainers.
+    function isSuper() {
+      return signedIn() && exists(/databases/$(database)/documents/superAdmins/$(request.auth.uid));
+    }
+    match /superAdmins/{uid} {
+      allow read: if isMe(uid) || isSuper();
+      allow write: if false;
+    }
+
+    // User admins: presence of admins/{uid} makes that user an admin (approve and disable accounts, exercise
+    // tutorials, make admins). A Super Admin counts as one too.
     function isAdmin() {
-      return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return signedIn() && (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || isSuper());
     }
     // Account status: 'pending' (requested to join), 'active' or 'disabled'.
     // Older account documents only carry disabled: true or false.
@@ -43,8 +55,9 @@ service cloud.firestore {
       // A new user asks to join: only the pending state, with what an admin needs to recognise them,
       // and whether they signed up as a trainer.
       allow create: if isMe(uid)
-        && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested', 'trainer'])
+        && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested', 'trainer', 'brand'])
         && (!('trainer' in request.resource.data) || request.resource.data.trainer is bool)
+        && (!('brand' in request.resource.data) || (request.resource.data.brand is string && request.resource.data.brand.size() <= 128))
         && request.resource.data.status == 'pending'
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.email == request.auth.token.email
@@ -52,7 +65,7 @@ service cloud.firestore {
         && request.resource.data.requested == request.time;
       // Admins approve, decline (disable) or enable accounts, never their own.
       allow create, update: if isAdmin() && uid != request.auth.uid
-        && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested', 'trainer'])
+        && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested', 'trainer', 'brand'])
         && request.resource.data.status in ['active', 'disabled']
         && request.resource.data.disabled == (request.resource.data.status == 'disabled')
         && request.resource.data.by == request.auth.uid
@@ -82,16 +95,20 @@ service cloud.firestore {
       allow delete: if isAdmin() && active();
     }
 
-    // Brands: one per trainer, keyed by the owner's uid. A trainer asks for it (status 'pending'); an admin approves,
-    // declines or disables it. The owner edits the name, logo and video links (a map of exercise slug to YouTube id)
-    // but never the status, except sending a declined brand again. Everyone signed in can read an approved brand
-    // (their trainer's), the owner reads their own, admins read all.
+    // Brands: one per trainer, keyed by the owner's uid. A trainer asks for it (status 'pending'); only a Super Admin
+    // approves, declines or disables it. The owner edits the name, details, links, logo, video links (a map of exercise
+    // slug to YouTube id) and `restrict` (hide global users from the brand's trainees), but never the status, except
+    // sending a declined brand again. A Super Admin can create and edit any brand and assign its trainers.
+    // Everyone signed in can read an approved brand (their trainer's), the owner reads their own, Super Admins read all.
     function validBrand(d) {
-      return d.keys().hasOnly(['name', 'logo', 'videos', 'status', 'created', 'updated', 'by', 'at'])
+      return d.keys().hasOnly(['name', 'logo', 'videos', 'details', 'links', 'restrict', 'status', 'created', 'updated', 'by', 'at'])
         && d.keys().hasAll(['name', 'status', 'created'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
         && d.get('logo', '') is string && d.get('logo', '').size() <= 200000
-        && d.get('videos', {}) is map && d.get('videos', {}).size() <= 400;
+        && d.get('videos', {}) is map && d.get('videos', {}).size() <= 400
+        && d.get('details', '') is string && d.get('details', '').size() <= 300
+        && d.get('links', []) is list && d.get('links', []).size() <= 5
+        && d.get('restrict', false) is bool;
     }
     // Is the signed-in user a trainer in this brand?
     function isBrandMember(owner) {
@@ -99,7 +116,7 @@ service cloud.firestore {
       return exists(p) && get(p).data.brand == owner;
     }
     match /brands/{owner} {
-      allow read: if signedIn() && (resource == null || isMe(owner) || isAdmin() || resource.data.status == 'approved' || isBrandMember(owner));
+      allow read: if signedIn() && (resource == null || isMe(owner) || isSuper() || resource.data.status == 'approved' || isBrandMember(owner));
       allow create: if isMe(owner) && active() && isTrainer(owner) && validBrand(request.resource.data)
         && request.resource.data.status == 'pending'
         && !exists(/databases/$(database)/documents/brandMember/$(owner))
@@ -110,30 +127,35 @@ service cloud.firestore {
         && request.resource.data.get('at', null) == resource.data.get('at', null)
         && (request.resource.data.status == resource.data.status
             || (resource.data.status == 'rejected' && request.resource.data.status == 'pending'));
-      // An admin can make a brand for a trainer who owns none and is in none, and move a brand to a new owner (a new document).
-      allow create: if isAdmin() && active() && isTrainer(owner) && validBrand(request.resource.data)
+      // A Super Admin can make a brand for a trainer who owns none and is in none, and move a brand to a new owner (a new document).
+      allow create: if isSuper() && active() && isTrainer(owner) && validBrand(request.resource.data)
         && request.resource.data.status in ['approved', 'pending', 'rejected', 'disabled']
         && !exists(/databases/$(database)/documents/brandMember/$(owner))
         && request.resource.data.by == request.auth.uid;
-      allow update: if isAdmin() && active()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'by', 'at'])
-        && request.resource.data.status in ['approved', 'rejected', 'disabled']
-        && request.resource.data.by == request.auth.uid
-        && request.resource.data.at == request.time;
-      allow delete: if (isMe(owner) && active()) || (isAdmin() && active());
+      // A Super Admin edits any brand. Changing the status stamps who and when.
+      allow update: if isSuper() && active() && validBrand(request.resource.data)
+        && request.resource.data.created == resource.data.created
+        && (request.resource.data.status == resource.data.status
+            ? (request.resource.data.get('by', null) == resource.data.get('by', null)
+               && request.resource.data.get('at', null) == resource.data.get('at', null))
+            : (request.resource.data.status in ['approved', 'rejected', 'disabled']
+               && request.resource.data.by == request.auth.uid
+               && request.resource.data.at == request.time));
+      allow delete: if (isMe(owner) && active()) || (isSuper() && active());
     }
 
     // A brand can have several trainers; a trainer is in one brand only. The owner invites a trainer
     // (brandInvites, id "{brand}_{trainer}"); the trainer accepts by creating brandMember/{trainer}, whose id is the
     // trainer's uid so a second membership can't exist. A brand owner can't join another brand. Either side can end it.
+    // A Super Admin can assign a trainer to a brand directly and remove one.
     match /brandInvites/{id} {
-      allow read: if signedIn() && (isMe(resource.data.brand) || isMe(resource.data.to));
+      allow read: if signedIn() && (isMe(resource.data.brand) || isMe(resource.data.to) || isSuper());
       allow create: if active() && isMe(request.resource.data.brand)
         && id == request.resource.data.brand + '_' + request.resource.data.to
         && request.resource.data.keys().hasOnly(['brand', 'to', 'created'])
         && exists(/databases/$(database)/documents/brands/$(request.auth.uid))
         && isTrainer(request.resource.data.to);
-      allow delete: if active() && (isMe(resource.data.brand) || isMe(resource.data.to));
+      allow delete: if active() && (isMe(resource.data.brand) || isMe(resource.data.to) || isSuper());
     }
     match /brandMember/{trainer} {
       allow read: if signedIn();
@@ -143,13 +165,12 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/brandInvites/$(request.resource.data.brand + '_' + trainer))
         && exists(/databases/$(database)/documents/brands/$(request.resource.data.brand))
         && !exists(/databases/$(database)/documents/brands/$(trainer));
-      // An admin can re-add a brand's trainers when the brand moves to a new owner.
-      allow create: if isAdmin() && active() && isTrainer(trainer)
+      allow create: if isSuper() && active() && isTrainer(trainer)
         && request.resource.data.keys().hasOnly(['brand', 'created'])
         && request.resource.data.brand is string
         && exists(/databases/$(database)/documents/brands/$(request.resource.data.brand))
         && !exists(/databases/$(database)/documents/brands/$(trainer));
-      allow delete: if active() && (isMe(trainer) || isMe(resource.data.brand) || isAdmin());
+      allow delete: if active() && (isMe(trainer) || isMe(resource.data.brand) || isSuper());
     }
 
     // A buddy link is an accepted request in either direction.
