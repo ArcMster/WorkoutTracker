@@ -125,6 +125,8 @@ Admins can't read anyone's workout log. Only trainers someone chose can do that.
 4. Document ID: paste the UID. Add two fields: `by` (string, for example `console`) and `at` (timestamp, now). Save.
 5. Reopen the app. The **Admin** tab appears at the end of the top menu.
 
+**Making a Super Admin** (also by hand; the app and the rules never let a client write it): do steps 1 and 2 above, then in **Firestore Database** > **Data** add a collection `superAdmins` with a document whose ID is the UID. Any field will do (for example `by`: `console`). Reopen the app. A Super Admin is also a user admin, and is the only one who can approve, create and edit brands and assign their trainers (Admin tab > Brands). Existing admins stay user admins: they manage accounts, tutorials and exercises, but can no longer touch brands. Republish `firestore.rules` first.
+
 After that, admins make other admins from the app. Nobody can remove their own admin rights or disable themselves, so there's always at least one admin.
 
 ## Importing a plan

@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v43`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v44`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -37,8 +37,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 
 ### Brands
 - A brand can have several trainers; a trainer is in only one. The owner invites trainers by Google email (`brandInvites`); accepting writes `brandMember/{trainerUid}`, whose id enforces one brand per trainer. A trainer who owns a brand can't join another. Either side can end it, and only the owner edits the brand and its videos. Trainers in the same brand count as one brand for their trainees.
-- Admins see every brand on the Admin tab (status, owner, other trainers). They can create a brand for a trainer (approved straight away) and change a brand's owner. The brand id is the owner's uid, so a new owner means moving the document (logo, videos, status and trainers go with it) in three steps; the rules check state before each batch. The new owner must be a trainer in no brand.
-- A trainer opens Profile > Your brand and requests a brand: an app name (40 characters) and a logo. It is stored in `brands/{ownerUid}` (one per trainer) with status `pending`. Admins approve, decline or disable it from the Brands panel on the Admin tab; the owner then edits the name, logo and video links live.
+- **Super Admin** (`superAdmins/{uid}`, made by hand in the console; also counts as a user admin) is the only role that touches brands, in the Brands panel of the Admin tab: approve, decline, disable, delete, create a brand for a trainer (approved straight away), change the owner, **Edit** any brand (same form as the owner's, via `BR.edit`) and add or remove its trainers directly. Other admins are *user admins*: accounts, tutorials and exercises, no brands. The owner still requests a brand, edits it live and invites trainers.
+- A brand also has `details` (300 characters) and up to 5 `links` (label + https address), shown as an About panel to its members (Settings, and the member's Your brand page), and `restrict` (see below).
+- **Join link** `?brand={ownerUid}`: kept on the device until sign-in. A new person's sign-up stores it on the join request (`accounts/{uid}.brand`); once an admin approves them, `brandLinkBoot()` adds the owner to their `coaching` trainers (once, tracked per device), which is how the brand reaches them. Someone already in the app is asked first, and trainers from another brand are removed; a trainer who owns or belongs to a brand can't join another as a member. The owner or a Super Admin copies the link from the brand page.
+- **Restrict access to global users** (owner's switch, saved at once): the people the brand trains (not the owner or its trainers) lose Find New Buddies, the Global leaderboard scope and non-buddy profiles, and their directory and board cards are deleted. Buddies, trainers and email or invite-link buddy requests still work. Enforced by the app only (`restricted()`): the rules can't look up a person's brand, so someone calling Firestore directly isn't blocked. Cards are only published once the brand is known (`BR.settled`). The brand id is the owner's uid, so a new owner means moving the document (logo, videos, status and trainers go with it) in three steps; the rules check state before each batch. The new owner must be a trainer in no brand.
+- A trainer opens Profile > Your brand and requests a brand: an app name (40 characters) and a logo. It is stored in `brands/{ownerUid}` (one per trainer) with status `pending`. A Super Admin approves, declines or disables it from the Brands panel on the Admin tab; the owner then edits the name, logo and video links live.
 - The owner and everyone the owner trains see the logo and name in place of Infinity: header, welcome screen, shared images, share text, reports and the tab title. If a member's trainers (plus their own brand, if they own one) don't add up to exactly one approved brand, the plain Infinity look is used. `brandPick` decides; `appName()` and `brandMark()` render it.
 - Video links: the owner sets a YouTube link per exercise (`videos` map of exercise slug to id). `vidFor` uses the brand's link first and falls back to the admin default.
 - Installed icon: while signed in as a brand member the page swaps the favicon, apple-touch-icon and manifest for the brand's, so an install made then picks them up. An app that is already installed keeps its icon; that can't change per user.
@@ -181,7 +184,8 @@ avail/{trainerUid}                  { hours: { "1": ["06:00-10:00", ...], ... "7
 live/{uid}                          who is training now: { name, title, t, t0, until (t0 + 90 min), at, ex, done, of, plan }
 coaching/{uid}                      { trainers: [uid, ...] }, max 10
 coachOffers/{trainerUid}_{memberUid} { from, to, created }: a trainer's offer to train someone
-admins/{uid}                        { by, at }: presence means admin
+admins/{uid}                        { by, at }: presence means user admin
+superAdmins/{uid}                   presence means Super Admin; console only, no client writes
 accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, trainer, requested, by, at }
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
 exercises/{slug}                    { name, display?, youtube?, added?, updatedBy, updatedAt }: exercise catalogue: rename, tutorial video, admin-added
@@ -216,6 +220,7 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `shared/{uid}` | Owner and accepted buddies | Owner |
 | `board/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, at most 24 fields, name and photo size limits; owner can always delete |
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
+| `superAdmins/{uid}` | The person themself and Super Admins | Nobody (console only) |
 | `accounts/{uid}` | Owner and admins | Owner creates only a pending request; admins set active or disabled, never for themselves |
 | `audit/{id}` | Admins | Admins create; no changes or deletes |
 | `exercises/{slug}` | Any signed-in user | Admins; display name up to 80 characters, video id must be 11 valid characters |

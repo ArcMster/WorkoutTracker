@@ -710,6 +710,7 @@ const ACT={uid:null,name:"",own:null,pub:false};
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
 const CAL={events:[],slots:{},avail:{},live:[],week:null,sel:today(),form:null,hoursOpen:false,hoursDraft:null,msg:"",un:[],slotUn:{},availUn:{},cleaned:new Set(),livePub:false};
+const SUP={is:false};/* Super Admin: superAdmins/{uid} exists. Also counts as ADM.is */
 const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]};
 
 /* ---------- plans ---------- */
@@ -1111,12 +1112,12 @@ const BRD_KEY="infinity-brd-";
 function wkKey(d){return mondayOf(d).replace(/-/g,"")}
 function moKey(d){return d.slice(0,7).replace("-","")}
 function weekBest(lf,wk){let b=0;(lf&&lf.h||[]).forEach(x=>{if(x.d>=wk&&x.w>b)b=x.w});return b}
-function globalOn(){return S.mode==="db"&&S.settings.sharing&&S.settings.global!==false}
+function globalOn(){return S.mode==="db"&&S.settings.sharing&&S.settings.global!==false&&!restricted()}
 async function publishBoard(sum){
-  if(S.mode!=="db"||!uid)return;
+  if(S.mode!=="db"||!uid||!BR.settled)return;/* wait until we know whether the brand restricts this person */
   const ref=doc(fs,"board",uid);
   let prev=null;try{prev=localStorage.getItem(BRD_KEY+uid)}catch(e){}
-  if(!sum||S.settings.global===false){
+  if(!sum||S.settings.global===false||restricted()){
     if(prev==="off")return;
     return deleteDoc(ref).then(()=>{try{localStorage.setItem(BRD_KEY+uid,"off")}catch(e){}}).catch(e=>console.warn("board",e));
   }
@@ -1181,7 +1182,7 @@ function stopSocial(){
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
   Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]});
   BOARD.tr={};
-  stopCal();stopBrand();
+  stopCal();stopBrand();SUP.is=false;
   Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
@@ -1501,9 +1502,9 @@ function thumbOf(src){
   });
 }
 async function syncDirectory(force){
-  if(S.mode!=="db"||!uid)return;
+  if(S.mode!=="db"||!uid||!BR.settled)return;
   const ref=doc(fs,"directory",uid);
-  if(S.settings.findable===false){
+  if(S.settings.findable===false||restricted()){
     try{localStorage.removeItem(DIR_KEY+uid)}catch(e){}
     return deleteDoc(ref).catch(e=>console.warn("directory",e));
   }
@@ -1545,6 +1546,7 @@ function findRows(){
 }
 function renderFind(){
   if(S.mode!=="db")return `<p><button class="link" data-view="buddies">Back to buddies</button></p><div class="panel"><p class="muted" style="margin:0">Sign in to find buddies.</p></div>`;
+  if(restricted())return `<p><button class="link" data-view="buddies">Back to buddies</button></p><div class="panel"><p class="muted" style="margin:0">Find New Buddies isn't available for ${esc(BR.active.name)} members.</p></div>`;
   if(!FIND.started){FIND.started=true;loadFind()}
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   return `<p><button class="link" data-view="buddies">Back to buddies</button></p>
@@ -2994,6 +2996,8 @@ function renderPerson(){
   const bud=SOC.accepted.find(a=>a.uid===u),inc=SOC.incoming.find(r=>r.from===u),out=SOC.outgoing.find(r=>r.to===u);
   const isTr=SOC.trainers.includes(u),isTe=SOC.trainees.includes(u);
   const oIn=SOC.offersIn.find(o=>o.from===u),oOut=SOC.offersOut.find(o=>o.to===u),self=u===uid;
+  if(restricted()&&!(bud||inc||out||isTr||isTe||oIn||oOut||self||(BR.active&&brandStaff(u))))
+    return `<p><button class="link" data-view="buddies">Back to buddies</button></p><div class="panel"><p class="muted" style="margin:0">Other members' profiles aren't available for ${esc(BR.active.name)} members, except your buddies and trainers.</p></div>`;
   const sh=SOC.shared[u];const L=bud&&sh&&sh.sharing?live(sh):null;
   const rel=isTr?"Your trainer":isTe?"You're training them":oIn?"Offers to train you":oOut?"Training offer sent":bud?"Your buddy":inc?"Wants to be your buddy":out?"Request sent":"";
   const btns=(oIn&&!isTr?`<button class="btn primary" data-oaccept="${oIn.id}">Accept training</button><button class="btn" data-odecline="${oIn.id}">Decline</button>`:"")
@@ -3093,7 +3097,7 @@ function renderBuddies(){
       <span><b>Show when I'm training</b><br><span class="muted" style="font-size:14px">${S.settings.live!==false
         ?"While your workout clock is running, every member can see your name, the workout and how far you are in Training now."
         :"Off. Nobody sees you in Training now."}</span></span></label></div>
-  <div class="panel"><label class="bigswitch"><input type="checkbox" id="findable" ${S.settings.findable!==false?"checked":""}>
+  ${restricted()?`<div class="panel"><p class="small muted" style="margin:0">${esc(BR.active.name)} keeps global users out of reach: you can't browse or be found in Find Buddies or the global leaderboard. Buddies you add by email or invite link still work.</p></div>`:`<div class="panel"><label class="bigswitch"><input type="checkbox" id="findable" ${S.settings.findable!==false?"checked":""}>
       <span><b>Show me in Find Buddies</b><br><span class="muted" style="font-size:14px">${S.settings.findable!==false
         ?"Other members can see your name, photo and bio in the list and send you a request."
         :"Off. People can only add you by email or invite link."}</span></span></label></div>
@@ -3102,10 +3106,10 @@ function renderBuddies(){
         ?"Needs Share my progress on."
         :S.settings.global!==false
         ?"Every member can see your name, photo, weekly workouts and volume, streak and top Bench, Squat, Deadlift and OHP sets."
-        :"Off. Only your buddies see your numbers."}</span></span></label></div>
+        :"Off. Only your buddies see your numbers."}</span></span></label></div>`}
   <div class="panel"><h2>Add a buddy</h2>
-    <div class="row" style="margin-bottom:14px"><button class="btn primary" id="findBtn">Find New Buddies</button></div>
-    <p class="muted" style="font-size:14px;margin:0 0 8px">Or add someone by their Google email.</p>
+    ${restricted()?"":`<div class="row" style="margin-bottom:14px"><button class="btn primary" id="findBtn">Find New Buddies</button></div>`}
+    <p class="muted" style="font-size:14px;margin:0 0 8px">${restricted()?"Add":"Or add"} someone by their Google email.</p>
     <div class="row"><input class="field" id="email" type="email" placeholder="Their Google email" autocomplete="off"><button class="btn primary" id="addEmail">Send request</button></div>
     <p class="muted" style="font-size:14px;margin:12px 0 8px">Or send your invite link. When they open it and sign in, they can add you in one tap.</p>
     <div class="row"><button class="btn" id="copyLink">Copy invite link</button>${navigator.share?`<button class="btn" id="shareLink">Share invite link</button>`:""}</div>
@@ -3176,6 +3180,7 @@ function renderHistory(){
     <div class="row"><button class="btn" id="restart">Start a new 6-week cycle this week</button>
       <span class="muted" style="font-size:14px">${S.settings.start?"Current cycle began "+fmtDate(S.settings.start):""}</span></div>
   </div>
+  ${brandAbout(BR.active)}
   <div class="panel"><h2>Account</h2>
     ${!CONFIGURED?`<p class="muted" style="margin:0">Add your Firebase config to index.html to sync and add buddies.</p>`
       :uid?`<div class="row">${avatar({name:myName(),photo:myPhoto()})}<span style="flex:1">${esc(myName())}<br><span class="muted" style="font-size:14px">${esc(me.email)}</span>${ME.ig?`<br><a class="link" href="${igUrl(ME.ig)}" target="_blank" rel="noopener">@${esc(ME.ig)}</a>`:""}${ME.bio?`<br><span class="bio muted" style="font-size:14px">${esc(ME.bio)}</span>`:""}</span></div>
@@ -3255,10 +3260,11 @@ function boardShow(m,v){
   return [v,v===1?"workout":"workouts"];
 }
 function scope(){
+  if(restricted())return "buddies";
   if(!BOARD.scope){let v=null;try{v=localStorage.getItem(LS_SCOPE)}catch(e){}BOARD.scope=v==="global"||v==="buddies"?v:(SOC.accepted.length?"buddies":"global")}
   return BOARD.scope;
 }
-function setScope(v){BOARD.scope=v;try{localStorage.setItem(LS_SCOPE,v)}catch(e){}}
+function setScope(v){if(v==="global"&&restricted())return;BOARD.scope=v;try{localStorage.setItem(LS_SCOPE,v)}catch(e){}}
 /* one ranking in either scope: {rows:[{uid,isMe,p,v}], loading, err}. Only people with something to show. */
 function ranking(sc,m,p,lift,n){
   if(sc==="global"){const g=globalRanking(m,p,lift,n);return {rows:(g.rows||[]).filter(r=>r.v>0),loading:!!g.loading&&!g.rows,err:g.err}}
@@ -3288,10 +3294,10 @@ function lbLift(sc,key,label,col){
 function renderLbDash(){
   const sc=scope(),u=S.settings.unit;
   const head=`<div class="sec-h"><span class="kicker">Leaderboard</span><span class="links"><button class="link" data-view="board">See all</button><button class="link" data-view="buddies">Manage</button></span></div>
-    ${segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Leaderboard scope","wide")}`;
+    ${restricted()?"":segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Leaderboard scope","wide")}`;
   let body;
   if(sc==="buddies"&&!SOC.accepted.length&&!SOC.trainees.length){
-    body=`<p class="small muted lb-empty">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button> or see how you stack up on the <button class="link" data-ls="global">global board</button>.</p>`;
+    body=`<p class="small muted lb-empty">Training is easier with company. <button class="link" data-view="buddies">Add a buddy</button>${restricted()?"":` or see how you stack up on the <button class="link" data-ls="global">global board</button>`}.</p>`;
   }else if(sc==="global"&&!globalOn()){
     body=`<p class="small muted lb-empty">${S.settings.sharing?"You're hidden from the global leaderboard, so you won't be ranked here.":"Turn on sharing to appear on the global leaderboard."} <button class="link" data-view="buddies">Change</button></p>`;
   }
@@ -3325,7 +3331,7 @@ function renderBoard(){
   const liftName=(KEY_LIFTS.find(x=>x[0]===(GL_LIFTS.find(g=>g[0]===lift)||GL_LIFTS[0])[1])||[])[1]||"";
   const sub=m==="streak"?"Weeks in a row with at least one workout"
     :(m==="lifts"?liftName+", heaviest top set, ":"")+(p==="all"?(m==="lifts"?"best ever":"All time"):p==="month"?new Date().toLocaleDateString(undefined,{month:"long",year:"numeric"}):"week of "+fmtDate(mondayOf(today())));
-  const ctl=`<div class="bd-ctl">${segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Scope","wide")}
+  const ctl=`<div class="bd-ctl">${restricted()?"":segH("ls",sc,[["buddies","Buddies"],["global","Global"]],"Scope","wide")}
     ${segH("bm",m,[["workouts","Workouts"],["volume","Volume"],["streak","Streak"],["lifts","Lifts"]],"Rank by")}
     ${m==="lifts"?segH("blift",lift,KEY_LIFTS.map(([n,l])=>[(GL_LIFTS.find(g=>g[1]===n)||[])[0],l]),"Lift"):""}
     ${periods.length?segH("bp",p,periods,"Period"):""}</div>`;
@@ -3344,7 +3350,7 @@ function renderBoard(){
       ${rows.length&&!inTop?`<p class="small muted">${globalOn()?"You're not in the top 50 here yet.":S.settings.sharing?"You're hidden from the global leaderboard.":"Turn on sharing to appear on the global leaderboard."}${globalOn()?"":` <button class="link small" data-view="buddies">Change</button>`}</p>`:""}
       <p class="small muted">Top 50 members who share their progress.</p></div>`;
   }
-  if(!SOC.accepted.length&&!SOC.trainees.length)return top+`<div class="panel"><p class="muted" style="margin:0 0 14px">No buddies yet. Add a few and see who trains most each week.</p><button class="btn primary" id="findBtn">Find New Buddies</button></div>`;
+  if(!SOC.accepted.length&&!SOC.trainees.length)return top+`<div class="panel"><p class="muted" style="margin:0 0 14px">No buddies yet. Add a few and see who trains most each week.</p>${restricted()?`<button class="btn primary" data-view="buddies">Add a buddy</button>`:`<button class="btn primary" id="findBtn">Find New Buddies</button>`}</div>`;
   loadBoardTrainees();
   const {rows,hidden,loading}=boardRows();
   const shown=m==="lifts"?rows.filter(r=>r.v>0):rows;
@@ -3372,9 +3378,18 @@ async function sendJoin(){
   if(!S.joinAs)return say("Choose one to continue.");
   try{
     const photo=(me.photo||"").length<=1000?me.photo||"":"";
-    await setDoc(doc(fs,"accounts",uid),{status:"pending",name:(me.name||"").slice(0,80),email:me.email,photo,trainer,requested:serverTimestamp()});
+    await setDoc(doc(fs,"accounts",uid),{status:"pending",name:(me.name||"").slice(0,80),email:me.email,photo,trainer,requested:serverTimestamp(),...(S.joinBrand?{brand:S.joinBrand}:{})});
   }catch(e){console.warn("join request",e);return say("Couldn't send your request. Check your connection and try again.")}
   S.msg="";S.view="pending";render();
+}
+/* the brand behind a join link, if it is still approved; shown on the sign-up screen and saved with the request */
+async function loadJoinBrand(){
+  S.joinBrand="";S.joinBrandName="";
+  const id=stashedBrand();if(!id||id===uid)return;
+  try{
+    const d=await getDoc(doc(fs,"brands",id));
+    if(d.exists()&&d.data().status==="approved"){S.joinBrand=id;S.joinBrandName=brandOf(id,d.data()).name}
+  }catch(e){console.warn("join brand",e)}
 }
 function renderJoin(){
   const opt=(v,t,d)=>`<button class="joinopt" data-joinas="${v}" aria-pressed="${S.joinAs===v}"><b>${t}</b><span>${d}</span></button>`;
@@ -3387,6 +3402,7 @@ function renderJoin(){
       ${opt("trainer","I'm a trainer","Everything above, plus you can offer to train other members: build their plans and follow their workouts.")}
     </div>
     <p class="small muted">You can change this later in your profile.</p>
+    ${S.joinBrand?`<p class="small"><b>You're joining ${esc(S.joinBrandName)}.</b> Once you're approved, its owner becomes your trainer: they can see your logged workouts and set your plans, and you can remove them any time.</p>`:""}
     <div class="row" style="justify-content:center"><button class="btn primary" id="joinSend" ${S.joinAs?"":"disabled"}>Request to join</button><button class="btn" id="signout">Sign out</button></div>
     ${msg}
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}</div>`;
@@ -3413,7 +3429,7 @@ function renderDisabled(){
    They get no access to anyone's workout log. Disabling is enforced by the rules, not Firebase Auth. */
 function admStart(){
   if(ADM.started||!ADM.is||S.mode!=="db")return;
-  ADM.started=true;admCounts();admLoad();admLog();admBrands();loadVids(true);
+  ADM.started=true;admCounts();admLoad();admLog();if(SUP.is)admBrands();loadVids(true);
 }
 async function admCounts(){
   try{
@@ -3450,7 +3466,7 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand",brandcreate:"Created the brand",brandowner:"Changed the owner of"};
+const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand",brandcreate:"Created the brand",brandowner:"Changed the owner of",brandedit:"Edited the brand",brandassign:"Added a trainer to the brand",brandremove:"Removed a trainer from the brand",branddelete:"Deleted the brand"};
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
@@ -3558,7 +3574,7 @@ function renderAdmin(){
   const c=ADM.counts;const n=v=>c?v:"-";
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const when=a=>a&&a.toDate?a.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):"Just now";
-  return `<header class="greet"><h1>Admin</h1><p>Join requests, users, admins and exercises.</p></header>
+  return `<header class="greet"><h1>Admin</h1><p>${SUP.is?"Super Admin. Brands, join requests, users, admins and exercises.":"User admin. Join requests, users, admins and exercises."}</p></header>
   <section class="sec"><div class="nums3 four"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.pending.length)}</b><span>requests</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
   ${ADM.pending.length?`<div class="panel"><h2>Requested to join</h2><ul class="people">${ADM.pending.map(r=>`<li>${avatar({name:r.name,photo:r.photo})}
       <span class="nm"><b>${esc(r.name||"Unnamed")}</b> <span class="tag plain">Requested to join</span>${r.trainer?` <span class="tag plain">Trainer</span>`:""}<small class="one">${esc(r.email||"")}${r.requested&&r.requested.toDate?" · "+r.requested.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):""}</small></span><span></span>
@@ -3595,7 +3611,7 @@ function renderAdmin(){
    A brand can have several trainers, but a trainer is in one brand only. The owner invites a trainer
    (brandInvites/{brand}_{trainer}); accepting writes brandMember/{trainer} {brand}. Its id is the trainer's uid, so a
    second membership can't exist, and a trainer who owns a brand can't join another. */
-const BR={docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,active:null,img:null,form:null,msg:"",ok:false,vmsg:{},vq:"",icons:null,manifestUrl:""};
+const BR={docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,settled:false,edit:null,active:null,img:null,form:null,msg:"",ok:false,vmsg:{},vq:"",icons:null,manifestUrl:""};
 const BR_KEY="infinity-brand-";
 const BR_STATUS={pending:"Waiting for approval",approved:"Approved",rejected:"Declined",disabled:"Disabled by an admin"};
 const LOGO_OK=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/;
@@ -3605,11 +3621,20 @@ function brandMark(){
   return b?`<span class="brand">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:""}<span>${esc(b.name)}</span></span>`
     :`<span class="brand">${MINI_MARK}<span>Infinity</span></span>`;
 }
+function cleanLinks(a){
+  return (Array.isArray(a)?a:[]).map(x=>({label:String((x&&x.label)||"").slice(0,30),url:String((x&&x.url)||"").trim().slice(0,200)}))
+    .filter(x=>/^https:\/\/[^\s"'<>]+\.[^\s"'<>]+$/i.test(x.url)).slice(0,5);
+}
 function brandOf(id,v){
   v=v||{};const videos={};
   Object.entries(v.videos&&typeof v.videos==="object"?v.videos:{}).forEach(([k,x])=>{if(YT_ID.test(x||""))videos[k]=x});
-  return {id,name:String(v.name||"").slice(0,40),logo:LOGO_OK.test(v.logo||"")?v.logo:"",videos,status:v.status||"pending"};
+  return {id,name:String(v.name||"").slice(0,40),logo:LOGO_OK.test(v.logo||"")?v.logo:"",videos,details:String(v.details||"").slice(0,300),links:cleanLinks(v.links),restrict:v.restrict===true,status:v.status||"pending"};
 }
+/* Is the signed-in person someone this brand's owner has restricted? Trainees see no global users and aren't seen by them.
+   The owner and the brand's trainers are never restricted. Enforced by the app; the rules can't look it up. */
+/* is this person the brand's owner or one of its trainers? */
+function brandStaff(u){return !!BR.active&&brandIdOf(u)===BR.active.id}
+function restricted(){return S.mode==="db"&&!!BR.active&&BR.active.restrict===true&&BR.active.id!==brandIdOf(uid)}
 /* a picked logo, fitted inside 192 x 192 and kept transparent */
 function readLogo(file){
   return new Promise((res,rej)=>{
@@ -3632,7 +3657,7 @@ function readLogo(file){
 }
 function stopBrand(){
   Object.values(BR.un).forEach(u=>u());Object.values(BR.unM).forEach(u=>u());BR.unq.forEach(u=>u());
-  Object.assign(BR,{docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,form:null,msg:"",vmsg:{},vq:""});
+  Object.assign(BR,{docs:{},un:{},unM:{},unq:[],mem:{},invIn:[],invOut:[],members:[],coached:false,settled:false,edit:null,form:null,msg:"",vmsg:{},vq:""});
   setBrand(null,true);
 }
 /* the last brand shown on this device, so the logo and name are there from the first frame */
@@ -3674,8 +3699,10 @@ function brandPick(){
   if(!ids.every(i=>i in BR.docs))return;
   const ok=ids.filter(i=>BR.docs[i]&&BR.docs[i].status==="approved");
   setBrand(ok.length===1?BR.docs[ok[0]]:null);
+  if(!BR.settled){BR.settled=true;syncDirectory(true);publishNow()}/* cards are only published once we know whether this person is restricted */
 }
 function setBrand(b,quiet){
+  const was=restricted();
   const same=(!b&&!BR.active)||(b&&BR.active&&b.id===BR.active.id&&b.name===BR.active.name&&b.logo===BR.active.logo);
   BR.active=b;
   if(!same){
@@ -3683,8 +3710,12 @@ function setBrand(b,quiet){
     if(b&&b.logo){const im=new Image();im.onload=()=>{if(BR.active===b){BR.img=im;applyBrandMeta()}};im.src=b.logo}
     applyBrandMeta();
   }
-  if(b&&uid&&!quiet)try{localStorage.setItem(BR_KEY+uid,JSON.stringify({id:b.id,name:b.name,logo:b.logo}))}catch(e){}
+  if(b&&uid&&!quiet)try{localStorage.setItem(BR_KEY+uid,JSON.stringify({id:b.id,name:b.name,logo:b.logo,details:b.details,links:b.links,restrict:restricted()}))}catch(e){}
   if(!b&&uid&&!quiet&&BR.coached)try{localStorage.removeItem(BR_KEY+uid)}catch(e){}
+  if(BR.settled&&!quiet&&restricted()!==was){
+    if(restricted()&&S.view==="find")S.view="buddies";
+    syncDirectory(true);publishNow();softRender(true);
+  }
 }
 /* the tab title, and the icon and name used if the app is installed while signed in as a brand member.
    An app that is already installed keeps its icon: that comes from the manifest the browser stored at install. */
@@ -3713,40 +3744,70 @@ function applyBrandMeta(){
   }
 }
 function brandSay(t,ok){BR.msg=t;BR.ok=!!ok;render()}
+function fixUrl(u){
+  u=(u||"").trim();if(!u)return "";
+  return /^https?:\/\//i.test(u)?u.replace(/^http:/i,"https:"):"https://"+u;
+}
 async function saveBrand(){
-  const f=BR.form,name=(f.name||"").trim().slice(0,40),cur=BR.docs[uid];
+  const f=BR.form,name=(f.name||"").trim().slice(0,40),t=bTarget(),cur=bDoc();
   if(!name)return brandSay("Give your brand a name.");
-  const data={name,logo:f.logo||"",updated:Date.now()};
+  const links=[];
+  for(const [i,l] of f.links.entries()){
+    const url=fixUrl(l.url),label=(l.label||"").trim().slice(0,30);
+    if(!url&&!label)continue;
+    if(!cleanLinks([{label,url}]).length)return brandSay("Link "+(i+1)+" isn't a web address. Use something like https://example.com.");
+    links.push({label,url});
+  }
+  const data={name,logo:f.logo||"",details:(f.details||"").trim().slice(0,300),links,restrict:!!f.restrict,updated:Date.now()};
   try{
-    if(!cur)await setDoc(doc(fs,"brands",uid),{...data,videos:{},status:"pending",created:Date.now()});
-    else await updateDoc(doc(fs,"brands",uid),{...data,...(cur.status==="rejected"?{status:"pending"}:{})});
-  }catch(e){return brandSay(fbError(e,"save your brand"))}
+    if(!cur)await setDoc(doc(fs,"brands",t),{...data,videos:{},status:"pending",created:Date.now()});
+    else await updateDoc(doc(fs,"brands",t),{...data,...(!BR.edit&&cur.status==="rejected"?{status:"pending"}:{})});
+  }catch(e){return brandSay(fbError(e,"save the brand"))}
   BR.form=null;
-  brandSay(!cur||cur.status==="rejected"?"Sent. An admin needs to approve your brand before anyone sees it.":"Saved.",true);
+  if(BR.edit){admAudit("brandedit",t,name);admBrands()}
+  brandSay(!cur||(!BR.edit&&cur.status==="rejected")?"Sent. A Super Admin needs to approve your brand before anyone sees it.":"Saved.",true);
+}
+/* the restrict switch applies at once on a saved brand */
+async function saveRestrict(on){
+  const cur=bDoc();BR.form.restrict=on;
+  if(!cur)return render();
+  try{await updateDoc(doc(fs,"brands",bTarget()),{restrict:on,updated:Date.now()})}
+  catch(e){BR.form.restrict=!on;return brandSay(fbError(e,"change that"))}
+  if(BR.edit){cur.restrict=on;admAudit("brandedit",bTarget(),cur.name)}
+  brandSay(on?"Saved. The people this brand trains no longer see global users.":"Saved. The people this brand trains see global users again.",true);
 }
 async function deleteBrand(){
-  if(!confirm("Delete your brand? You, your brand's other trainers and everyone you train go back to the Infinity logo and name. Your video links are lost."))return;
+  const t=bTarget(),cur=bDoc();
+  if(!confirm(BR.edit?"Delete "+cur.name+"? Its owner, trainers and trainees go back to the Infinity logo and name. Its video links are lost.":"Delete your brand? You, your brand's other trainers and everyone you train go back to the Infinity logo and name. Your video links are lost."))return;
   try{
     const b=writeBatch(fs);
-    BR.members.forEach(t=>b.delete(doc(fs,"brandMember",t)));
-    BR.invOut.forEach(i=>b.delete(doc(fs,"brandInvites",i.id)));
-    b.delete(doc(fs,"brands",uid));await b.commit();
-  }catch(e){return brandSay(fbError(e,"delete your brand"))}
-  BR.form=null;brandSay("Brand deleted.",true);
+    (await getDocs(query(collection(fs,"brandMember"),where("brand","==",t)))).docs.forEach(d=>b.delete(d.ref));
+    (await getDocs(query(collection(fs,"brandInvites"),where("brand","==",t)))).docs.forEach(d=>b.delete(d.ref));
+    b.delete(doc(fs,"brands",t));await b.commit();
+  }catch(e){return brandSay(fbError(e,"delete the brand"))}
+  BR.form=null;
+  if(BR.edit){admAudit("branddelete",t,cur.name);BR.edit=null;admBrands();S.view="admin";S.msg="Brand deleted.";S.msgOk=true;return render()}
+  brandSay("Brand deleted.",true);
 }
 async function saveBrandVideo(name){
-  const cur=BR.docs[uid],k=slug(name);
+  const cur=bDoc(),k=slug(name);
   if(!cur||cur.status!=="approved")return;
   const input=document.querySelector(`li[data-bex="${CSS.escape(name)}"] [data-bvurl]`);
   const id=ytId(input?input.value:"");
   const note=t=>{BR.vmsg[k]=t;const sm=input&&input.closest("li").querySelector("small");if(sm)sm.textContent=t;else render()};
   if(id===null)return note("That doesn't look like a YouTube link or video id.");
   const videos={...cur.videos};if(id)videos[k]=id;else delete videos[k];
-  try{await updateDoc(doc(fs,"brands",uid),{videos,updated:Date.now()})}catch(e){return note(fbError(e,"save that video"))}
-  note(id?"Saved. Your members see this video.":"Removed. Members see the default video again.");
+  try{await updateDoc(doc(fs,"brands",bTarget()),{videos,updated:Date.now()})}catch(e){return note(fbError(e,"save that video"))}
+  if(BR.edit)cur.videos=videos;
+  note(id?"Saved. Members see this video.":"Removed. Members see the default video again.");
 }
+function bTarget(){return BR.edit||uid}
+/* the brand being edited: mine, or (for a Super Admin) the one picked in the Admin tab */
+function bDoc(){return BR.edit?(ADM.brands||[]).find(b=>b.id===BR.edit)||null:BR.docs[uid]}
+function brandLink(id){return location.origin+location.pathname+"?brand="+id}
 /* trainers in a brand */
 async function inviteTrainer(email){
+  if(BR.edit)return admBrandAssign(BR.edit,email);
   const e=(email||"").trim().toLowerCase();
   if(!e)return brandSay("Enter the trainer's Google email.");
   try{
@@ -3760,6 +3821,56 @@ async function inviteTrainer(email){
     brandSay("Invite sent. They need to be a trainer, and not in another brand, to join.",true);
   }catch(err){brandSay(fbError(err,"send that invite"))}
 }
+/* a Super Admin puts a trainer straight into a brand, no invite */
+async function admBrandAssign(brand,email){
+  const b=ADM.brands.find(x=>x.id===brand);if(!b)return;
+  try{
+    const o=await admBrandPerson(email,brand);if(!o)return brandSay(S.msg);
+    if(o.u===brand||o.member)return brandSay("They're already in this brand.");
+    await setDoc(doc(fs,"brandMember",o.u),{brand,created:Date.now()});
+    const inv=doc(fs,"brandInvites",brand+"_"+o.u);deleteDoc(inv).catch(()=>{});
+    admAudit("brandassign",o.u,b.name);
+    await admBrands();
+    brandSay((pname(SOC.profiles[o.u])||"The trainer")+" is now in "+b.name+".",true);
+  }catch(err){brandSay(fbError(err,"add that trainer"))}
+}
+/* The person behind a join link: they get the brand through its owner as a trainer. Someone new gets it
+   straight away; someone already in the app is asked first, and trainers from another brand are swapped out. */
+async function applyBrandLink(owner,auto){
+  const warn=t=>{if(!auto)alert(t)};
+  try{
+    if(!owner||owner===uid)return;
+    const bs=await getDoc(doc(fs,"brands",owner)).catch(()=>null);
+    if(!bs||!bs.exists()||bs.data().status!=="approved")return warn("That brand link isn't active.");
+    const b=brandOf(owner,bs.data());
+    const [own,mem,co,op]=await Promise.all([getDoc(doc(fs,"brands",uid)),getDoc(doc(fs,"brandMember",uid)),getDoc(doc(fs,"coaching",uid)),getDoc(doc(fs,"profiles",owner)).catch(()=>null)]);
+    if(own.exists()||mem.exists())return warn("You're a trainer in a brand, so you can't also join another as a member. Leave your brand first.");
+    const trainers=(co.exists()&&co.data().trainers)||[];
+    if(trainers.includes(owner))return warn("You're already in "+b.name+".");
+    const info=await Promise.all(trainers.map(async t=>{
+      const m=await getDoc(doc(fs,"brandMember",t)).catch(()=>null);
+      let id=m&&m.exists()?m.data().brand:null;
+      if(!id){const o=await getDoc(doc(fs,"brands",t)).catch(()=>null);if(o&&o.exists())id=t}
+      return {t,id};
+    }));
+    const out=info.filter(x=>x.id&&x.id!==owner).map(x=>x.t);
+    const keep=trainers.filter(t=>!out.includes(t));
+    if(keep.length>=10)return warn("You already have 10 trainers. Remove one first.");
+    const nm=(op&&op.exists()&&pname(op.data()))||"the brand's owner";
+    if(!auto&&!confirm("Join "+b.name+"? "+nm+" becomes your trainer: they can see your logged workouts and create or change your plans, but never change what you've already logged. "
+      +(out.length?"Your trainer"+(out.length>1?"s":"")+" from another brand will be removed. ":"")+"You can remove them any time."))return;
+    await setDoc(doc(fs,"coaching",uid),{trainers:[...keep,owner],updated:Date.now()});
+    say("You joined "+b.name+".",true);
+  }catch(e){console.warn("brand link",e);warn(fbError(e,"join that brand"))}
+}
+/* at sign-in: a sign-up that came through a link is applied once; a link opened later asks first */
+function brandLinkBoot(){
+  const jb=stashedBrand(),ab=ACCT.brand||"";
+  let done="";try{done=localStorage.getItem(JBA_KEY+uid)||""}catch(e){}
+  if(jb)try{localStorage.removeItem(JB_KEY)}catch(e){}
+  if(ab&&ab!==done){try{localStorage.setItem(JBA_KEY+uid,ab)}catch(e){}applyBrandLink(ab,true);if(jb===ab)return}
+  if(jb&&jb!==uid)applyBrandLink(jb,false);
+}
 async function acceptBrandInvite(id){
   const inv=BR.invIn.find(i=>i.id===id);if(!inv)return;
   if(BR.docs[uid])return brandSay("You own a brand. A trainer can only be in one brand.");
@@ -3772,57 +3883,87 @@ async function acceptBrandInvite(id){
 }
 async function dropBrandInvite(id){try{await deleteDoc(doc(fs,"brandInvites",id))}catch(e){brandSay(fbError(e,"change that invite"))}}
 async function leaveBrand(t){
-  const me2=t===uid;
-  if(!confirm(me2?"Leave this brand? You and the people you train go back to the Infinity logo and name.":"Remove "+(pname(SOC.profiles[t])||"this trainer")+" from your brand? They and their trainees go back to the Infinity look."))return;
+  const me2=t===uid&&!BR.edit;
+  const who=pname(SOC.profiles[t])||"this trainer";
+  if(!confirm(me2?"Leave this brand? You and the people you train go back to the Infinity logo and name.":BR.edit?"Remove "+who+" from this brand? They and their trainees go back to the Infinity look.":"Remove "+who+" from your brand? They and their trainees go back to the Infinity look."))return;
   try{await deleteDoc(doc(fs,"brandMember",t))}catch(e){return brandSay(fbError(e,"change that"))}
+  if(BR.edit){const cur=bDoc();admAudit("brandremove",t,cur?cur.name:"");admBrands()}
   brandSay(me2?"You left the brand.":"Removed.",true);
 }
+function brandAbout(b){
+  if(!b||(!b.details&&!b.links.length))return "";
+  return `<div class="panel"><h2>About ${esc(b.name)}</h2>
+    ${b.details?`<p style="margin:0${b.links.length?" 0 10px":""};white-space:pre-line">${esc(b.details)}</p>`:""}
+    ${b.links.map(l=>`<div><a class="link" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label||l.url.replace(/^https:\/\/(www\.)?/,""))}</a></div>`).join("")}</div>`;
+}
 function renderBrand(){
-  const back=`<p><button class="link" data-view="profile">Back to profile</button></p>`;
+  const edit=!!BR.edit;
+  const back=edit?`<p><button class="link" data-view="admin">Back to admin</button></p>`:`<p><button class="link" data-view="profile">Back to profile</button></p>`;
   if(S.mode!=="db")return back+`<div class="panel"><p class="muted" style="margin:0">Brands need an account.</p></div>`;
-  const cur=BR.docs[uid],mb=!cur&&BR.mem[uid]?BR.docs[BR.mem[uid]]:null;
+  if(edit&&!SUP.is)return back+`<div class="panel"><p class="muted" style="margin:0">Only a Super Admin can edit other brands.</p></div>`;
+  const cur=bDoc(),mb=!edit&&!cur&&BR.mem[uid]?BR.docs[BR.mem[uid]]:null;
+  if(edit&&!cur)return back+`<div class="panel"><p class="muted" style="margin:0">Loading...</p></div>`;
   const msg0=BR.msg?`<p class="msg" style="color:${BR.ok?"var(--good)":"var(--push)"}">${esc(BR.msg)}</p>`:"";
-  const invs=!cur&&!mb&&BR.invIn.length?`<div class="panel"><h2>Brand invites</h2><ul class="people">${BR.invIn.map(i=>{const b=(SOC.profiles[i.brand]||{});
+  const invs=!edit&&!cur&&!mb&&BR.invIn.length?`<div class="panel"><h2>Brand invites</h2><ul class="people">${BR.invIn.map(i=>{const b=(SOC.profiles[i.brand]||{});
     return `<li>${avatar(b)}<span class="nm"><b>${esc(pname(b)||"A trainer")}</b><small class="one">Invites you to their brand</small></span><span></span>
       <div class="adm-acts"><button class="btn small primary" data-bacc="${i.id}">Join</button><button class="btn small" data-bdrop="${i.id}">Decline</button></div></li>`}).join("")}</ul>${msg0}</div>`:"";
-  if(mb||(!cur&&BR.mem[uid]))return back+`<div class="panel"><h2>Your brand</h2>
+  if(!edit&&(mb||(!cur&&BR.mem[uid])))return back+`<div class="panel"><h2>Your brand</h2>
     ${mb?`<div class="row" style="align-items:center;margin-bottom:12px">${mb.logo?`<img class="brand-hero" style="margin:0" src="${mb.logo}" alt="Logo">`:""}<b>${esc(mb.name)}</b></div>
-      <p class="small muted">${BR_STATUS[mb.status]}. You're a trainer in this brand, so you and the people you train see its logo and name. Only the owner changes it.</p>`
+      <p class="small muted">${BR_STATUS[mb.status]}. You're a trainer in this brand, so you and the people you train see its logo and name. Only the owner or a Super Admin changes it.</p>`
       :`<p class="small muted">Loading...</p>`}
-    <div class="row"><button class="btn danger" data-bleave="${uid}">Leave brand</button></div>${msg0}</div>`;
-  if(!BR.form)BR.form={name:cur?cur.name:"",logo:cur?cur.logo:""};
+    <div class="row"><button class="btn danger" data-bleave="${uid}">Leave brand</button></div>${msg0}</div>${brandAbout(mb)}`;
+  if(!BR.form)BR.form={name:cur?cur.name:"",logo:cur?cur.logo:"",details:cur?cur.details:"",links:cur?cur.links.map(x=>({...x})):[],restrict:cur?cur.restrict:false};
   if(!cur&&!ME.trainer)return back+invs+`<div class="panel"><p class="muted" style="margin:0">Turn on "I'm a trainer" in your profile to create a brand or join one.</p></div>`;
-  const f=BR.form,msg=BR.msg?`<p class="msg" style="color:${BR.ok?"var(--good)":"var(--push)"}">${esc(BR.msg)}</p>`:"";
-  const st=cur?{pending:"An admin needs to approve your brand. Until then nobody sees it.",approved:"Approved. You and everyone you train see this logo and name.",
-    rejected:"An admin declined this brand. Change it and send it again.",disabled:"An admin turned this brand off. Contact them to have it enabled."}[cur.status]:"";
+  const f=BR.form,msg=msg0;
+  const st=cur?(edit?{pending:"Waiting for a Super Admin's approval (yours). Use Approve in the Admin tab.",approved:"Approved. Its owner, trainers and everyone they train see this logo and name.",
+    rejected:"Declined. The owner can change it and send it again.",disabled:"Turned off. Enable it in the Admin tab."}
+    :{pending:"A Super Admin needs to approve your brand. Until then nobody sees it.",approved:"Approved. You and everyone you train see this logo and name.",
+    rejected:"A Super Admin declined this brand. Change it and send it again.",disabled:"A Super Admin turned this brand off. Contact them to have it enabled."})[cur.status]:"";
   const logo=f.logo?`<img class="brand-hero" style="margin:0" src="${f.logo}" alt="Logo">`:`<div class="muted small">No logo yet</div>`;
-  const vids=cur&&cur.status==="approved"?`<div class="panel"><h2>Your video links</h2>
-    <p class="small muted" style="margin:0 0 10px">The app's YouTube tutorials are the defaults. A link you add here replaces the default for you and everyone you train. Clear a link and save to go back to the default.</p>
+  const vids=cur&&cur.status==="approved"?`<div class="panel"><h2>${edit?"Video links":"Your video links"}</h2>
+    <p class="small muted" style="margin:0 0 10px">The app's YouTube tutorials are the defaults. A link added here replaces the default for ${edit?"this brand's":"you and everyone you train"} members. Clear a link and save to go back to the default.</p>
     <input class="field" id="bvQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(BR.vq)}" style="width:100%">
     <ul class="vids" id="bvList">${brandVidRows()}</ul></div>`:"";
-  return back+invs+`<div class="panel"><h2>Your brand</h2>
-    ${cur?`<p style="margin:0 0 12px"><span class="tag ${cur.status==="approved"?"":"plain"}">${BR_STATUS[cur.status]}</span></p><p class="small muted" style="margin:0 0 12px">${st}</p>`
-      :`<p class="small muted" style="margin:0 0 12px">Give yourself and the people you train your own logo and app name. An admin approves a new brand before it shows.</p>`}
+  const link=cur&&cur.status==="approved"?`<div class="panel"><h2>Join link</h2>
+    <p class="small muted" style="margin:0 0 10px">Anyone who signs up from this link joins ${esc(cur.name)}, and ${edit?"the owner":"you"} become${edit?"s":""} their trainer. They still need an admin's approval to use the app. People already in the app are asked first.</p>
+    <div class="row"><button class="btn" id="brandCopyLink">Copy join link</button>${navigator.share?`<button class="btn" id="brandShareLink">Share join link</button>`:""}</div></div>`:"";
+  const links=f.links.map((l,i)=>`<div class="row" style="flex-wrap:nowrap;margin-top:6px">
+      <input class="field" data-bl="${i}.label" maxlength="30" placeholder="Label" aria-label="Link ${i+1} label" value="${esc(l.label)}" style="flex:1;min-width:0">
+      <input class="field" data-bl="${i}.url" inputmode="url" autocapitalize="none" autocorrect="off" placeholder="https://..." aria-label="Link ${i+1} address" value="${esc(l.url)}" style="flex:2;min-width:0">
+      <button class="btn small" data-blrm="${i}" aria-label="Remove link ${i+1}">Remove</button></div>`).join("");
+  return back+invs+`<div class="panel"><h2>${edit?esc(cur.name):"Your brand"}</h2>
+    ${cur?`<p style="margin:0 0 12px"><span class="tag ${cur.status==="approved"?"":"plain"}">${BR_STATUS[cur.status]}</span>${edit?` <span class="small muted">Owner: ${esc(pname(SOC.profiles[BR.edit])||"a trainer")}</span>`:""}</p><p class="small muted" style="margin:0 0 12px">${st}</p>`
+      :`<p class="small muted" style="margin:0 0 12px">Give yourself and the people you train your own logo and app name. A Super Admin approves a new brand before it shows.</p>`}
     <div class="row" style="align-items:center;margin-bottom:14px">${logo}
       <div class="row" style="flex:1"><button class="btn small" id="brandLogoBtn">${f.logo?"Change logo":"Upload logo"}</button>${f.logo?`<button class="btn small" id="brandLogoClear">Remove logo</button>`:""}</div></div>
     <input type="file" id="brandLogoFile" accept="image/png,image/jpeg,image/webp" hidden>
     <label class="stack" style="margin-bottom:14px"><span>App name</span>
       <input class="field" data-bf="name" value="${esc(f.name)}" maxlength="40" placeholder="Name your members see"></label>
+    <label class="stack" style="margin-bottom:14px"><span>About the brand</span>
+      <textarea class="field" data-bf="details" rows="4" maxlength="300" placeholder="What the brand is about and who it is for">${esc(f.details)}</textarea></label>
+    <div style="margin-bottom:14px"><span class="small muted">Links, up to 5 (website, Instagram, booking page)</span>${links}
+      ${f.links.length<5?`<p style="margin:8px 0 0"><button class="btn small" id="brandLinkAdd">Add a link</button></p>`:""}</div>
+    <label class="bigswitch" style="margin-bottom:14px"><input type="checkbox" id="brandRestrict" ${f.restrict?"checked":""}>
+      <span><b>Restrict access to global users</b><br><span class="muted" style="font-size:14px">${f.restrict
+        ?"On. The people this brand trains don't see Find New Buddies, the global leaderboard or other members' profiles, and aren't listed there. Their buddies and trainers still work. The owner and the brand's trainers are not affected."
+        :"Off. The people this brand trains can see, and be seen by, every member."}</span></span></label>
     <p class="small muted" style="margin:0 0 14px">The logo and name replace Infinity in the header, the welcome screen, shared images and the browser tab. A phone app that is already installed keeps its old icon; people who install after signing in get the brand icon.</p>
-    <div class="row"><button class="btn primary" id="brandSave">${cur?(cur.status==="rejected"?"Send again":"Save"):"Request brand"}</button>${cur?`<button class="btn danger" id="brandDelete">Delete brand</button>`:""}</div>
-    ${msg}</div>${cur?brandTrainersPanel():""}${vids}`;
+    <div class="row"><button class="btn primary" id="brandSave">${cur?(!edit&&cur.status==="rejected"?"Send again":"Save"):"Request brand"}</button>${cur?`<button class="btn danger" id="brandDelete">Delete brand</button>`:""}</div>
+    ${msg}</div>${link}${cur?brandTrainersPanel():""}${vids}`;
 }
 function brandTrainersPanel(){
+  const edit=!!BR.edit,owner=bTarget();
+  const members=edit?ADM.bmem.filter(m=>m.brand===owner).map(m=>m.id):BR.members;
   const row=(u,extra)=>{const p=SOC.profiles[u]||{};return `<li>${avatar(p)}<span class="nm"><b>${esc(pname(p)||"A trainer")}</b>${extra[0]}</span><span></span><div class="adm-acts">${extra[1]}</div></li>`};
-  return `<div class="panel"><h2>Trainers in your brand</h2>
-    <p class="small muted" style="margin:0 0 10px">Invite other trainers. Each one, and the people they train, will see your logo and name. A trainer can be in only one brand.</p>
-    <ul class="people">${row(uid,[` <span class="tag plain">Owner, you</span>`,""])}
-      ${BR.members.map(t=>row(t,["",`<button class="btn small" data-bleave="${t}">Remove</button>`])).join("")}
-      ${BR.invOut.map(i=>row(i.to,[` <span class="tag plain">Invited</span>`,`<button class="btn small" data-bdrop="${i.id}">Cancel</button>`])).join("")}</ul>
-    <div class="row"><input class="field" id="brandInviteEmail" type="email" placeholder="Trainer's Google email" autocomplete="off"><button class="btn primary" id="brandInviteBtn">Invite</button></div></div>`;
+  return `<div class="panel"><h2>Trainers in ${edit?"this":"your"} brand</h2>
+    <p class="small muted" style="margin:0 0 10px">${edit?"Add a trainer straight away. They":"Invite other trainers. Each one"}, and the people they train, will see the brand's logo and name. A trainer can be in only one brand.</p>
+    <ul class="people">${row(owner,[` <span class="tag plain">Owner${edit?"":", you"}</span>`,""])}
+      ${members.map(t=>row(t,["",`<button class="btn small" data-bleave="${t}">Remove</button>`])).join("")}
+      ${edit?"":BR.invOut.map(i=>row(i.to,[` <span class="tag plain">Invited</span>`,`<button class="btn small" data-bdrop="${i.id}">Cancel</button>`])).join("")}</ul>
+    <div class="row"><input class="field" id="brandInviteEmail" type="email" placeholder="Trainer's Google email" autocomplete="off"><button class="btn primary" id="brandInviteBtn">${edit?"Add trainer":"Invite"}</button></div></div>`;
 }
 function brandVidRows(){
-  const cur=BR.docs[uid],q=BR.vq.trim().toLowerCase();
+  const cur=bDoc(),q=BR.vq.trim().toLowerCase();
   const names=vidNames().filter(n=>!q||n.toLowerCase().includes(q)||dn(n).toLowerCase().includes(q));
   if(!names.length)return `<li class="muted" style="display:block">No exercise matches that.</li>`;
   return names.map(n=>{const k=slug(n),mine=cur.videos[k]||"",def=(VIDS[k]||{}).id||"",m=BR.vmsg[k];
@@ -3843,18 +3984,20 @@ async function admBrands(){
   softRender();
 }
 function admBrandPanel(){
+  if(!SUP.is)return "";
   const row=b=>{const o=pname(SOC.profiles[b.id])||"a trainer";
     const acts={pending:[["approved","Approve","primary"],["rejected","Decline","danger"]],approved:[["disabled","Disable","danger"]],rejected:[["approved","Approve",""]],disabled:[["approved","Enable",""]]}[b.status]||[];
     const mem=ADM.bmem.filter(m=>m.brand===b.id).map(m=>pname(SOC.profiles[m.id])||"a trainer");
     return `<li data-bown-row="${b.id}">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:`<span class="av"></span>`}
-      <span class="nm"><b>${esc(b.name)}</b> <span class="tag ${b.status==="approved"?"":"plain"}">${BR_STATUS[b.status]}</span><small class="one">Owner: ${esc(o)}${mem.length?" · Also: "+esc(mem.join(", ")):""}</small></span><span></span>
-      <div class="adm-acts">${acts.map(([k,l,c])=>`<button class="btn small ${c}" data-badm="${k}" data-u="${b.id}">${l}</button>`).join("")}</div>
+      <span class="nm"><b>${esc(b.name)}</b> <span class="tag ${b.status==="approved"?"":"plain"}">${BR_STATUS[b.status]}</span>${b.restrict?` <span class="tag plain">Restricted</span>`:""}<small class="one">Owner: ${esc(o)}${mem.length?" · Also: "+esc(mem.join(", ")):""}</small></span><span></span>
+      <div class="adm-acts"><button class="btn small" data-bedit="${b.id}">Edit</button>${acts.map(([k,l,c])=>`<button class="btn small ${c}" data-badm="${k}" data-u="${b.id}">${l}</button>`).join("")}</div>
       <div class="row" style="grid-column:1/-1;flex-wrap:nowrap"><input class="field" data-bownin type="email" placeholder="New owner's Google email" autocomplete="off" aria-label="New owner for ${esc(b.name)}"><button class="btn small" data-bown="${b.id}">Change owner</button></div></li>`};
   const pend=ADM.brands.filter(b=>b.status==="pending"),rest=ADM.brands.filter(b=>b.status!=="pending");
   return `<div class="panel"><h2>Brands (${ADM.brands.length})${pend.length?`, ${pend.length} waiting`:""}</h2>
+    <p class="small muted" style="margin:0 0 10px">Only Super Admins see this. Approve, edit and delete brands, and add trainers to them under Edit.</p>
     ${ADM.brands.length?`<ul class="people">${[...pend,...rest].map(row).join("")}</ul>`:`<p class="small muted" style="margin:0 0 10px">No brands yet.</p>`}
     <h2 style="margin-top:14px">Create a brand</h2>
-    <p class="small muted" style="margin:0 0 10px">Make a brand for a trainer who isn't in one. It is approved straight away and they become its owner. They add the logo.</p>
+    <p class="small muted" style="margin:0 0 10px">Make a brand for a trainer who isn't in one. It is approved straight away and they become its owner. Open it with Edit to add the logo, details and links.</p>
     <div class="row"><input class="field" id="admBrandEmail" type="email" placeholder="Owner's Google email" autocomplete="off"><input class="field" id="admBrandName" maxlength="40" placeholder="App name" autocomplete="off"><button class="btn primary" id="admBrandCreate">Create</button></div>
     <p class="small muted" style="margin:10px 0 0">Changing the owner moves the whole brand, its logo, videos and trainers, to another trainer. They must not be in or own another brand. The old owner stops being part of it.</p></div>`;
 }
@@ -3877,6 +4020,7 @@ function admAudit(action,target,name){
   setDoc(doc(collection(fs,"audit")),entry).catch(e=>console.warn("audit",e));
 }
 async function admBrandCreate(){
+  if(!SUP.is)return;
   const name=($("#admBrandName")?.value||"").trim().slice(0,40);
   if(!name)return say("Give the brand a name.");
   try{
@@ -3889,6 +4033,7 @@ async function admBrandCreate(){
 /* The brand id is its owner's uid, so a new owner means a new document. Done in three steps, because the rules
    check the state before each batch: free the new owner, move the brand, then re-add the trainers. */
 async function admBrandOwner(id,email){
+  if(!SUP.is)return;
   const b=ADM.brands.find(x=>x.id===id);if(!b)return;
   try{
     const o=await admBrandPerson(email,id);if(!o)return;
@@ -3912,6 +4057,7 @@ async function admBrandOwner(id,email){
   }catch(e){say(fbError(e,"change the owner")+" Reload the Brands list to see where it stopped.")}
 }
 async function admBrand(status,u){
+  if(!SUP.is)return;
   const b=ADM.brands.find(x=>x.id===u);if(!b)return;
   const kind={approved:b.status==="pending"?"brandapprove":"brandon",rejected:"branddecline",disabled:"brandoff"}[status];
   const ask={brandapprove:"Approve the brand "+b.name+"? Its owner and everyone they train will see its logo and name.",branddecline:"Decline the brand "+b.name+"?",
@@ -4208,7 +4354,7 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
-  if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;leaveAct();if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
+  if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;leaveAct();if(BR.edit){BR.edit=null;BR.form=null;BR.msg="";BR.vmsg={};BR.vq=""}if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);S.swapOpen=false;render();return}
   if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
   if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
@@ -4245,6 +4391,8 @@ document.addEventListener("click",async e=>{
   if(ds.bacc){acceptBrandInvite(ds.bacc);return}
   if(ds.bdrop){dropBrandInvite(ds.bdrop);return}
   if(ds.bleave){leaveBrand(ds.bleave);return}
+  if(ds.bedit){BR.edit=ds.bedit;BR.form=null;BR.msg="";BR.vq="";BR.vmsg={};S.view="brand";S.msg="";render();window.scrollTo(0,0);return}
+  if(ds.blrm!=null&&BR.form){BR.form.links.splice(+ds.blrm,1);render();return}
   if(ds.bown){admBrandOwner(ds.bown,t.closest("li").querySelector("[data-bownin]").value);return}
   if(ds.badm){admBrand(ds.badm,ds.u);return}
   if(ds.bvsave!=null){saveBrandVideo(ds.bvsave);return}
@@ -4319,6 +4467,12 @@ document.addEventListener("click",async e=>{
     case "brandLogoBtn":$("#brandLogoFile").click();return;
     case "brandLogoClear":BR.form.logo="";render();return;
     case "brandSave":saveBrand();return;
+    case "brandLinkAdd":if(BR.form&&BR.form.links.length<5){BR.form.links.push({label:"",url:""});render()}return;
+    case "brandCopyLink":
+      try{await navigator.clipboard.writeText(brandLink(bTarget()));brandSay("Join link copied.",true)}
+      catch(err){prompt("Copy the join link:",brandLink(bTarget()))}
+      return;
+    case "brandShareLink":navigator.share({title:appName(),text:"Join "+((bDoc()||{}).name||appName()),url:brandLink(bTarget())}).catch(()=>{});return;
     case "admBrandCreate":admBrandCreate();return;
     case "brandInviteBtn":inviteTrainer($("#brandInviteEmail").value);return;
     case "brandDelete":deleteBrand();return;
@@ -4369,6 +4523,7 @@ document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
   if(ds.bf&&BR.form){BR.form[ds.bf]=el.value;return}
+  if(ds.bl&&BR.form){const [i,k]=ds.bl.split(".");if(BR.form.links[+i])BR.form.links[+i][k]=el.value;return}
   if(ds.cf&&CAL.form){CAL.form[ds.cf]=el.value;return}
   if(ds.hr&&CAL.hoursDraft){CAL.hoursDraft[ds.hr]=el.value;return}
   if(ds.chk){CHK[ds.chk]=el.value;return}
@@ -4410,6 +4565,7 @@ document.addEventListener("change",async e=>{
     const f=el.files&&el.files[0];el.value="";
     if(f)readPhoto(f).then(u=>{S.profileDraft.photo=u;render()}).catch(()=>say("Couldn't read that image. Try another one."));
   }
+  else if(el.id==="brandRestrict"){saveRestrict(el.checked)}
   else if(el.id==="brandLogoFile"){
     const f=el.files&&el.files[0];el.value="";
     if(f)readLogo(f).then(u=>{BR.form.logo=u;BR.msg="";render()}).catch(()=>{BR.msg="Couldn't read that image. Try a PNG or JPEG.";BR.ok=false;render()});
@@ -4511,6 +4667,12 @@ if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.
 /* ---------- boot ---------- */
 const params=new URLSearchParams(location.search);
 const addParam=params.get("add");
+/* a brand's join link is ?brand={ownerUid}; it is kept on this device until the person is signed in and approved */
+const JB_KEY="infinity-joinbrand",JBA_KEY="infinity-brandjoined-";
+function stashedBrand(){try{return localStorage.getItem(JB_KEY)||""}catch(e){return ""}}
+{const b=(params.get("brand")||"").trim();
+  if(/^[A-Za-z0-9]{6,128}$/.test(b)){try{localStorage.setItem(JB_KEY,b)}catch(e){}}
+  if(params.has("brand")){params.delete("brand");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 function clearAddParam(){if(params.has("add")){params.delete("add");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 if(CONFIGURED){
   S.view="boot";render();
@@ -4519,12 +4681,14 @@ if(CONFIGURED){
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
     const hadMe=restoreMe();restoreBrand();
-    if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");return}
+    if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");else if(stashedBrand())setStatus("Sign in to join this brand.");return}
     /* A disabled account gets one calm screen: no log, no listeners, no writes. */
-    const [acct,adm,prof]=await Promise.all(["accounts","admins","profiles"].map(c=>getDoc(doc(fs,c,uid)).catch(()=>null)));
-    ADM.is=!!(adm&&adm.exists());
+    const [acct,adm,prof,sup]=await Promise.all(["accounts","admins","profiles","superAdmins"].map(c=>getDoc(doc(fs,c,uid)).catch(()=>null)));
+    SUP.is=!!(sup&&sup.exists());
+    ADM.is=SUP.is||!!(adm&&adm.exists());
     ACCT=acct&&acct.exists()?acct.data():{};
     const st=await accountStatus(acct,prof);
+    if(st==="join"){await loadJoinBrand()}
     if(st==="disabled"||st==="pending"||st==="join"){S.view=st;render();return}
     try{await initStore()}catch(e){S.mode="local"}
     if(S.mode==="db"){
@@ -4532,7 +4696,7 @@ if(CONFIGURED){
       const prof=loadMyProfile();
       if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
       if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();brandSync();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
+      startSocial();brandSync();brandLinkBoot();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
       if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
     }
     if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
