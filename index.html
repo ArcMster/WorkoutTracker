@@ -3388,7 +3388,11 @@ async function loadJoinBrand(){
   const id=stashedBrand();if(!id||id===uid)return;
   try{
     const d=await getDoc(doc(fs,"brands",id));
-    if(d.exists()&&d.data().status==="approved"){S.joinBrand=id;S.joinBrandName=brandOf(id,d.data()).name}
+    if(d.exists()&&d.data().status==="approved"){
+      const b=brandOf(id,d.data());S.joinBrand=id;S.joinBrandName=b.name;
+      setBrand(b,true);/* the invite already shows the brand's name and icon */
+      try{localStorage.setItem(JBM_KEY,JSON.stringify({id,name:b.name,logo:b.logo}))}catch(e){}
+    }
   }catch(e){console.warn("join brand",e)}
 }
 function renderJoin(){
@@ -4261,11 +4265,13 @@ function evRow(e,full,showDate){
 }
 function renderNextDash(){
   const td=today(),nm=nowMin();
-  const list=CAL.events.filter(e=>e.status!=="declined"&&(e.date>td||(e.date===td&&evEnd(e)>nm))).sort(calCmp).slice(0,3);
-  const n=calPending().length;
-  if(!list.length&&!n)return "";
-  return `<section class="sec"><div class="sec-h"><span class="kicker">Coming up</span><button class="link" data-view="cal">Calendar</button></div>
-    ${n?`<p class="small" style="margin:0 0 6px"><button class="link" data-view="cal">${n} request${n===1?"":"s"} waiting for your reply</button></p>`:""}
+  const asks=calPending();
+  const list=CAL.events.filter(e=>e.status!=="declined"&&!(e.status==="pending"&&e.to===uid)&&(e.date>td||(e.date===td&&evEnd(e)>nm))).sort(calCmp).slice(0,3);
+  if(!list.length&&!asks.length)return "";
+  return `<section class="sec"><div class="sec-h"><span class="kicker">${asks.length?"Needs your reply":"Coming up"}</span><button class="link" data-view="cal">Calendar</button></div>
+    ${asks.length?`<ul class="agenda">${asks.map(e=>evRow(e,true,true)).join("")}</ul>`:""}
+    ${CAL.msg?`<p class="coachnote" role="status">${esc(CAL.msg)}</p>`:""}
+    ${asks.length&&list.length?`<div class="sec-h"><span class="kicker">Coming up</span></div>`:""}
     ${list.length?`<ul class="agenda">${list.map(e=>evRow(e,false,e.date!==td)).join("")}</ul>`:""}</section>`;
 }
 function calChips(f){
@@ -4668,7 +4674,7 @@ if("serviceWorker" in navigator&&location.protocol.startsWith("http"))navigator.
 const params=new URLSearchParams(location.search);
 const addParam=params.get("add");
 /* a brand's join link is ?brand={ownerUid}; it is kept on this device until the person is signed in and approved */
-const JB_KEY="infinity-joinbrand",JBA_KEY="infinity-brandjoined-";
+const JB_KEY="infinity-joinbrand",JBA_KEY="infinity-brandjoined-",JBM_KEY="infinity-joinbrand-look";
 function stashedBrand(){try{return localStorage.getItem(JB_KEY)||""}catch(e){return ""}}
 {const b=(params.get("brand")||"").trim();
   if(/^[A-Za-z0-9]{6,128}$/.test(b)){try{localStorage.setItem(JB_KEY,b)}catch(e){}}
@@ -4681,7 +4687,9 @@ if(CONFIGURED){
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
     const hadMe=restoreMe();restoreBrand();
-    if(!uid){await initStore();S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");else if(stashedBrand())setStatus("Sign in to join this brand.");return}
+    if(!uid){await initStore();
+      if(stashedBrand())try{const v=JSON.parse(localStorage.getItem(JBM_KEY)||"null");if(v&&v.id===stashedBrand()&&v.name)setBrand(brandOf(v.id,{...v,status:"approved"}),true)}catch(e){}
+      S.view="signin";render();if(addParam)setStatus("Sign in to accept this buddy invite.");else if(stashedBrand())setStatus("Sign in to join this brand.");return}
     /* A disabled account gets one calm screen: no log, no listeners, no writes. */
     const [acct,adm,prof,sup]=await Promise.all(["accounts","admins","profiles","superAdmins"].map(c=>getDoc(doc(fs,c,uid)).catch(()=>null)));
     SUP.is=!!(sup&&sup.exists());
