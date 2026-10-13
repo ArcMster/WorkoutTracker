@@ -99,6 +99,7 @@ button{cursor:pointer}
 .sets input:focus{border-color:var(--dc);outline:none}
 .sets input::placeholder{color:var(--muted);opacity:.55}
 .sets td.ok{width:52px}
+.setbtns{margin-top:8px}
 .done{width:44px;height:44px;border-radius:50%;border:2px solid var(--line);background:none;display:grid;place-items:center}
 .done svg{width:20px;height:20px;stroke:var(--muted);opacity:.5}
 .done[aria-pressed="true"]{background:var(--dc);border-color:var(--dc)}
@@ -796,10 +797,15 @@ function dayAt(plan,date){
   return (s&&s.custom)||plan.days[srcFor(plan,date)-1];
 }
 /* the day being shown: from its plan, or rebuilt from the session if that plan was deleted */
+/* a day plus the exercises added to this session while working out (session.added) */
+function withAdded(d,s){
+  if(!d||!s||!s.added||!s.added.length||d.t==="rest")return d;
+  return {...d,ex:[...d.ex,...s.added.filter(a=>!d.ex.some(x=>x.n===a.n))]};
+}
 function day(){
   const p=viewPlan();const s=cur();
-  if(s&&s.custom)return s.custom;
-  if(p)return p.days[srcFor(p,S.date)-1];
+  if(s&&s.custom)return withAdded(s.custom,s);
+  if(p)return withAdded(p.days[srcFor(p,S.date)-1],s);
   if(s)return {t:s.t||"other",title:s.title||"Workout",focus:"",note:"This plan was deleted. Showing what you logged.",
     ex:Object.keys(s.entries||{}).map(n=>X(n,Math.max(1,(s.entries[n]||[]).length),0,0))};
   return REST();
@@ -1057,8 +1063,8 @@ function nowTraining(){
   const s=todaySess();
   if(!s)return null;
   const p=getPlan(s.planId||"ppl"),m=sessionMeta(s);
-  const d=s.custom||(p&&p.days[sessSrc(s)-1]);
-  const done=setCount(s),of=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload),0):0;
+  const d=withAdded(s.custom||(p&&p.days[sessSrc(s)-1]),s);
+  const done=setCount(s),of=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload)+((s.extra&&s.extra[x.n])||0),0):0;
   const ex=s.lastEx&&filled(s.entries[s.lastEx]).length?s.lastEx:Object.keys(s.entries||{}).filter(n=>filled(s.entries[n]).length).pop()||"";
   return {d:s.date,at:s.updated||Date.now(),t:m.t,title:m.title,src:s.custom?0:sessSrc(s),plan:p?p.name:"",custom:!!s.custom,ex,done,of};
 }
@@ -1564,7 +1570,7 @@ function renderFind(){
 /* ---------- workout detail and reports ---------- */
 function tPlan(id){return BUILTIN.find(p=>p.id===id)||(TR.plans[id]?{id,...TR.plans[id]}:null)}
 function metaIn(s,getP){
-  const p=getP(s.planId||"ppl");const d=s.custom||(p&&p.days[sessSrc(s)-1]);
+  const p=getP(s.planId||"ppl");const d=withAdded(s.custom||(p&&p.days[sessSrc(s)-1]),s);
   return {t:s.t||(d&&d.t)||"other",title:s.title||(d&&d.title)||"Workout",plan:p,d};
 }
 function sortAsc(list){return list.slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.day-b.day)}
@@ -2162,7 +2168,7 @@ function renderLog(){
   }else{
     body=d.ex.map((ex,i)=>{
       const last=lastFor(ex.n);const h=hintFor(ex,last);
-      const n=setsFor(ex,deload);const entry=(s&&s.entries[ex.n])||[];const u=S.settings.unit;
+      const extra=(s&&s.extra&&s.extra[ex.n])||0;const n=setsFor(ex,deload)+extra;const entry=(s&&s.entries[ex.n])||[];const u=S.settings.unit;
       const rows=Array.from({length:n},(_,k)=>{
         const e=entry[k]||{};const l=last&&last.sets[k];
         const w=e.w!=null?conv(e.w,s.unit||u,u):"";
@@ -2182,9 +2188,12 @@ function renderLog(){
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
         ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
         <table class="sets"><thead><tr><th></th><th>Weight (${u})</th><th>${repLabel(ex)}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="row setbtns"><button class="btn small" data-addset="${i}">Add set</button>
+          ${extra&&!filled(entry.slice(n-1,n)).length&&!(entry[n-1]&&(entry[n-1].w!=null||entry[n-1].done))?`<button class="btn small" data-rmset="${i}">Remove last set</button>`:""}</div>
       </section>`;
     }).join("");
   }
+  const addEx=d.t!=="rest"?addExHtml(d,s):"";
   const note=act?"Sets save to "+esc(ACT.name)+"'s log.":S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
   const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
     +(p?"":`<option selected>Deleted plan</option>`);
@@ -2203,8 +2212,29 @@ function renderLog(){
     ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""}> Deload (about 40% fewer sets)</label>`:""}
   </div>
   ${body}
+  ${addEx}
   ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
+}
+/* add an exercise, or every exercise of another workout, to today's session only */
+function addExHtml(d,s){
+  const A=S.add||(S.add={open:false,name:"",sets:3,err:""});
+  if(!A.open)return `<div class="row" style="margin:14px 0"><button class="btn" id="addExOpen">Add exercise</button></div>`;
+  const from=allPlans().map(pl=>{const opts=pl.days.map((x,k)=>x.t!=="rest"&&x.ex.length?`<option value="${esc(pl.id)}:${k}">${WD[k]}: ${esc(x.title)}</option>`:"").join("");
+    return opts?`<optgroup label="${esc(pl.name)}">${opts}</optgroup>`:""}).join("");
+  return `<div class="panel"><h2>Add to this session</h2>
+    <p class="small muted" style="margin:0 0 10px">Only ${esc(fmtDate(S.date))} changes. Your plan stays the same.</p>
+    ${exNamesList()}
+    <div class="row"><input class="field" list="exnames" data-af="name" value="${esc(A.name)}" placeholder="Exercise name" aria-label="Exercise name" maxlength="60" style="flex:1;min-width:160px">
+      <input class="field" inputmode="numeric" data-af="sets" value="${esc(A.sets)}" aria-label="Number of sets" style="width:72px"><span class="small muted">sets</span></div>
+    ${A.err?`<p class="msg" style="color:var(--push);margin:8px 0 0">${esc(A.err)}</p>`:""}
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="addExSave">Add exercise</button><button class="btn" id="addExCancel">Close</button></div>
+    ${from?`<div class="row" style="margin-top:12px"><select class="btn small" id="addFrom" aria-label="Add a whole workout"><option value="">Or add a whole workout...</option>${from}</select></div>`:""}</div>`;
+}
+function addToSession(list){
+  const s=ensure(),have=day().ex.map(x=>x.n.toLowerCase()),add=list.filter(x=>!have.includes(x.n.toLowerCase()));
+  if(!add.length)return 0;
+  s.added=[...(s.added||[]),...add];s.updated=Date.now();scheduleSave(curId());return add.length;
 }
 function beatText(e,l,last){
   if(!l||e.r==null)return "";
@@ -4432,6 +4462,14 @@ document.addEventListener("click",async e=>{
     if(S.planId===ds.del)S.planId=S.settings.activePlan;
     schedulePublish();S.msg="Plan deleted.";S.msgOk=true;render();return}
   if(ds.swap){swapDays(S.date,ds.swap);S.swapOpen=false;render();return}
+  if(ds.addset!=null||ds.rmset!=null){
+    const ex=day().ex[+(ds.addset??ds.rmset)];if(!ex)return;
+    const s=ensure(),ex2=s.extra||(s.extra={});
+    ex2[ex.n]=Math.max(0,(ex2[ex.n]||0)+(ds.addset!=null?1:-1));
+    if(!ex2[ex.n])delete ex2[ex.n];
+    if(ds.rmset!=null){const a=s.entries[ex.n],n=setsFor(ex,s.deload)+(ex2[ex.n]||0);if(a&&a.length>n)a.length=n}
+    s.updated=Date.now();scheduleSave(curId());
+    const y=window.scrollY;render();window.scrollTo(0,y);return}
   if(ds.addex!=null){const d=S.draft.days[+ds.addex];d.ex.push(X("",3,8,12));render();
     const ins=document.querySelectorAll(`[data-di="${ds.addex}"][data-xf="n"]`);if(ins.length)ins[ins.length-1].focus();return}
   if(ds.rmex!=null){S.draft.days[+ds.di].ex.splice(+ds.xi,1);render();return}
@@ -4465,6 +4503,14 @@ document.addEventListener("click",async e=>{
     case "ovSave":saveDayEdit();return;
     case "ovBlank":S.draft.days[0]=BLANK_DAY();render();return;
     case "ovCancel":case "ovCancel2":if(leaveEditor()){S.view="log";render();window.scrollTo(0,0)}return;
+    case "addExOpen":S.add={open:true,name:"",sets:3,err:""};render();return;
+    case "addExCancel":S.add=null;render();return;
+    case "addExSave":{
+      const A=S.add,n=canon(A.name),k=num(A.sets);
+      if(!n){A.err="Type the exercise name.";render();return}
+      if(!k||k<1||k>20||k!==Math.round(k)){A.err="Sets should be a whole number from 1 to 20.";render();return}
+      if(day().ex.some(x=>x.n.toLowerCase()===n.toLowerCase())){A.err=dn(n)+" is already in this workout. Use Add set on it.";render();return}
+      addToSession([X(n,k,0,0)]);S.add=null;render();return}
     case "swapOpen":S.swapOpen=!S.swapOpen;render();return;
     case "swapClear":if(confirm("Undo this week's day swaps?")){undoSwaps();render()}return;
     case "photoBtn":$("#photoFile").click();return;
@@ -4539,6 +4585,7 @@ document.addEventListener("input",e=>{
   if(el.id==="vNew"){ADM.newName=el.value;return}
   if(el.id==="admQ"){ADM.q=el.value;const l=$("#admList");if(l)l.innerHTML=admRows();return}
   if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
+  if(ds.af&&S.add){S.add[ds.af]=el.value;return}
   /* plan editor fields: update the draft without re-rendering */
   if((S.view==="planEdit"||S.view==="dayEdit")&&S.draft){
     if(ds.pf){S.draft[ds.pf]=el.value;return}
@@ -4597,6 +4644,11 @@ document.addEventListener("change",async e=>{
     d.t=el.value;render();
   }
   else if(ds.xf==="u"&&S.draft){S.draft.days[+ds.di].ex[+ds.xi].u=el.value}
+  else if(el.id==="addFrom"&&el.value){
+    const i=el.value.lastIndexOf(":"),pl=getPlan(el.value.slice(0,i)),d=pl&&pl.days[+el.value.slice(i+1)];
+    if(d)addToSession(d.ex.map(x=>X(x.n,x.s,x.lo,x.hi,x.u)));
+    S.add=null;render();
+  }
   else if(el.id==="ovFrom"&&S.draft&&el.value){
     const i=el.value.lastIndexOf(":"),pl=getPlan(el.value.slice(0,i)),d=pl&&pl.days[+el.value.slice(i+1)];
     if(d){S.draft.days[0]=clone(d);render()}
