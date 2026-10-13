@@ -583,6 +583,20 @@ button.chip small{font-weight:400}
   <button id="install-later">Not now</button>
 </div>
 <div class="wrap" id="app"><p class="muted">Loading your log...</p></div>
+<script>
+/* before the app code has loaded: the last signed-in person's brand, so the default name and logo never flash */
+try{
+  var u=localStorage.getItem("infinity-lastuid"),v=u&&JSON.parse(localStorage.getItem("infinity-brand-"+u)||"null");
+  if(v&&v.name){
+    var e=function(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
+    document.title=v.name;
+    var m=document.querySelector('meta[name="apple-mobile-web-app-title"]');if(m)m.content=v.name;
+    var it=document.getElementById("install-text");if(it)it.textContent="Install "+v.name+" on this device for one-tap access at the gym.";
+    document.body.classList.add("landing-on");
+    document.getElementById("app").innerHTML='<main class="landing"><div class="l-top">'+(v.logo&&/^data:image\//.test(v.logo)?'<img class="brand-hero" src="'+e(v.logo)+'" alt="">':"")+'<h1 class="l-title">'+e(v.name)+'</h1><p class="l-sub">Fitness tracker</p></div></main>';
+  }
+}catch(x){}
+</script>
 <div class="timer" id="timer" role="status" aria-live="polite">
   <span class="t" id="tt">1:30</span>
   <span class="bar"><i id="tb"></i></span>
