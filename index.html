@@ -3695,9 +3695,12 @@ function stopBrand(){
   setBrand(null,true);
 }
 /* the last brand shown on this device, so the logo and name are there from the first frame */
-function restoreBrand(){
-  if(!uid)return;
-  try{const v=JSON.parse(localStorage.getItem(BR_KEY+uid)||"null");if(v&&v.name)setBrand(brandOf(v.id,{...v,status:"approved"}),true)}catch(e){}
+function restoreBrand(who){
+  who=who||uid;
+  let v=null;
+  if(who)try{v=JSON.parse(localStorage.getItem(BR_KEY+who)||"null")}catch(e){}
+  if(v&&v.name)setBrand(brandOf(v.id,{...v,status:"approved"}),true);
+  else if(BR.active)setBrand(null,true);/* a brand left from someone else, or from before signing out */
 }
 /* A person's brand: the one they own, or the one they were accepted into. */
 function brandIdOf(p){return BR.docs[p]?p:BR.mem[p]||null}
@@ -4733,11 +4736,14 @@ function stashedBrand(){try{return localStorage.getItem(JB_KEY)||""}catch(e){ret
   if(params.has("brand")){params.delete("brand");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 function clearAddParam(){if(params.has("add")){params.delete("add");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 if(CONFIGURED){
+  /* show the last signed-in person's brand on the first screen, before sign-in has been checked */
+  try{restoreBrand(localStorage.getItem("infinity-lastuid")||"")}catch(e){}
   S.view="boot";render();
   onAuthStateChanged(auth,async user=>{
     stopSocial();stopToday();ACT.uid=null;ACT.own=null;
     uid=user?user.uid:null;
     me=user?{name:user.displayName||(user.email||"").split("@")[0],photo:user.photoURL||"",email:user.email||""}:{name:"",photo:"",email:""};
+    try{if(uid)localStorage.setItem("infinity-lastuid",uid)}catch(e){}
     const hadMe=restoreMe();restoreBrand();
     if(!uid){await initStore();
       if(stashedBrand())try{const v=JSON.parse(localStorage.getItem(JBM_KEY)||"null");if(v&&v.id===stashedBrand()&&v.name)setBrand(brandOf(v.id,{...v,status:"approved"}),true)}catch(e){}
