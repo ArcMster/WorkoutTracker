@@ -1272,11 +1272,13 @@ function loadProfile(u){
     .catch(()=>{SOC.profiles[u]={name:"Unknown user",photo:""}});
 }
 function startSocial(){
+  Object.keys(NOTE_SEEN).forEach(k=>delete NOTE_SEEN[k]);
   const rq=collection(fs,"requests");
   let fromMe=[],toMe=[];
   const recompute=()=>{
     SOC.outgoing=fromMe.filter(r=>r.status==="pending");
     SOC.incoming=toMe.filter(r=>r.status==="pending");
+    notifyNew("br",SOC.incoming,r=>["New buddy request",(pname(SOC.profiles[r.from])||"Someone")+" wants to be your buddy."]);
     SOC.accepted=[...fromMe,...toMe].filter(r=>r.status==="accepted").map(r=>({id:r.id,uid:r.from===uid?r.to:r.from}));
     [...SOC.accepted.map(a=>a.uid),...SOC.incoming.map(r=>r.from),...SOC.outgoing.map(r=>r.to)].forEach(loadProfile);
     const bset=new Set(SOC.accepted.map(a=>a.uid));
@@ -1296,7 +1298,7 @@ function startSocial(){
   SOC.unsubs.push(onSnapshot(query(co,where("from","==",uid)),
     s=>{SOC.offersOut=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersOut.forEach(o=>loadProfile(o.to));softRender()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(co,where("to","==",uid)),
-    s=>{SOC.offersIn=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersIn.forEach(o=>loadProfile(o.from));softRender()},e=>console.warn(e)));
+    s=>{SOC.offersIn=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersIn.forEach(o=>loadProfile(o.from));notifyNew("co",SOC.offersIn,o=>["Offer to train you",(pname(SOC.profiles[o.from])||"A trainer")+" offered to be your trainer."]);softRender()},e=>console.warn(e)));
   startCal();
 }
 function watchBuddy(b,recompute){
@@ -2208,6 +2210,8 @@ function renderLog(){
     }).join("");
   }
   const addEx=d.t!=="rest"?addExHtml(d,s):"";
+  const wc=!act&&s?wkClock(s):null;
+  const endFin=wc&&wc.running?`<div class="row" style="margin:14px 0"><button class="btn primary" id="wkFinishEnd">Finish workout</button></div>`:"";
   const note=act?"Sets save to "+esc(ACT.name)+"'s log.":S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
   const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
     +(p?"":`<option selected>Deleted plan</option>`);
@@ -2227,6 +2231,7 @@ function renderLog(){
   </div>
   ${body}
   ${addEx}
+  ${endFin}
   ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
 }
@@ -3137,6 +3142,10 @@ function renderBuddies(){
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
         ?"Buddies see your plan name, weekly workouts, streak, top sets and when you're training (which workout, and how far you are). Turn off and they see nothing."
         :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
+  ${"Notification" in window?`<div class="panel"><label class="bigswitch"><input type="checkbox" id="notifyOn" ${notifyOn()?"checked":""}>
+      <span><b>Notifications</b><br><span class="muted" style="font-size:14px">${Notification.permission==="denied"
+        ?"Blocked in your browser settings. Allow notifications for this app there, then turn this on."
+        :"When the app is in the background: tells you when your rest is over and when a buddy, trainer, brand or calendar request arrives."}</span></span></label></div>`:""}
   <div class="panel"><label class="bigswitch"><input type="checkbox" id="liveShow" ${S.settings.live!==false?"checked":""}>
       <span><b>Show when I'm training</b><br><span class="muted" style="font-size:14px">${S.settings.live!==false
         ?"While your workout clock is running, every member can see your name, the workout and how far you are in Training now."
@@ -3724,7 +3733,7 @@ function brandSync(coached){
   if(coached)BR.coached=true;
   if(!BR.unq.length){
     const bad=e=>console.warn("brand",e);
-    BR.unq.push(onSnapshot(query(collection(fs,"brandInvites"),where("to","==",uid)),s=>{BR.invIn=s.docs.map(d=>({id:d.id,...d.data()}));BR.invIn.forEach(i=>loadProfile(i.brand));softRender()},bad));
+    BR.unq.push(onSnapshot(query(collection(fs,"brandInvites"),where("to","==",uid)),s=>{BR.invIn=s.docs.map(d=>({id:d.id,...d.data()}));BR.invIn.forEach(i=>loadProfile(i.brand));notifyNew("bi",BR.invIn,i=>["Brand invite",(pname(SOC.profiles[i.brand])||"A brand")+" invited you to join."]);softRender()},bad));
     BR.unq.push(onSnapshot(query(collection(fs,"brandInvites"),where("brand","==",uid)),s=>{BR.invOut=s.docs.map(d=>({id:d.id,...d.data()}));BR.invOut.forEach(i=>loadProfile(i.to));if(S.view!=="brand")softRender();else render()},bad));
     BR.unq.push(onSnapshot(query(collection(fs,"brandMember"),where("brand","==",uid)),s=>{BR.members=s.docs.map(d=>d.id);BR.members.forEach(loadProfile);if(S.view!=="brand")softRender();else render()},bad));
   }
@@ -4155,7 +4164,10 @@ function startCal(){
   CAL.un.push(onSnapshot(query(collection(fs,"events"),where("members","array-contains",uid)),s=>{
     CAL.events=s.docs.map(d=>({id:d.id,...d.data()}));
     CAL.events.forEach(e=>e.members.forEach(m=>{if(m!==uid)loadProfile(m)}));
-    calClean();softRender();
+    calClean();
+    notifyNew("ev",CAL.events.filter(e=>e.status==="pending"&&e.to===uid),e=>["New request",personName(e.from)+" sent you a calendar request."]);
+    notifyNew("evr",CAL.events.filter(e=>e.from===uid&&e.status!=="pending"),e=>[e.status==="confirmed"?"Request accepted":"Request update",personName(e.to)+(e.status==="confirmed"?" accepted your request.":" replied to your request.")]);
+    softRender();
   },e=>console.warn(e)));
   CAL.un.push(onSnapshot(doc(fs,"avail",uid),d=>{CAL.avail[uid]=d.exists()?d.data():null;softRender()},e=>console.warn(e)));
   CAL.un.push(onSnapshot(query(collection(fs,"live"),where("until",">",Date.now()),orderBy("until"),limit(50)),s=>{
@@ -4497,7 +4509,7 @@ document.addEventListener("click",async e=>{
     case "signout":signOut(auth);return;
     case "checkAgain":location.reload();return;
     case "joinSend":sendJoin();return;
-    case "wkFinish":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
+    case "wkFinish":case "wkFinishEnd":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
     case "calNew":calOpenForm();return;
     case "calSave":calSave();return;
     case "calCancel":CAL.form=null;render();return;
@@ -4628,6 +4640,10 @@ document.addEventListener("change",async e=>{
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="range"){S.range=el.value}
   else if(el.id==="profTrainer"&&S.profileDraft){S.profileDraft.trainer=el.checked;render()}
+  else if(el.id==="notifyOn"){
+    if(el.checked){let p=Notification.permission;if(p==="default"){try{p=await Notification.requestPermission()}catch(err){}}S.settings.notify=p==="granted"}
+    else S.settings.notify=false;
+    await saveSettings();render()}
   else if(el.id==="liveShow"){S.settings.live=el.checked;await saveSettings();await publishLive();render()}
   else if(el.id==="findable"){S.settings.findable=el.checked;await saveSettings();syncDirectory(true);render()}
   else if(el.id==="deload"){const s=ensure();s.deload=el.checked;scheduleSave(curId());render()}
@@ -4683,8 +4699,25 @@ function updateBeat(tr){
 function markLogged(){const dot=document.querySelector(`.plate[data-day="${S.day}"] .logged`);if(dot)dot.classList.add("on")}
 window.addEventListener("beforeunload",e=>{if(S.view==="planEdit"&&S.draft){e.preventDefault();e.returnValue=""}});
 
+/* ---------- notifications ----------
+   Shown through the service worker, only while the app is in the background (the screen already shows
+   everything when it is open). Turned on in Settings with settings.notify; the browser asks permission
+   from that tap. They arrive while the app is running or kept in memory; one that has been closed
+   completely can't receive them without a push server. */
+function notifyOn(){return S.settings.notify===true&&"Notification" in window&&Notification.permission==="granted"}
+function notify(title,body,tag){
+  if(!notifyOn()||document.visibilityState==="visible"||!("serviceWorker" in navigator))return;
+  navigator.serviceWorker.ready.then(r=>r.showNotification(title,{body,tag,renotify:true,icon:"./icons/icon-192.png",badge:"./icons/icon-192.png",vibrate:[200,100,200]})).catch(()=>{});
+}
+/* tell me about items that appear after the first snapshot of a list (the first one is what was already waiting) */
+const NOTE_SEEN={};
+function notifyNew(key,items,make){
+  const ids=new Set(items.map(x=>x.id));
+  if(NOTE_SEEN[key]){items.filter(x=>!NOTE_SEEN[key].has(x.id)).forEach(x=>{const m=make(x);if(m)notify(m[0],m[1],key+x.id)})}
+  NOTE_SEEN[key]=ids;
+}
 /* ---------- rest timer ---------- */
-let tEnd=0,tLen=0,tInt=null,actx=null;
+let tEnd=0,tLen=0,tInt=null,tNote=null,actx=null;
 /* Browsers (iOS especially) only allow sound after a tap, so the audio is switched on when a tap starts the timer */
 function audioOn(){
   try{
@@ -4708,15 +4741,15 @@ function restBeep(){
     });
   }catch(err){}
 }
-function startTimer(sec){audioOn();tLen=sec;tEnd=Date.now()+sec*1000;$("#timer").classList.add("on");clearInterval(tInt);tick();tInt=setInterval(tick,250)}
+function startTimer(sec){audioOn();clearTimeout(tNote);tNote=setTimeout(()=>{if(Date.now()>=tEnd-300)tick()},sec*1000+400);tLen=sec;tEnd=Date.now()+sec*1000;$("#timer").classList.add("on");clearInterval(tInt);tick();tInt=setInterval(tick,250)}
 function tick(){
   const left=Math.max(0,Math.round((tEnd-Date.now())/1000));
   $("#tt").textContent=Math.floor(left/60)+":"+String(left%60).padStart(2,"0");
   $("#tb").style.width=(tLen?100*left/tLen:0)+"%";
-  if(left<=0){clearInterval(tInt);$("#tt").textContent="Go";restBeep();if(navigator.vibrate)try{navigator.vibrate([200,100,200,100,400])}catch(err){}}
+  if(left<=0){clearInterval(tInt);$("#tt").textContent="Go";restBeep();notify("Rest complete","Time for your next set.","rest");if(navigator.vibrate)try{navigator.vibrate([200,100,200,100,400])}catch(err){}}
 }
-$("#tplus").onclick=()=>{audioOn();tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
-$("#tstop").onclick=()=>{clearInterval(tInt);$("#timer").classList.remove("on")};
+$("#tplus").onclick=()=>{audioOn();clearTimeout(tNote);tNote=setTimeout(()=>{if(Date.now()>=tEnd-300)tick()},Math.max(0,tEnd-Date.now())+30400);tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
+$("#tstop").onclick=()=>{clearInterval(tInt);clearTimeout(tNote);$("#timer").classList.remove("on")};
 
 /* ---------- install as an app ---------- */
 const standalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
