@@ -1,6 +1,6 @@
 /* Service worker: makes Infinity Fitness Tracker installable and able to open offline.
    Bump CACHE when you change index.html so users get the new version. */
-const CACHE = "infinity-v46";
+const CACHE = "infinity-v47";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png"];
 const CDN = ["www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];
@@ -39,4 +39,13 @@ self.addEventListener("fetch", e => {
     })));
   }
   // Everything else (Firestore, Google sign-in, YouTube tutorials) goes straight to the network, never cached.
+});
+
+/* tapping a notification brings the app to the front */
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+    const c = list.find(w => "focus" in w);
+    return c ? c.focus() : self.clients.openWindow("./");
+  }));
 });
