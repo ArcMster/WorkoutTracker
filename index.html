@@ -2208,6 +2208,8 @@ function renderLog(){
     }).join("");
   }
   const addEx=d.t!=="rest"?addExHtml(d,s):"";
+  const wc=!act&&s?wkClock(s):null;
+  const endFin=wc&&wc.running?`<div class="row" style="margin:14px 0"><button class="btn primary" id="wkFinishEnd">Finish workout</button></div>`:"";
   const note=act?"Sets save to "+esc(ACT.name)+"'s log.":S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
   const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
     +(p?"":`<option selected>Deleted plan</option>`);
@@ -2227,6 +2229,7 @@ function renderLog(){
   </div>
   ${body}
   ${addEx}
+  ${endFin}
   ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
 }
@@ -4497,7 +4500,7 @@ document.addEventListener("click",async e=>{
     case "signout":signOut(auth);return;
     case "checkAgain":location.reload();return;
     case "joinSend":sendJoin();return;
-    case "wkFinish":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
+    case "wkFinish":case "wkFinishEnd":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
     case "calNew":calOpenForm();return;
     case "calSave":calSave();return;
     case "calCancel":CAL.form=null;render();return;
