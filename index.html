@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Infinity Fitness Tracker</title>
 <meta name="description" content="6-day push, pull, legs workout tracker with gym buddies">
-<meta name="theme-color" content="#18202C">
+<meta name="theme-color" content="#1D1E21">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -352,6 +352,9 @@ body.landing-on .timer{display:none}
 .l-link{border:0;background:none;color:var(--muted);font-weight:500;font-size:15px;padding:6px;text-decoration:underline;text-underline-offset:3px}
 .l-actions .status{margin:0;min-height:1.2em}
 .l-foot{margin:0;font-size:13px;color:var(--muted)}
+.l-logo{width:168px;height:168px;border-radius:36px;display:block}
+.forj{margin:0;text-align:center;font:600 14px var(--display);letter-spacing:.2em;color:var(--muted)}
+.wrap>.forj{margin-top:40px}
 @media (prefers-reduced-motion:reduce){.l-mark path{animation:none;stroke-dashoffset:0}}
 .savebar{position:sticky;bottom:0;background:var(--bg);padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);margin-top:8px}
 </style>
@@ -514,6 +517,18 @@ dialog.share p{margin:12px 0 0;text-align:center}
 .shift{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .shift .link{font-size:14px}
 .daytools{margin:0 0 12px}
+.edlist{list-style:none;margin:0;padding:0}
+.edrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line);background:var(--surface);transition:transform .15s}
+.edrow:first-child{border-top:0}
+.edrow .nm{min-width:0}
+.edrow .nm b{display:block;overflow-wrap:anywhere}
+.edrow .nm small{display:block;color:var(--muted);font-size:13px}
+.repbox{grid-column:1/-1;background:var(--field);border-radius:10px;padding:10px 12px}
+.grip{touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;color:var(--muted)}
+.exrow{transition:transform .15s}
+.dragging{position:relative;z-index:3;transition:none;box-shadow:0 6px 18px rgba(0,0,0,.25);border-radius:10px;background:var(--surface)}
+body.dragging-on{user-select:none;-webkit-user-select:none}
+body.dragging-on .grip{cursor:grabbing}
 .livedot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:6px;vertical-align:middle;animation:livepulse 1.6s ease-in-out infinite}
 @keyframes livepulse{0%,100%{opacity:1}50%{opacity:.35}}
 @media (prefers-reduced-motion:reduce){.livedot{animation:none}}
@@ -593,7 +608,7 @@ try{
     var m=document.querySelector('meta[name="apple-mobile-web-app-title"]');if(m)m.content=v.name;
     var it=document.getElementById("install-text");if(it)it.textContent="Install "+v.name+" on this device for one-tap access at the gym.";
     document.body.classList.add("landing-on");
-    document.getElementById("app").innerHTML='<main class="landing"><div class="l-top">'+(v.logo&&/^data:image\//.test(v.logo)?'<img class="brand-hero" src="'+e(v.logo)+'" alt="">':"")+'<h1 class="l-title">'+e(v.name)+'</h1><p class="l-sub">Fitness tracker</p></div></main>';
+    document.getElementById("app").innerHTML='<main class="landing"><div class="l-top">'+(v.logo&&/^data:image\//.test(v.logo)?'<img class="brand-hero" src="'+e(v.logo)+'" alt="">':"")+'<h1 class="l-title">'+e(v.name)+'</h1><p class="l-sub">Fitness tracker</p></div><p class="forj">ForjArc</p></main>';
   }
 }catch(x){}
 </script>
@@ -645,6 +660,7 @@ const WD_LONG=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Su
 
 /* ---------- built-in plans ---------- */
 const X=(n,s,lo,hi,u)=>({n,s,lo,hi,u:u||""});
+const GRIP='<svg width="14" height="18" viewBox="0 0 14 18" fill="currentColor" aria-hidden="true"><circle cx="4" cy="3" r="1.6"/><circle cx="10" cy="3" r="1.6"/><circle cx="4" cy="9" r="1.6"/><circle cx="10" cy="9" r="1.6"/><circle cx="4" cy="15" r="1.6"/><circle cx="10" cy="15" r="1.6"/></svg>';
 const REST=(focus)=>({t:"rest",title:"Rest",focus:focus||"Recovery, light walking, mobility work",note:"",ex:[]});
 const BUILTIN=[
  {id:"ppl",builtin:true,name:"Push / Pull / Legs, 6 days",days:[
@@ -720,6 +736,9 @@ const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:nu
 /* logging today's workout for a trainee: whose log S holds (null for my own), their name, my own state to restore,
    and whether my summary needs publishing once I'm back */
 const ACT={uid:null,name:"",own:null,pub:false};
+/* the Edit exercises mode on the Workout screen: S.edit = {on, key (the session it is open for), rep (row being replaced), name, err}.
+   DRAG holds a row being dragged to a new place (see the drag helper near the end) */
+let DRAG=null;
 /* leaderboard: chosen metric, period, lift and scope (buddies or global), the Home lift period, where it was opened from,
    trainee counts loaded from their logs (uid: summary, or null while loading), and my summary while Home renders */
 const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,from:"dash",tr:{},meL:null};
@@ -908,11 +927,11 @@ function applyCoachAssignment(){
   saveSettings();
 }
 /* owner: whose log to write, by default the log on screen (a trainee's while logging for them).
-   A trainee's log only ever gets today's session; their settings and plans are left alone. */
+   A trainee's log only ever gets a session of today or a coming day; their settings and plans are left alone. */
 function writeDoc(id,data,owner){
   if(S.mode==="db"){
     const who=owner||ACT.uid||uid;
-    if(who!==uid&&!(data&&data.date===today()&&id.startsWith(data.date+"_d")))return Promise.resolve();
+    if(who!==uid&&!(data&&data.date>=today()&&id.startsWith(data.date+"_d")))return Promise.resolve();
     const ref=doc(fs,"users",who,"log",id),key=who+"/"+id;
     const run=()=>(data===null?deleteDoc(ref):setDoc(ref,data));
     chains[key]=(chains[key]||Promise.resolve()).then(run,run);
@@ -1431,12 +1450,12 @@ async function openAct(tid){
   applyCoachAssignment();
   if(!getPlan(S.settings.activePlan))S.settings.activePlan="ppl";
   ensureAnchor();
-  S.planId=S.settings.activePlan;S.date=today();S.day=dayOf(S.date);S.swapOpen=false;S.msg="";
+  S.planId=S.settings.activePlan;S.date=today();S.day=dayOf(S.date);S.swapOpen=false;S.edit=null;S.msg="";
   S.view="log";render();window.scrollTo(0,0);
 }
 function leaveAct(){
   if(!ACT.uid)return;
-  Object.assign(S,ACT.own);S.swapOpen=false;
+  Object.assign(S,ACT.own);S.swapOpen=false;S.edit=null;
   ACT.uid=null;ACT.own=null;ACT.name="";
   if(ACT.pub){ACT.pub=false;schedulePublish()}
 }
@@ -1463,7 +1482,7 @@ function watchToday(){
     if(!changed||store!==S.sessions)return;
     if(who===uid)schedulePublish();
     const typing=document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-    if(S.view==="log"&&!typing)render();
+    if(S.view==="log"&&!typing&&!DRAG)render();
   },e=>console.warn("today",e));
   todayWatch={key,off};
 }
@@ -2104,6 +2123,7 @@ const QUOTES=[
   "Earn it one rep at a time."
 ];
 let quoteIdx=(()=>{const d=new Date();return Math.floor((d-new Date(d.getFullYear(),0,0))/86400000)%QUOTES.length})();
+const FORJ=`<p class="forj">ForjArc</p>`;
 const INFINITY_SVG=`<svg class="l-mark" viewBox="0 0 120 60" aria-hidden="true">
   <defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="var(--push)"/><stop offset=".5" stop-color="var(--pull)"/><stop offset="1" stop-color="var(--legs)"/></linearGradient></defs>
   <path pathLength="1" d="M60 30C50 14 42 10 32 10C20 10 12 19 12 30S20 50 32 50C42 50 50 46 60 30S78 10 88 10C100 10 108 19 108 30S100 50 88 50C78 50 70 46 60 30Z"
@@ -2121,7 +2141,7 @@ function renderLanding(mode){
     </div>`;
   return `<main class="landing ${enter?"tappable":""}" ${enter?'role="button" tabindex="0" aria-label="Enter the app"':""}>
     <div class="l-top">
-      ${BR.active&&BR.active.logo?`<img class="brand-hero" src="${BR.active.logo}" alt="">`:INFINITY_SVG}
+      ${BR.active&&BR.active.logo?`<img class="brand-hero" src="${BR.active.logo}" alt="">`:`<img class="l-logo" src="icons/icon-512.png" alt="" width="168" height="168">`}
       <h1 class="l-title">${esc(BR.active?BR.active.name:"Infinity")}</h1>
       <p class="l-sub">Fitness tracker</p>
     </div>
@@ -2130,6 +2150,7 @@ function renderLanding(mode){
     </figure>
     ${actions}
     <p class="l-foot">${enter?"":"Plans, sets, streaks and buddies, synced on every device."}</p>
+    ${FORJ}
   </main>`;
 }
 function enterApp(){
@@ -2151,14 +2172,18 @@ function renderLog(){
     const ss=S.sessions[sid(date,i+1,S.planId)];const logged=!!ss&&hasSets(ss);
     const st=p?statusFor(p,date):null;
     const dd=p?dayAt(p,date):tp;
-    return `<button class="plate ${st&&st.st==="missed"?"missed":""}" data-day="${i+1}" ${ACT.uid&&date!==today()?"disabled":""} aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}${st&&st.st==="missed"?", missed":""}">
+    return `<button class="plate ${st&&st.st==="missed"?"missed":""}" data-day="${i+1}" aria-pressed="${i+1===S.day}" aria-label="${WD[i]}: ${esc(dd.title)}${st&&st.st==="missed"?", missed":""}">
       <span class="disc ${dd.t==="rest"?"rest":""}" style="--c:${tinfo(dd.t).bg}"></span>${WD[i]}<span class="logged ${logged?"on":""}"></span></button>`;
   }).join("");
   const stNow=p?statusFor(p,S.date):null;
   /* logging for a trainee: their settings can't be written, so no swaps or schedule resets */
   const act=!!ACT.uid,your=act?"Their":"Your";
+  /* a trainer sees every day but only changes today and coming days, and logs sets on today only */
+  const past=act&&S.date<today(),lock=act&&S.date!==today();
+  const editable=!!p&&!past&&d.t!=="rest"&&d.ex.length>0;
+  const editing=editable&&!!S.edit&&S.edit.on&&S.edit.key===curId();
   let shift="";
-  if(s&&s.custom)shift=`<p class="shift">Changed for ${fmtDate(S.date)} only. ${your} plan stays the same. <button class="link" id="ovClear">Back to the plan workout</button></p>`;
+  if(s&&s.custom)shift=`<p class="shift">Changed for ${fmtDate(S.date)} only. ${your} plan stays the same.${past?"":` <button class="link" id="ovClear">Back to the plan workout</button>`}</p>`;
   else if(stNow&&stNow.st==="missed")shift=`<p class="shift">Not logged, so ${esc(d.title)} moved to the next training day. You can still log it here.</p>`;
   else if(stNow&&stNow.pin)
     shift=`<p class="shift">Swapped for this week: ${esc(p.days[stNow.slot-1].title)} was planned.${act?"":` <button class="link" id="swapClear">Undo swaps</button>`}</p>`;
@@ -2169,11 +2194,15 @@ function renderLog(){
   const canSwap=!act&&p&&swappable(p,S.date);
   const swapWith=canSwap&&S.swapOpen?Array.from({length:7},(_,i)=>addDays(weekStart,i)).filter(x=>x!==S.date&&swappable(p,x)):[];
   const tools=p?`<div class="row daytools">
-      <button class="btn small" id="ovEdit">${s&&s.custom?"Edit this workout":"Change workout"}</button>
-      ${canSwap?`<button class="btn small" id="swapOpen" aria-expanded="${!!S.swapOpen}">Swap day</button>`:""}</div>
+      ${editable?`<button class="btn small ${editing?"primary":""}" id="editToggle" aria-pressed="${editing}">${editing?"Done editing":"Edit exercises"}</button>`:""}
+      ${!editing&&!past?`<button class="btn small" id="ovEdit">${s&&s.custom?"Edit this workout":"Change workout"}</button>`:""}
+      ${canSwap&&!editing?`<button class="btn small" id="swapOpen" aria-expanded="${!!S.swapOpen}">Swap day</button>`:""}
+      ${act?`<button class="btn small" id="actPlan">Edit their plan</button>`:""}</div>
     ${S.swapOpen&&canSwap?`<div class="panel swapbox"><p class="small muted" style="margin:0 0 8px">Swap ${esc(d.title)} with another day this week. Next week goes back to the plan.</p>
       ${swapWith.length?`<div class="row">${swapWith.map(x=>{const xd=dayAt(p,x);return `<button class="btn small" data-swap="${x}"><span class="dot" style="--c:${tinfo(xd.t).bg}"></span>${WD[dayOf(x)-1]}: ${esc(xd.title)}</button>`}).join("")}</div>`
-        :`<p class="small" style="margin:0">No other training days left this week to swap with.</p>`}</div>`:""}`:"";
+        :`<p class="small" style="margin:0">No other training days left this week to swap with.</p>`}</div>`:""}
+    ${past?`<p class="small muted" style="margin:0 0 12px">A day that has passed. You can look at it but not change it.</p>`
+      :lock?`<p class="small muted" style="margin:0 0 12px">Sets are logged on the day itself. You can still change this workout ahead of time.</p>`:""}`:"";
   const deload=s?!!s.deload:!!(wk&&wk.cycle===6);
   let body="";
   if(d.t==="rest"){
@@ -2181,6 +2210,8 @@ function renderLog(){
   }else if(!d.ex.length){
     body=act?`<div class="restday">This day has no exercises yet. Use Change workout to add some.</div>`
       :`<div class="restday">This day has no exercises yet. <button class="link" data-edit="${S.planId}">Add some in the plan editor</button>.</div>`;
+  }else if(editing){
+    body=editHtml(d,s,deload);
   }else{
     body=d.ex.map((ex,i)=>{
       const last=lastFor(ex.n);const h=hintFor(ex,last);
@@ -2191,9 +2222,9 @@ function renderLog(){
         const pw=l&&l.w!=null?conv(l.w,last.unit,u):"";
         return `<tr data-ex="${i}" data-k="${k}" class="${e.done?"isdone":""}">
           <td>${k+1}</td>
-          <td><input inputmode="decimal" data-f="w" aria-label="Set ${k+1} weight" value="${w??""}" placeholder="${pw??""}"></td>
-          <td><input inputmode="numeric" data-f="r" aria-label="Set ${k+1} ${repLabel(ex).toLowerCase()}" value="${e.r??""}" placeholder="${l?l.r:""}"></td>
-          <td class="ok"><button class="done" data-done aria-pressed="${!!e.done}" aria-label="Mark set ${k+1} done">${CHECK}</button></td>
+          <td><input inputmode="decimal" data-f="w" aria-label="Set ${k+1} weight" value="${w??""}" placeholder="${pw??""}" ${lock?"disabled":""}></td>
+          <td><input inputmode="numeric" data-f="r" aria-label="Set ${k+1} ${repLabel(ex).toLowerCase()}" value="${e.r??""}" placeholder="${l?l.r:""}" ${lock?"disabled":""}></td>
+          <td class="ok"><button class="done" data-done aria-pressed="${!!e.done}" aria-label="Mark set ${k+1} done" ${lock?"disabled":""}>${CHECK}</button></td>
           <td><span class="beat">${beatText(e,l,last)}</span></td>
         </tr>`;
       }).join("");
@@ -2204,15 +2235,15 @@ function renderLog(){
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
         ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
         <table class="sets"><thead><tr><th></th><th>Weight (${u})</th><th>${repLabel(ex)}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
-        <div class="row setbtns"><button class="btn small" data-addset="${i}">Add set</button>
-          ${extra&&!filled(entry.slice(n-1,n)).length&&!(entry[n-1]&&(entry[n-1].w!=null||entry[n-1].done))?`<button class="btn small" data-rmset="${i}">Remove last set</button>`:""}</div>
+        ${lock?"":`<div class="row setbtns"><button class="btn small" data-addset="${i}">Add set</button>
+          ${extra&&!filled(entry.slice(n-1,n)).length&&!(entry[n-1]&&(entry[n-1].w!=null||entry[n-1].done))?`<button class="btn small" data-rmset="${i}">Remove last set</button>`:""}</div>`}
       </section>`;
     }).join("");
   }
-  const addEx=d.t!=="rest"?addExHtml(d,s):"";
+  const addEx=d.t!=="rest"&&!past&&!editing?addExHtml(d,s):"";
   const wc=!act&&s?wkClock(s):null;
-  const endFin=wc&&wc.running?`<div class="row" style="margin:14px 0"><button class="btn primary" id="wkFinishEnd">Finish workout</button></div>`:"";
-  const note=act?"Sets save to "+esc(ACT.name)+"'s log.":S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
+  const endFin=wc&&wc.running&&!editing?`<div class="row" style="margin:14px 0"><button class="btn primary" id="wkFinishEnd">Finish workout</button></div>`:"";
+  const note=act?(lock?"":"Sets save to "+esc(ACT.name)+"'s log."):S.mode==="db"?"":CONFIGURED?"Sign in to sync and share with buddies. Saving on this device only.":"Firebase is not set up yet. Saving on this device only.";
   const planOpts=allPlans().map(pp=>`<option value="${pp.id}" ${pp.id===S.planId?"selected":""}>${esc(pp.name)}</option>`).join("")
     +(p?"":`<option selected>Deleted plan</option>`);
   return `
@@ -2223,17 +2254,73 @@ function renderLog(){
   <div class="week">${plates}</div>
   <div class="hero">${shift}<h1 style="color:var(--dc)">${esc(d.title)}</h1>${d.focus&&d.t!=="rest"?`<p class="focus">${esc(d.focus)}</p>`:""}${d.note?`<p class="note">${esc(d.note)}</p>`:""}${by}</div>
   ${tools}
-  ${d.t!=="rest"&&d.ex.length?clockHtml(s):""}
+  ${d.t!=="rest"&&d.ex.length&&!lock?clockHtml(s):""}
   <div class="meta">
-    ${act?`<span class="chip">Today, ${fmtDate(S.date)}</span>`:`<input type="date" id="date" value="${S.date}" aria-label="Workout date">`}
+    ${act?`<button class="btn small" data-wk="-1" aria-label="Previous week">&larr; Week</button>`:""}
+    <input type="date" id="date" value="${S.date}" aria-label="Workout date">
+    ${act?`<button class="btn small" data-wk="1" aria-label="Next week">Week &rarr;</button>`:""}
     ${wk?`<span class="chip ${wk.cycle===6?"warn":""}">Week ${wk.week}, cycle week ${wk.cycle} of 6${wk.cycle===6?": deload":""}</span>`:""}
-    ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""}> Deload (about 40% fewer sets)</label>`:""}
+    ${d.t!=="rest"&&d.ex.length?`<label class="switch"><input type="checkbox" id="deload" ${deload?"checked":""} ${lock?"disabled":""}> Deload (about 40% fewer sets)</label>`:""}
   </div>
   ${body}
   ${addEx}
   ${endFin}
   ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
+}
+/* ---------- Edit exercises: reorder and replace on the Workout screen ----------
+   A separate mode, switched on with the Edit exercises button, so a stray touch can't move or swap anything.
+   Like Change workout, it changes this date's workout only: the first change saves the day as session.custom,
+   and the plan stays the same. Dragging is handled by the drag helper near the end of the file. */
+function editHtml(d,s,deload){
+  const E=S.edit;
+  const rows=d.ex.map((x,i)=>{
+    const n=setsFor(x,deload)+((s&&s.extra&&s.extra[x.n])||0),logged=s&&s.entries?filled(s.entries[x.n]).length:0;
+    return `<li class="edrow" data-dragitem>
+      <button class="icon grip" aria-label="Move ${esc(dn(x.n))}. Drag it, or use the up and down arrow keys.">${GRIP}</button>
+      <div class="nm"><b>${esc(dn(x.n))}</b><small>${esc(target(x,n))}${logged?` · ${logged} set${logged===1?"":"s"} logged`:""}</small></div>
+      <button class="btn small" data-replace="${i}" aria-expanded="${E.rep===i}">Replace</button>
+      ${E.rep===i?`<div class="repbox"><label class="small muted" for="repName">Replace ${esc(dn(x.n))} with</label>
+        <div class="row"><input class="field" id="repName" list="exnames" data-rf="name" value="${esc(E.name)}" placeholder="Exercise name" maxlength="60" style="flex:1;min-width:160px">
+          <button class="btn small primary" id="repApply">Replace</button><button class="btn small" id="repCancel">Cancel</button></div>
+        <p class="small muted" style="margin:6px 0 0">Keeps the sets and reps.${logged?` The ${logged} set${logged===1?"":"s"} logged for ${esc(dn(x.n))} will be removed.`:""}</p>
+        ${E.err?`<p class="msg" style="color:var(--push);margin:6px 0 0">${esc(E.err)}</p>`:""}</div>`:""}
+    </li>`}).join("");
+  return `${exNamesList()}<div class="panel"><p class="small muted" style="margin:0 0 6px">Drag the handle to reorder, or tap Replace to swap an exercise. Only ${esc(fmtDate(S.date))} changes${ACT.uid?" for "+esc(ACT.name):""}. ${ACT.uid?"Their":"Your"} plan stays the same. Tap Done editing when you finish.</p>
+    <ul class="edlist" data-dragkind="log">${rows}</ul></div>`;
+}
+/* this date's workout as an editable copy saved on the session (also folds in exercises added during the session) */
+function customize(){
+  const s=ensure();
+  s.custom=clone(day());delete s.added;
+  return s;
+}
+function reorderEx(from,to){
+  const s=customize(),a=s.custom.ex;
+  if(from===to||!a[from]||to<0||to>=a.length)return;
+  a.splice(to,0,a.splice(from,1)[0]);
+  s.updated=Date.now();scheduleSave(curId());render();
+}
+function applyReplace(){
+  const E=S.edit,d=day(),old=d.ex[E.rep],n=canon(E.name);
+  if(!old)return;
+  if(!n){E.err="Type the exercise name.";render();return}
+  if(n.toLowerCase()===old.n.toLowerCase()){E.rep=null;E.err="";render();return}
+  if(d.ex.some(x=>x.n.toLowerCase()===n.toLowerCase())){E.err=dn(n)+" is already in this workout.";render();return}
+  const s0=cur(),logged=s0&&s0.entries?filled(s0.entries[old.n]).length:0;
+  if(logged&&!confirm("Replace "+dn(old.n)+" with "+dn(n)+"? The "+logged+" set"+(logged===1?"":"s")+" logged for "+dn(old.n)+" will be removed."))return;
+  const s=customize();
+  s.custom.ex[E.rep]={...s.custom.ex[E.rep],n};
+  if(s.entries)delete s.entries[old.n];
+  if(s.extra)delete s.extra[old.n];
+  s.updated=Date.now();scheduleSave(curId());
+  E.rep=null;E.name="";E.err="";render();
+}
+/* trainer: open the plan this trainee follows in the plan editor (a ready-made plan becomes a copy for them) */
+function editTheirPlan(){
+  const p=viewPlan();
+  if(!p||!ACT.uid||TR.uid!==ACT.uid)return;
+  openEditor(p.builtin?{name:p.name+" for "+TR.name,days:p.days}:p,p.builtin?null:p.id,TR.uid);
 }
 /* add an exercise, or every exercise of another workout, to today's session only */
 function addExHtml(d,s){
@@ -2521,19 +2608,20 @@ const unitOpts=u=>UNITS.map(([k,l])=>`<option value="${k}" ${k===(u||"")?"select
 function dayEditHtml(d,i,head,copyOpts,noRest){
   const rest=d.t==="rest";
   const exRows=d.ex.map((x,j)=>`
-      <div class="exrow">
+      <div class="exrow" data-dragitem>
         <input class="field ename" list="exnames" data-di="${i}" data-xi="${j}" data-xf="n" value="${esc(dn(x.n))}" placeholder="Exercise name" aria-label="Exercise name">
         <div class="nums"><label class="mini-f"><span>Sets</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="s" value="${x.s??""}"></label>
         <label class="mini-f"><span>Min</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="lo" value="${x.lo??""}"></label>
         <label class="mini-f"><span>Max</span><input inputmode="numeric" data-di="${i}" data-xi="${j}" data-xf="hi" value="${x.hi??""}"></label></div>
         <label class="mini-f unit"><span>Counted in</span><select data-di="${i}" data-xi="${j}" data-xf="u">${unitOpts(x.u)}</select></label>
         <div class="exbtns">
+          <button class="icon grip" aria-label="Move exercise. Drag it, or use the up and down arrow keys.">${GRIP}</button>
           <button class="icon" data-mv="-1" data-di="${i}" data-xi="${j}" aria-label="Move up" ${j===0?"disabled":""}>&#8593;</button>
           <button class="icon" data-mv="1" data-di="${i}" data-xi="${j}" aria-label="Move down" ${j===d.ex.length-1?"disabled":""}>&#8595;</button>
           <button class="icon" data-rmex data-di="${i}" data-xi="${j}" aria-label="Remove exercise">&#10005;</button>
         </div>
       </div>`).join("");
-  return `<section class="ex dayed" style="--dc:${tinfo(d.t).solid}">
+  return `<section class="ex dayed" data-dragkind="plan" data-di="${i}" style="--dc:${tinfo(d.t).solid}">
       <div class="ex-head"><h2>${esc(head)}</h2>
         <select class="typesel" data-dt="${i}" aria-label="${esc(head)} type">${typeOpts(d.t,noRest)}</select></div>
       ${rest?`<p class="last">Rest day.</p>`:`
@@ -3462,14 +3550,14 @@ function renderJoin(){
     ${S.joinBrand?`<p class="small"><b>You're joining ${esc(S.joinBrandName)}.</b> Once you're approved, its owner becomes your trainer: they can see your logged workouts and set your plans, and you can remove them any time.</p>`:""}
     <div class="row" style="justify-content:center"><button class="btn primary" id="joinSend" ${S.joinAs?"":"disabled"}>Request to join</button><button class="btn" id="signout">Sign out</button></div>
     ${msg}
-    ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}</div>`;
+    ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}</div>${FORJ}`;
 }
 function renderPending(){
   return `<div class="top">${brandMark()}</div>
   <div class="calm"><h1>Request sent</h1>
     <p>Thanks for signing up. An admin needs to approve your account before you can use ${appName()}. Check back soon.</p>
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
-    <div class="row" style="justify-content:center"><button class="btn primary" id="checkAgain">Check again</button><button class="btn" id="signout">Sign out</button></div></div>`;
+    <div class="row" style="justify-content:center"><button class="btn primary" id="checkAgain">Check again</button><button class="btn" id="signout">Sign out</button></div></div>${FORJ}`;
 }
 
 /* ---------- disabled account ---------- */
@@ -3478,7 +3566,7 @@ function renderDisabled(){
   <div class="calm"><h1>This account has been disabled</h1>
     <p>You can't use ${appName()} with this account right now. If you think this is a mistake, contact the person who runs the app.</p>
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
-    <button class="btn" id="signout">Sign out</button></div>`;
+    <button class="btn" id="signout">Sign out</button></div>${FORJ}`;
 }
 
 /* ---------- admin ----------
@@ -3676,7 +3764,7 @@ function appName(){return BR.active?BR.active.name:APP_NAME}
 function brandMark(){
   const b=BR.active;
   return b?`<span class="brand">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:""}<span>${esc(b.name)}</span></span>`
-    :`<span class="brand">${MINI_MARK}<span>Infinity</span></span>`;
+    :`<span class="brand"><img class="brand-logo" src="icons/mark.png" alt="" width="18" height="30"><span>Infinity</span></span>`;
 }
 function cleanLinks(a){
   return (Array.isArray(a)?a:[]).map(x=>({label:String((x&&x.label)||"").slice(0,30),url:String((x&&x.url)||"").trim().slice(0,200)}))
@@ -4421,6 +4509,8 @@ document.addEventListener("click",async e=>{
   const ds=t.dataset;
   if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;leaveAct();if(BR.edit){BR.edit=null;BR.form=null;BR.msg="";BR.vmsg={};BR.vq=""}if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);S.swapOpen=false;render();return}
+  if(ds.wk){S.date=addDays(S.date,7*+ds.wk);S.day=dayOf(S.date);render();return}
+  if(ds.replace!=null&&S.edit){const i=+ds.replace;S.edit.rep=S.edit.rep===i?null:i;S.edit.name="";S.edit.err="";render();const f=$("#repName");if(f)f.focus();return}
   if(ds.unit){S.settings.unit=ds.unit;saveSettings();render();return}
   if(ds.open){const s=S.sessions[ds.open];if(s){S.date=s.date;S.day=s.day;S.planId=s.planId||"ppl";S.view="log";render();window.scrollTo(0,0)}return}
   if(e.target.closest("[data-go-today]")){const p=activePlan();S.planId=p.id;S.date=today();S.day=dayOf(S.date);S.view="log";render();window.scrollTo(0,0);return}
@@ -4528,6 +4618,10 @@ document.addEventListener("click",async e=>{
     case "shareLink":navigator.share({title:appName(),text:"Be my gym buddy on "+appName(),url:inviteLink()}).catch(()=>{});return;
     case "resetSched":resetSchedule();render();return;
     case "ovEdit":openDayEdit();return;
+    case "editToggle":S.edit=S.edit&&S.edit.on&&S.edit.key===curId()?null:{on:true,key:curId(),rep:null,name:"",err:""};render();return;
+    case "repApply":applyReplace();return;
+    case "repCancel":S.edit.rep=null;S.edit.err="";render();return;
+    case "actPlan":editTheirPlan();return;
     case "ovClear":clearDayEdit();return;
     case "ovSave":saveDayEdit();return;
     case "ovBlank":S.draft.days[0]=BLANK_DAY();render();return;
@@ -4582,7 +4676,7 @@ document.addEventListener("click",async e=>{
     case "genPdf":printHtml(genPrintHtml());return;
     case "genImg":openShare("plan");return;
     case "savePlan":savePlan();return;
-    case "cancelPlan":case "cancelPlan2":if(leaveEditor()){S.view="plans";render();window.scrollTo(0,0)}return;
+    case "cancelPlan":case "cancelPlan2":{const cf=S.coachFor;if(leaveEditor()){S.view=cf?"trainee":"plans";render();window.scrollTo(0,0)}return}
   }
   if(t.hasAttribute("data-done")){
     const tr=t.closest("tr");const ex=day().ex[+tr.dataset.ex];const k=+tr.dataset.k;
@@ -4615,6 +4709,7 @@ document.addEventListener("input",e=>{
   if(el.id==="admQ"){ADM.q=el.value;const l=$("#admList");if(l)l.innerHTML=admRows();return}
   if(el.id==="findQ"){FIND.q=el.value;const l=$("#findList");if(l)l.innerHTML=findRows();return}
   if(ds.af&&S.add){S.add[ds.af]=el.value;return}
+  if(ds.rf&&S.edit){S.edit[ds.rf]=el.value;return}
   /* plan editor fields: update the draft without re-rendering */
   if((S.view==="planEdit"||S.view==="dayEdit")&&S.draft){
     if(ds.pf){S.draft[ds.pf]=el.value;return}
@@ -4697,6 +4792,66 @@ function updateBeat(tr){
   tr.querySelector(".beat").textContent=beatText(e,last&&last.sets[k],last);
 }
 function markLogged(){const dot=document.querySelector(`.plate[data-day="${S.day}"] .logged`);if(dot)dot.classList.add("on")}
+/* ---------- drag to reorder ----------
+   Grab a .grip and move it over the other rows of its list ([data-dragitem] inside a [data-dragkind] list). Nothing in the page
+   changes while dragging: the row follows the pointer and the rows it passes slide aside, then the new order is applied on
+   release. Pointer events, so touch and mouse behave the same; the arrow keys move a focused grip one place. */
+function dragItems(list){return [...list.children].filter(el=>el.hasAttribute("data-dragitem"))}
+function dragLayout(){
+  const D=DRAG,dy=D.y-D.y0+(window.scrollY-D.s0),mid=D.mids[D.from]+dy;
+  D.row.style.transform=`translateY(${dy}px)`;
+  D.to=D.mids.filter((m,j)=>j!==D.from&&m<mid).length;
+  D.items.forEach((el,j)=>{
+    if(j===D.from)return;
+    const sh=D.from<D.to&&j>D.from&&j<=D.to?-D.h:D.from>D.to&&j>=D.to&&j<D.from?D.h:0;
+    el.style.transform=sh?`translateY(${sh}px)`:"";
+  });
+}
+function dragTick(){
+  if(!DRAG)return;
+  /* near the top or bottom edge the page scrolls, faster the closer the pointer is; not before the pointer has moved */
+  if(Math.abs(DRAG.y-DRAG.y0)>8){const top=90-DRAG.y,bot=DRAG.y-(window.innerHeight-90);if(top>0)window.scrollBy(0,-Math.min(12,top/6));else if(bot>0)window.scrollBy(0,Math.min(12,bot/6))}
+  dragLayout();DRAG.raf=requestAnimationFrame(dragTick);
+}
+function dragEnd(e,cancel){
+  const D=DRAG;if(!D||e.pointerId!==D.pid)return;
+  DRAG=null;cancelAnimationFrame(D.raf);document.body.classList.remove("dragging-on");
+  D.items.forEach(el=>{el.style.transform=""});D.row.classList.remove("dragging");
+  if(!cancel&&D.to!==D.from)dragDrop(D.list,D.from,D.to);
+}
+/* apply a move in whichever list it came from, then keep the keyboard focus on the moved row's grip */
+function dragDrop(list,from,to){
+  if(list.dataset.dragkind==="plan"){const a=S.draft.days[+list.dataset.di].ex;a.splice(to,0,a.splice(from,1)[0]);render()}
+  else reorderEx(from,to);
+}
+document.addEventListener("pointerdown",e=>{
+  const g=e.target.closest&&e.target.closest(".grip");
+  if(!g||DRAG||(e.pointerType==="mouse"&&e.button!==0))return;
+  const row=g.closest("[data-dragitem]");if(!row)return;
+  const list=row.parentElement,items=dragItems(list);if(items.length<2)return;
+  e.preventDefault();
+  const sy=window.scrollY,from=items.indexOf(row);
+  const mids=items.map(el=>{const r=el.getBoundingClientRect();return r.top+r.height/2+sy});
+  DRAG={row,list,items,from,to:from,pid:e.pointerId,y:e.clientY,y0:e.clientY,s0:sy,mids,h:from<items.length-1?mids[from+1]-mids[from]:mids[from]-mids[from-1]};
+  row.classList.add("dragging");document.body.classList.add("dragging-on");
+  try{g.setPointerCapture(e.pointerId)}catch(err){}
+  DRAG.raf=requestAnimationFrame(dragTick);
+});
+document.addEventListener("pointermove",e=>{if(DRAG&&e.pointerId===DRAG.pid){DRAG.y=e.clientY;e.preventDefault()}});
+document.addEventListener("pointerup",e=>dragEnd(e,false));
+document.addEventListener("pointercancel",e=>dragEnd(e,true));
+document.addEventListener("keydown",e=>{
+  const g=e.target.closest&&e.target.closest(".grip");
+  if(!g||(e.key!=="ArrowUp"&&e.key!=="ArrowDown"))return;
+  const row=g.closest("[data-dragitem]");if(!row)return;
+  e.preventDefault();
+  const list=row.parentElement,items=dragItems(list),from=items.indexOf(row),to=from+(e.key==="ArrowUp"?-1:1);
+  if(to<0||to>=items.length)return;
+  const kind=list.dataset.dragkind,di=list.dataset.di;
+  dragDrop(list,from,to);
+  const again=document.querySelector(kind==="plan"?`[data-dragkind="plan"][data-di="${di}"]`:'[data-dragkind="log"]');
+  const gs=again&&again.querySelectorAll("[data-dragitem] .grip");if(gs&&gs[to])gs[to].focus();
+});
 window.addEventListener("beforeunload",e=>{if(S.view==="planEdit"&&S.draft){e.preventDefault();e.returnValue=""}});
 
 /* ---------- notifications ----------
