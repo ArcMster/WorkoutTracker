@@ -220,6 +220,27 @@ service cloud.firestore {
         && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
     }
 
+    // Requests to be someone's trainer. Id is "{member}_{trainer}". A member asks a trainer (status 'pending'); the trainer
+    // approves by setting 'approved' (nothing else changes) and the member's app then adds the trainer to the member's own
+    // coaching list, which only the member can write, and deletes the request. Either side can delete it.
+    match /coachRequests/{id} {
+      allow read: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+      allow create: if active() && isTrainer(request.resource.data.to)
+        && request.resource.data.keys().hasOnly(['from', 'to', 'status', 'created'])
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.to is string
+        && request.resource.data.to != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to
+        && request.resource.data.status == 'pending'
+        && request.resource.data.created == request.time;
+      allow update: if active() && resource.data.to == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'approved';
+      allow delete: if signedIn()
+        && (resource.data.from == request.auth.uid || resource.data.to == request.auth.uid);
+    }
+
     function isTrainerOf(uid) {
       let p = /databases/$(database)/documents/coaching/$(uid);
       return signedIn() && exists(p) && request.auth.uid in get(p).data.trainers;
@@ -337,7 +358,7 @@ service cloud.firestore {
 
     // Calendar entries. Everyone in `members` can read them and they show on each calendar.
     //   solo:  just me, confirmed.
-    //   train: a trainee's request to a trainer they chose starts pending (the trainer, `to`, answers);
+    //   train: a request to a trainer (one they chose, or any member marked as a trainer, for a one-off booking) starts pending (the trainer, `to`, answers);
     //          a trainer scheduling a trainee of theirs is confirmed straight away.
     //   buddy: a request to an accepted buddy, pending until they (`to`) answer.
     // Only the receiver can change the status of a pending entry; either member can delete it.
@@ -369,7 +390,7 @@ service cloud.firestore {
               || (request.resource.data.kind == 'train'
                 && request.resource.data.status == 'pending'
                 && request.resource.data.get('trainer', '') == request.resource.data.to
-                && hasTrainer(request.resource.data.to))
+                && (hasTrainer(request.resource.data.to) || isTrainer(request.resource.data.to)))
               || (request.resource.data.kind == 'train'
                 && request.resource.data.status == 'confirmed'
                 && request.resource.data.get('trainer', '') == request.auth.uid
@@ -399,9 +420,10 @@ service cloud.firestore {
     }
 
     // A trainer's weekly working hours: { hours: { '1': ['06:00-10:00'], ... }, updated }. The trainer writes it;
-    // trainees who chose them can read it.
+    // trainees who chose them can read it, and so can anyone signed in while the owner is marked as a trainer
+    // (so someone can book a session with them without becoming their trainee).
     match /avail/{uid} {
-      allow read: if isMe(uid) || hasTrainer(uid);
+      allow read: if isMe(uid) || hasTrainer(uid) || (signedIn() && isTrainer(uid));
       allow create, update: if isMe(uid) && active()
         && request.resource.data.keys().hasOnly(['hours', 'updated'])
         && request.resource.data.hours is map && request.resource.data.hours.size() <= 7
