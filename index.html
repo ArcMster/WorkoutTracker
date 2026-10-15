@@ -589,6 +589,33 @@ button.chip small{font-weight:400}
 .wkpanel{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;background:var(--surface);border-radius:14px;padding:12px 14px;margin:0 0 12px;font-size:14px}
 .wkpanel .wkt b{font:700 30px/1 var(--display)}
 .wkpanel .btn{margin-left:auto}
+.lf-top{display:flex;align-items:center;gap:16px}
+.lf-ring{width:84px;height:84px;flex:none}.lf-ringt{font:700 18px var(--display);fill:var(--ink)}
+.lf-sum{display:flex;flex-direction:column;gap:2px}
+.lf-list,.lf-tasks{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:8px}
+.lf-task,.lf-trow{display:flex;align-items:center;gap:12px;background:var(--surface);border-radius:14px;padding:12px 14px}
+.lf-main{flex:1;min-width:0;display:flex;flex-direction:column}.lf-main small{font-size:13px}
+.lf-task.lf-done .lf-main b{text-decoration:line-through;color:var(--muted)}
+.lf-ctl{display:flex;gap:6px;flex:none}
+.lf-tick{flex:none;width:32px;height:32px;border-radius:50%;border:2px solid var(--line);background:var(--field);padding:0;position:relative}
+.lf-tick.on{background:var(--good);border-color:var(--good)}
+.lf-tick.on::after{content:"";position:absolute;left:10px;top:5px;width:7px;height:13px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg)}
+.lf-why{margin-bottom:12px}.lf-why>span{display:block;font-weight:600;margin-bottom:6px}
+.lf-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.lf-card{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--field);border:2px solid transparent;border-radius:14px;padding:14px}
+.lf-card.on{border-color:var(--ink)}.lf-card:disabled{opacity:.45;cursor:default}
+.lf-pv{background:var(--surface);border-radius:14px;padding:12px 14px;list-style:none}.lf-pv .field{width:100%}.lf-pv .row .field{width:auto;flex:none;min-width:0}.lf-pv .row input.field{width:84px}
+.lf-skel-row{opacity:.5}
+.lf-h3{font:600 12px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px}
+.lf-pts{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
+.lf-sumlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.lf-sumlist li{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lf-tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.lf-tile{display:flex;flex-direction:column;background:var(--field);border-radius:14px;padding:12px 14px}.lf-tile b{font:700 28px/1.1 var(--display)}
+.lf-strip{display:flex;gap:4px;margin-top:14px}.lf-cell{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.lf-cell span{display:block;width:100%;height:28px;border-radius:6px}.lf-cell small{font-size:11px;color:var(--muted)}
+.lf-form .field{width:100%}.lf-skel{min-height:120px}
+.chip.small{padding:4px 10px;font-size:13px}
+@media (max-width:420px){.lf-task{flex-wrap:wrap}.lf-ctl{margin-left:44px}}
 </style>
 </head>
 <body>
@@ -623,6 +650,7 @@ try{
    If that file is missing or still has placeholders, the app runs in guest mode. */
 let firebaseConfig=null,AI_PROXY="";
 try{const m=await import("./firebase-config.js");firebaseConfig=m.default;AI_PROXY=m.AI_PROXY_URL||""}catch(e){console.info("No firebase-config.js found: running in guest mode.")}
+const LC=await import("./life-core.js");
 const CONFIGURED=!!(firebaseConfig&&firebaseConfig.apiKey&&!String(firebaseConfig.apiKey).startsWith("YOUR_"));
 const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
 const FB=CONFIGURED?Object.assign({},...await Promise.all(["firebase-app.js","firebase-auth.js","firebase-firestore.js"].map(f=>import(SDK+f)))):{};
@@ -1134,11 +1162,16 @@ function schedulePublish(){
   if(S.mode!=="db"||!S.settings.sharing)return;
   clearTimeout(pubTimer);pubTimer=setTimeout(publishNow,1500);
 }
-function publishNow(){
+async function publishNow(){
   if(S.mode!=="db")return Promise.resolve();
   /* S holds a trainee's log while logging for them: publish my own summary once I'm back */
   if(ACT.uid){ACT.pub=true;return Promise.resolve()}
   const data=S.settings.sharing?computeSummary():{sharing:false,name:myName(),photo:myPhoto(),updated:Date.now()};
+  /* Life Style: only the streak and 7-day completion, only when the person turned it on (and Share my progress is on) */
+  if(S.settings.sharing&&S.settings.lifeShare){
+    try{await lifeEnsure()}catch(e){}
+    if(LIFE.loaded&&!ACT.uid)data.life={...LC.shareData(LIFE.days,today()),at:Date.now()};
+  }
   publishBoard(S.settings.sharing?data:null);
   return setDoc(doc(fs,"shared",uid),data).catch(e=>console.warn("publish",e));
 }
@@ -2148,7 +2181,7 @@ function render(){
   const app=$("#app");
   if(ACT.uid&&S.view!=="log"&&S.view!=="dayEdit")leaveAct();
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
-  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,brand:renderBrand,admin:renderAdmin};
+  const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,life:renderLife,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,brand:renderBrand,admin:renderAdmin};
   const nIn=SOC.incoming.length+SOC.offersIn.filter(o=>!SOC.trainers.includes(o.from)).length;
   const badge=nIn?` (${nIn})`:"";
   const on=v=>ACT.uid?v==="buddies":S.view===v||(v==="dash"&&S.view==="buddy")||(S.view==="board"&&v===(BOARD.from==="buddies"?"buddies":"dash"))||(v==="buddies"&&["trainee","person","tday","find"].includes(S.view))||(v==="plans"&&["planEdit","planView"].includes(S.view))||(v==="log"&&S.view==="dayEdit");
@@ -2159,7 +2192,7 @@ function render(){
   watchToday();
   app.innerHTML=`
   <div class="top">${brandMark()}${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
-  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("life","Life Style")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   const tb=app.querySelector('.tabs');
@@ -2227,6 +2260,13 @@ function nextQuote(){
   quoteIdx=(quoteIdx+1)%QUOTES.length;
   el.classList.add("fade");
   setTimeout(()=>{el.textContent=QUOTES[quoteIdx];el.classList.remove("fade")},220);
+}
+/* "Generate summary" under a finished workout (own log, signed in). Loads Life Style data on first use for the cached summaries. */
+function lifeWorkoutSum(s,wc,editing,act){
+  if(act||editing||!s||!hasSets(s)||(wc&&wc.running)||!lifeAi())return "";
+  lifeSync();
+  if(!LIFE.loaded){if(!LIFE.loading&&!LIFE.err)setTimeout(lifeLoad,0);return ""}
+  return lifeSumBox("workout",s.date,"workout summary");
 }
 function renderLog(){
   const p=viewPlan();const d=day();const s=cur();const wk=weekInfo();
@@ -2330,6 +2370,7 @@ function renderLog(){
   ${body}
   ${addEx}
   ${endFin}
+  ${lifeWorkoutSum(s,wc,editing,act)}
   ${!act&&d.t!=="rest"&&d.ex.length?`<div class="sharebar"><button class="btn" id="shareWorkout">Share workout</button></div>`:""}
   <p class="status" id="status">${note}</p>`;
 }
@@ -3175,6 +3216,7 @@ function renderBuddy(){
   ${n?`<div class="panel nowbanner" style="--c:${tinfo(n.t).solid}"><span class="kicker"><span class="livedot" aria-hidden="true"></span>Training now</span>
     <p class="nowtitle">${esc(n.title)}</p><p class="small muted" style="margin:0">${esc(nowDayLabel(n))}</p><p class="small" style="margin:4px 0 0">${nowLine(n)}</p></div>`:""}
   ${personCard(p,sum,false,null)}
+  ${lifeBuddyHtml(sum,pname(p))}
   <div class="panel" style="margin-top:16px"><h2>${esc(pname(p)||"Their")} lifts</h2>
     ${lifts.length?`<select id="buddyEx" aria-label="Exercise">${lifts.map(x=>`<option value="${esc(x.n)}" ${x.n===S.buddyEx?"selected":""}>${esc(dn(x.n))}</option>`).join("")}</select>
     <div class="chart">${chart(pts,useW,dn(S.buddyEx))}</div>
@@ -3296,6 +3338,7 @@ function renderBuddies(){
       <span><b>Share my progress</b><br><span class="muted" style="font-size:14px">${S.settings.sharing
         ?"Buddies see your plan name, weekly workouts, streak, top sets and when you're training (which workout, and how far you are). Turn off and they see nothing."
         :"Off. Buddies can't see any of your workouts."}</span></span></label></div>
+  ${lifeShareHtml()}
   ${"Notification" in window?`<div class="panel"><label class="bigswitch"><input type="checkbox" id="notifyOn" ${notifyOn()?"checked":""}>
       <span><b>Notifications</b><br><span class="muted" style="font-size:14px">${Notification.permission==="denied"
         ?"Blocked in your browser settings. Allow notifications for this app there, then turn this on."
@@ -4301,6 +4344,606 @@ async function admBrand(status,u){
      the trainer is busy without seeing who with.
    avail/{trainer}: the trainer's weekly working hours ({ hours: { "1": ["06:00-10:00"], ... "7": [] } }, Mon = 1).
    Times are wall-clock "HH:MM" on a YYYY-MM-DD date, in the viewer's time zone. */
+/* ---------- Life Style ----------
+   Daily tasks beyond the gym. Pure rules (validation, day closing, streak) are in life-core.js and tested there.
+   Stored under users/{uid}/life/ (tasks, day_YYYY-MM-DD), kept apart from log/ because trainers can read log/.
+   Guests keep it on the device. */
+const LIFE_KEY="forjarc-life-v1";
+const LIFE={uid:null,loaded:false,loading:false,err:"",msg:"",tasks:{},days:{},settings:{},sums:{},sumBusy:null,sumErr:{},open:{},sub:"today",form:null,end:null,pane:null,draft:null,pv:null,perr:""};
+const LIFE_REASONS={no_time:"No time",low_energy:"Low energy",forgot:"Forgot",too_hard:"Too hard",not_relevant:"Not relevant",other:"Other"};
+const LIFE_CATS={mind:"Mind",body:"Body",social:"Social",sleep:"Sleep",learning:"Learning",health:"Health",other:"Other"};
+const LIFE_SLOTS={morning:"Morning",afternoon:"Afternoon",evening:"Evening",anytime:"Anytime"};
+const LIFE_TYPES={boolean:"Done or not",count:"Count",duration:"Minutes",quantity:"Amount"};
+const LIFE_TEMPLATES=[
+  {k:"water",label:"3 L water",t:{title:"Drink water",type:"quantity",target:3,unit:"L",cat:"health",slot:"anytime"}},
+  {k:"pages",label:"10 pages",t:{title:"Read",type:"count",target:10,unit:"pages",cat:"learning",slot:"evening"}},
+  {k:"med",label:"Meditation",t:{title:"Meditate",type:"duration",target:10,unit:"min",cat:"mind",slot:"morning"}},
+  {k:"walk",label:"Walk",t:{title:"Walk",type:"duration",target:20,unit:"min",cat:"body",slot:"anytime"}},
+  {k:"phone",label:"No phone first hour",t:{title:"No phone for the first hour",type:"boolean",cat:"mind",slot:"morning"}}
+];
+const LIFE_NO_RULES="Life Style isn't switched on for your account yet. The app owner needs to publish the latest security rules.";
+const lifeNum=n=>String(Math.round(n*10)/10);
+const lifeId=()=>"t"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+function lifeWrite(id,data){
+  if(S.mode==="db"&&uid){
+    setDoc(doc(fs,"users",uid,"life",id),data).catch(e=>{LIFE.msg=e&&e.code==="permission-denied"?LIFE_NO_RULES:"Couldn't save. Check your connection.";if(S.view==="life")render()});
+  }else{
+    try{localStorage.setItem(LIFE_KEY,JSON.stringify({tasks:LIFE.tasks,days:LIFE.days,settings:LIFE.settings,sums:LIFE.sums}))}catch(e){}
+  }
+}
+function lifeSaveTasks(){lifeWrite("tasks",{items:LIFE.tasks,updated:Date.now()})}
+function lifeSaveDay(d){d.updated=Date.now();lifeWrite("day_"+d.date,d);if(S.settings.lifeShare)schedulePublish()}
+
+let lifeP=null;
+function lifeLoad(){return lifeP||(lifeP=lifeLoadRun().finally(()=>{lifeP=null}))}
+function lifeEnsure(){lifeSync();return LIFE.loaded?Promise.resolve():lifeLoad()}
+async function lifeLoadRun(){
+  LIFE.loading=true;LIFE.err="";
+  try{
+    if(S.mode==="db"&&uid){
+      const base=collection(fs,"users",uid,"life");
+      const [t,st,d,sm]=await Promise.all([getDoc(doc(fs,"users",uid,"life","tasks")),getDoc(doc(fs,"users",uid,"life","settings")),
+        getDocs(query(base,where("date",">=",addDays(today(),-60)))),getDocs(query(base,where("createdAt",">=",Date.now()-90*86400000)))]);
+      LIFE.sums={};sm.docs.forEach(x=>{const v=x.data();if(v&&v.content&&v.type)LIFE.sums[x.id]=v});
+      LIFE.tasks=t.exists()?(t.data().items||{}):{};LIFE.settings=st.exists()?st.data():{};
+      LIFE.days={};d.docs.forEach(x=>{const v=x.data();if(v&&v.date&&Array.isArray(v.tasks))LIFE.days[v.date]=v});
+    }else{
+      let v={};try{v=JSON.parse(localStorage.getItem(LIFE_KEY)||"{}")}catch(e){}
+      LIFE.tasks=v.tasks||{};LIFE.days=v.days||{};LIFE.settings=v.settings||{};LIFE.sums=v.sums||{};
+    }
+    LIFE.loaded=true;
+    lifeRoll();
+  }catch(e){console.warn(e);LIFE.err=e&&e.code==="permission-denied"?LIFE_NO_RULES:"Couldn't load your Life Style data. Check your connection and try again."}
+  LIFE.loading=false;render();
+}
+/* Runs on every open: days left open from before today close on their own, and today gets its task list. */
+function lifeRoll(){
+  const now=Date.now(),td=today();
+  LC.autoCloseStale(LIFE.days,td,now).forEach(d=>lifeSaveDay(LIFE.days[d]));
+  if(!LIFE.days[td]){
+    const d=LC.buildDay(LIFE.tasks,td);LIFE.days[td]=d;
+    if(d.tasks.length)lifeSaveDay(d);
+  }
+}
+function lifeToday(){return LIFE.days[today()]}
+function lifeInst(id){const d=lifeToday();return d&&d.tasks.find(i=>i.id===id)}
+
+function lifeDue(task){
+  const rc=task.recur;
+  if(rc.kind==="daily")return "Every day";
+  if(rc.kind==="once")return "Once, "+fmtDate(rc.date);
+  return rc.days.map(n=>WD[n-1]).join(", ");
+}
+function lifeTarget(s){return s.type==="boolean"?"":lifeNum(s.target)+" "+s.unit}
+
+/* ---------- views ---------- */
+function ringSvg(pct){
+  const r=34,c=2*Math.PI*r,p=pct==null?0:pct;
+  return `<svg class="lf-ring" viewBox="0 0 80 80" role="img" aria-label="${pct==null?"No tasks today":Math.round(p*100)+" percent of today's tasks done"}">
+    <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--line)" stroke-width="8"/>
+    <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--good)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(c*p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 40 40)"/>
+    <text x="40" y="45" text-anchor="middle" class="lf-ringt">${pct==null?"-":Math.round(p*100)+"%"}</text></svg>`;
+}
+/* a different person signed in: start from nothing */
+function lifeSync(){
+  const key=uid||"guest";
+  if(LIFE.uid!==key)Object.assign(LIFE,{uid:key,loaded:false,loading:false,err:"",msg:"",tasks:{},days:{},settings:{},sums:{},sumBusy:null,sumErr:{},open:{},sub:"today",form:null,end:null,pane:null,draft:null,pv:null,perr:""});
+}
+function renderLife(){
+  lifeSync();
+  if(ACT.uid)return "";
+  if(!LIFE.loaded){
+    if(!LIFE.loading&&!LIFE.err)setTimeout(lifeLoad,0);
+    return LIFE.err?`<div class="panel"><p class="muted" style="margin:0 0 12px">${esc(LIFE.err)}</p><button class="btn primary" id="lifeRetry">Try again</button></div>`
+      :`<div class="panel lf-skel" aria-busy="true"><p class="muted" style="margin:0">Loading your day...</p></div>`;
+  }
+  lifeRoll();
+  const head=`<div class="sec-h"><div><span class="kicker">Life Style</span><h2 style="margin:2px 0 0">Forge the arc of your life</h2></div></div>`;
+  if(!LIFE.pane&&!LIFE.settings.mode&&!Object.keys(LIFE.tasks).length)LIFE.pane="choose";
+  if(LIFE.pane==="choose")return head+(LIFE.msg?`<p class="small muted" role="status">${esc(LIFE.msg)}</p>`:"")+lifeChooseHtml();
+  if(LIFE.pane==="goals"&&LIFE.draft)return head+lifeGoalsHtml();
+  if(LIFE.pane==="onboard"&&LIFE.draft)return head+lifeOnboardHtml();
+  if(LIFE.pane==="preview"&&LIFE.pv)return head+lifePreviewHtml();
+  if(LIFE.pane==="error")return head+`<div class="panel"><p style="margin:0 0 12px"><b>We couldn't make a plan right now.</b></p><p class="muted" style="margin:0 0 14px" role="alert">${esc(LIFE.perr)}</p><div class="row"><button class="btn primary" data-life="plan">Try again</button><button class="btn" data-life="perr">Add tasks myself</button></div></div>`;
+  if(LIFE.form)return head+lifeFormHtml();
+  const tabs=`<div class="chips" style="margin-bottom:16px">${[["today","Today"],["tasks","My tasks"],["sums","Summaries"],["stats","Progress"]].map(([k,l])=>`<button class="chip ${LIFE.sub===k?"on":""}" data-life="sub" data-v="${k}">${l}</button>`).join("")}</div>`;
+  return head+tabs+(LIFE.msg?`<p class="small muted" role="status">${esc(LIFE.msg)}</p>`:"")+(LIFE.sub==="tasks"?lifeTasksHtml():LIFE.sub==="sums"?lifeSumsHtml():LIFE.sub==="stats"?lifeStatsHtml():lifeTodayHtml());
+}
+function lifeQuickHtml(){
+  return `<div class="chips">${LIFE_TEMPLATES.map(q=>`<button class="chip" data-life="quick" data-v="${q.k}">+ ${esc(q.label)}</button>`).join("")}</div>`;
+}
+function lifeTodayHtml(){
+  const td=today(),day=lifeToday(),now=Date.now();
+  const dateLine=parseISO(td).toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"});
+  if(!day.tasks.length){
+    return `<div class="panel"><p style="margin:0 0 4px"><b>${esc(dateLine)}</b></p>
+      <p class="muted" style="margin:0 0 14px">${Object.keys(LIFE.tasks).length?"Nothing is due today.":"Nothing planned yet. Start with one small thing."}</p>
+      ${lifeMode()==="goal"?`<div class="row" style="margin-bottom:14px"><button class="btn primary" data-life="plan">Make my plan</button></div>`:""}
+      ${lifeQuickHtml()}
+      <div class="row" style="margin-top:14px"><button class="btn ${lifeMode()==="goal"?"":"primary"}" data-life="add">Add your own task</button></div></div>`;
+  }
+  const open=day.status==="open",done=day.tasks.filter(LC.isDone).length,pct=LC.dayPct(day),st=LC.streak(LIFE.days,td);
+  const ring=`<div class="panel lf-top">${ringSvg(pct)}<div class="lf-sum"><b>${done} of ${day.tasks.length} done</b>
+    <span class="muted small">${esc(dateLine)}</span>
+    <span class="chip" style="align-self:flex-start;margin-top:4px">${st?st+" day streak":"Start your streak today"}</span></div></div>`;
+  const rows=day.tasks.map(i=>lifeRow(i,open,now)).join("");
+  let foot="";
+  if(open&&LIFE.end){
+    const left=day.tasks.filter(i=>!LC.isDone(i));
+    foot=`<div class="panel"><h2 style="margin:0 0 6px">End your day</h2>
+      <p class="muted small" style="margin:0 0 12px">${left.length?"It's fine to leave things undone. If you like, tell us why. One tap each, or skip.":"Everything is done. Nice work."}</p>
+      ${left.map(i=>`<div class="lf-why"><span>${esc(i.snap.title)}</span><div class="chips">${Object.entries(LIFE_REASONS).map(([k,l])=>`<button class="chip small ${LIFE.end.reasons[i.id]===k?"on":""}" data-life="reason" data-lid="${i.id}" data-v="${k}">${l}</button>`).join("")}</div></div>`).join("")}
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-life="endok">End day</button><button class="btn" data-life="endcancel">Not yet</button></div></div>`;
+  }else if(open){
+    const rest=LC.canRest(LIFE.days,td);
+    foot=`<div class="row" style="margin-top:4px"><button class="btn primary" data-life="end">End day</button><button class="btn" data-life="add">Add task</button>${rest?`<button class="btn" data-life="rest">Use rest day</button>`:""}</div>
+      ${rest?`<p class="small muted" style="margin-top:8px">One rest day a week keeps your streak going.</p>`:""}`;
+  }else{
+    const undo=LC.canUndo(day,now);
+    if(undo)setTimeout(()=>{if(S.view==="life")render()},Math.max(500,day.endedAt+LC.UNDO_MS-now+500));
+    const word=day.restDay?"Rest day. Your streak is safe.":day.status==="auto"?"This day closed on its own. That's fine. Today is a fresh start.":done===day.tasks.length?"Day complete. Well done.":"Day ended. You showed up for "+done+" of "+day.tasks.length+".";
+    foot=`<div class="panel"><p style="margin:0 0 ${undo?10:0}px"><b>${esc(word)}</b></p>${undo?`<div class="row"><button class="btn small" data-life="undo">Undo, reopen the day</button></div>`:""}</div>
+      ${lifeSumBox("lifestyle",td,"summary")}${lifeWorkoutByDate()[td]?lifeSumBox("combined",td,"day summary"):""}`;
+  }
+  return ring+`<ul class="lf-list">${rows}</ul>`+foot;
+}
+function lifeRow(i,open,now){
+  const s=i.snap,done=LC.isDone(i),val=LC.liveValue(i,now);
+  const prog=s.type==="boolean"?(done?"Done":""):`${lifeNum(val)} / ${lifeNum(s.target)} ${esc(s.unit)}`;
+  let ctl="";
+  if(open){
+    if(s.type==="count"||s.type==="quantity"||s.type==="duration")
+      ctl+=`<button class="btn small" data-life="dec" data-lid="${i.id}" aria-label="Less">-</button><button class="btn small" data-life="inc" data-lid="${i.id}" aria-label="More">+</button>`;
+    if(s.type==="duration")
+      ctl+=`<button class="btn small ${i.run!=null?"primary":""}" data-life="timer" data-lid="${i.id}">${i.run!=null?"Stop":"Start"}</button>`;
+  }
+  const tick=open?`<button class="lf-tick ${done?"on":""}" data-life="tick" data-lid="${i.id}" aria-pressed="${done}" aria-label="${done?"Mark not done":"Mark done"}: ${esc(s.title)}"></button>`
+    :`<span class="lf-tick ${done?"on":""}" aria-hidden="true"></span>`;
+  return `<li class="lf-task ${done?"lf-done":""}">${tick}<div class="lf-main"><b>${esc(s.title)}</b>
+    <small class="muted">${esc(LIFE_SLOTS[s.slot])}${prog?" · ":""}${i.run!=null?`<span data-ltimer="${i.id}">${lifeClock(i,now)}</span> · `:""}${prog}</small></div>
+    <div class="lf-ctl">${ctl}</div></li>`;
+}
+function lifeClock(i,now){const sec=Math.max(0,Math.floor((now-i.run)/1000));return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0")}
+
+function lifeTasksHtml(){
+  const mode=lifeModeHtml(),list=Object.values(LIFE.tasks).sort((a,b)=>(a.created||0)-(b.created||0));
+  if(!list.length)return mode+`<div class="panel"><p class="muted" style="margin:0 0 14px">No tasks yet. Quick add one, or make your own.</p>${lifeQuickHtml()}<div class="row" style="margin-top:14px"><button class="btn primary" data-life="add">Add your own task</button></div></div>`;
+  return mode+`<ul class="list lf-tasks">${list.map(t=>`<li class="lf-trow"><div class="lf-main"><b>${esc(t.title)}${t.source==="ai"?` <span class="tag" style="background:var(--pull)">AI</span>`:""}</b>
+    <small class="muted">${esc([lifeTarget(t),LIFE_SLOTS[t.slot],lifeDue(t)].filter(Boolean).join(" · "))}</small></div>
+    <div class="row"><button class="btn small" data-life="edit" data-lid="${t.id}">Edit</button><button class="btn small" data-life="del" data-lid="${t.id}">Remove</button></div></li>`).join("")}</ul>
+    <div class="panel"><p class="small muted" style="margin:0 0 10px">Quick add</p>${lifeQuickHtml()}</div>
+    <div class="row"><button class="btn primary" data-life="add">Add task</button></div>`;
+}
+
+function lifeFormHtml(){
+  const f=LIFE.form,seg=(field,map)=>`<div class="chips">${Object.entries(map).map(([k,l])=>`<button class="chip ${f[field]===k?"on":""}" data-life="set" data-lfield="${field}" data-v="${k}">${l}</button>`).join("")}</div>`;
+  const rk=f.recur.kind;
+  return `<p><button class="link" data-life="formx">Back</button></p>
+  <div class="panel lf-form"><h2 style="margin:0 0 12px">${f.id?"Edit task":"New task"}</h2>
+    <label class="small muted" for="lfTitle">Name</label>
+    <input class="field" id="lfTitle" data-lf="title" maxlength="60" value="${esc(f.title)}" placeholder="For example, Morning walk" autocomplete="off">
+    <p class="small muted" style="margin:14px 0 6px">Type</p>${seg("type",LIFE_TYPES)}
+    ${f.type!=="boolean"?`<div class="row" style="margin-top:14px;align-items:end">
+      <div><label class="small muted" for="lfTarget">Target</label><input class="field" id="lfTarget" data-lf="target" inputmode="decimal" value="${esc(f.target)}" style="width:96px"></div>
+      ${f.type==="duration"?`<span class="muted" style="padding-bottom:10px">minutes</span>`:`<div style="flex:1"><label class="small muted" for="lfUnit">Unit</label><input class="field" id="lfUnit" data-lf="unit" maxlength="16" value="${esc(f.unit)}" placeholder="pages, L, glasses" style="width:100%"></div>`}</div>`:""}
+    <p class="small muted" style="margin:14px 0 6px">Time of day</p>${seg("slot",LIFE_SLOTS)}
+    <p class="small muted" style="margin:14px 0 6px">Category</p>${seg("cat",LIFE_CATS)}
+    <p class="small muted" style="margin:14px 0 6px">Repeats</p>
+    <div class="chips">${[["daily","Every day"],["days","Certain days"],["once","One time"]].map(([k,l])=>`<button class="chip ${rk===k?"on":""}" data-life="recur" data-v="${k}">${l}</button>`).join("")}</div>
+    ${rk==="days"?`<div class="chips" style="margin-top:8px">${WD.map((w,n)=>`<button class="chip ${f.recur.days.includes(n+1)?"on":""}" data-life="wday" data-v="${n+1}" aria-pressed="${f.recur.days.includes(n+1)}">${w}</button>`).join("")}</div>`:""}
+    ${rk==="once"?`<input class="field" type="date" id="lfDate" data-lf="date" value="${esc(f.recur.date)}" style="margin-top:8px" aria-label="Date">`:""}
+    ${f.err?`<p class="small" role="alert" style="color:var(--push);margin:12px 0 0">${esc(f.err)}</p>`:""}
+    <div class="row" style="margin-top:16px"><button class="btn primary" data-life="save">${f.id?"Save changes":"Add task"}</button><button class="btn" data-life="formx">Cancel</button></div>
+  </div>`;
+}
+function lifeNewForm(t){
+  const base={id:"",title:"",type:"boolean",target:"",unit:"",cat:"other",slot:"anytime",recur:{kind:"daily",days:[],date:today()},err:""};
+  if(!t)return base;
+  const rc=t.recur||{kind:"daily"};
+  return {...base,id:t.id,title:t.title,type:t.type,target:t.type==="boolean"?"":String(t.target),unit:t.unit,cat:t.cat,slot:t.slot,
+    recur:{kind:rc.kind,days:rc.days?[...rc.days]:[],date:rc.date||today()},source:t.source,created:t.created,why:t.why,diff:t.diff};
+}
+
+/* ---------- actions ---------- */
+function lifeSaveTask(raw,id){
+  const prev=LIFE.tasks[id];
+  const r=LC.validateTask(raw,{id,now:prev?prev.created:Date.now()});
+  if(!r.ok)return r;
+  if(!prev&&Object.keys(LIFE.tasks).length>=LC.MAX_TASKS)return {ok:false,errors:["That's the most tasks you can keep. Remove one first."]};
+  LIFE.tasks[id]=r.task;lifeSaveTasks();
+  const d=lifeToday();if(d&&d.status==="open"){LC.syncTaskIntoDay(d,r.task);lifeSaveDay(d)}
+  return r;
+}
+function lifeAct(a,ds){
+  const now=Date.now(),day=lifeToday(),inst=ds.lid?lifeInst(ds.lid):null;
+  LIFE.msg="";
+  if(lifeSumAct(a,ds)!==null){render();return}
+  if(lifeAiAct(a,ds)!==null){render();return}
+  const touch=()=>{lifeSaveDay(day);render()};
+  switch(a){
+    case "sub":LIFE.sub=ds.v;break;
+    case "add":LIFE.form=lifeNewForm();break;
+    case "edit":LIFE.form=lifeNewForm(LIFE.tasks[ds.lid]);break;
+    case "formx":LIFE.form=null;break;
+    case "set":LIFE.form[ds.lfield]=ds.v;LIFE.form.err="";if(ds.lfield==="type"&&ds.v==="duration")LIFE.form.unit="min";break;
+    case "recur":LIFE.form.recur.kind=ds.v;LIFE.form.err="";break;
+    case "wday":{const n=+ds.v,d=LIFE.form.recur.days,i=d.indexOf(n);if(i>=0)d.splice(i,1);else d.push(n);break}
+    case "save":{
+      const f=LIFE.form,id=f.id||lifeId();
+      const r=lifeSaveTask({...f,id,recur:f.recur.kind==="days"?{kind:"days",days:f.recur.days}:f.recur.kind==="once"?{kind:"once",date:f.recur.date}:{kind:"daily"}},id);
+      if(!r.ok){f.err=r.errors[0];break}
+      LIFE.form=null;LIFE.msg=f.id?"Saved.":"Added.";break;
+    }
+    case "quick":{
+      const q=LIFE_TEMPLATES.find(x=>x.k===ds.v);if(!q)break;
+      const r=lifeSaveTask({...q.t,recur:{kind:"daily"}},lifeId());
+      LIFE.msg=r.ok?q.label+" added.":r.errors[0];break;
+    }
+    case "del":{
+      const t=LIFE.tasks[ds.lid];if(!t||!confirm("Remove \""+t.title+"\"? Past days keep their record."))return;
+      delete LIFE.tasks[ds.lid];lifeSaveTasks();
+      if(day&&day.status==="open"){LC.syncTaskIntoDay(day,{...t,active:false});lifeSaveDay(day)}
+      LIFE.msg="Removed.";break;
+    }
+    case "tick":if(inst&&day.status==="open"){LC.toggleDone(inst);return touch()}break;
+    case "inc":case "dec":if(inst&&day.status==="open"){LC.stopTimer(inst,now);LC.bump(inst,a==="inc"?1:-1);return touch()}break;
+    case "timer":if(inst&&day.status==="open"){inst.run!=null?LC.stopTimer(inst,now):LC.startTimer(inst,now);return touch()}break;
+    case "end":LIFE.end={reasons:{}};break;
+    case "endcancel":LIFE.end=null;break;
+    case "reason":if(LIFE.end){const r=LIFE.end.reasons;r[ds.lid]===ds.v?delete r[ds.lid]:r[ds.lid]=ds.v}break;
+    case "endok":LC.endDay(day,{reasons:LIFE.end?LIFE.end.reasons:{},now});LIFE.end=null;lifeSaveDay(day);break;
+    case "rest":if(LC.canRest(LIFE.days,day.date)){LC.restDay(day,now);lifeSaveDay(day)}break;
+    case "undo":LC.undoEndDay(day,now);lifeSaveDay(day);break;
+  }
+  render();
+}
+/* ---------- Life Style: goals, onboarding and AI plans ----------
+   settings: { mode: "goal" | "manual", goals: [{ id, key, text }], onboarding: {...} }. Switching mode never deletes tasks or goals.
+   The AI call goes through the proxy (life/plan/), which holds the key. A plan is only a preview until the person confirms it. */
+const LIFE_GOALS={discipline:"Build discipline",focus:"Improve focus",screen:"Reduce screen time",social:"Become more social and confident",
+  sleep:"Sleep better",fitness:"Improve fitness",learn:"Learn and read more",calm:"Mental calm"};
+const LIFE_Q=[
+  {k:"level",q:"How experienced are you with building habits?",o:[["new","Just starting"],["some","Some experience"],["lots","Experienced"]]},
+  {k:"minutes",q:"How much time can you give each day?",o:[["about 15 minutes","15 min"],["about 30 minutes","30 min"],["about 1 hour","1 hour"],["1.5 hours or more","1.5 hours +"]]},
+  {k:"timeOfDay",q:"When do you prefer to do things?",o:[["morning","Morning"],["afternoon","Afternoon"],["evening","Evening"],["mixed, no preference","Mixed"]]},
+  {k:"intensity",q:"How hard should it feel?",o:[["gentle","Gentle"],["balanced","Balanced"],["challenging","Challenging"]]}
+];
+const LIFE_CONS=[["work","Long work hours"],["shifts","Shift work"],["travel","Travel a lot"],["health","A health limit"]];
+const LIFE_CONS_TXT={work:"long work hours",shifts:"shift work",travel:"travels a lot",health:"has a health limit they will describe"};
+const lifeLeft=(n,m)=>(n==null?"":` ${n} plan${n===1?"":"s"} left today.`)+(m==null?"":` ${m} swap${m===1?"":"s"} left today.`);
+const lifeAi=()=>!!(AI_PROXY&&auth&&auth.currentUser);
+const lifeUrl=()=>AI_PROXY.replace(/plan\/?$/,"life/plan/");
+function lifeSaveSettings(){lifeWrite("settings",{...LIFE.settings,updated:Date.now()})}
+function lifeMode(){return LIFE.settings.mode||"manual"}
+
+function lifeChooseHtml(){
+  const ok=lifeAi();
+  return `<div class="panel"><h2 style="margin:0 0 6px">How do you want to start?</h2>
+    <p class="muted" style="margin:0 0 16px">You can switch any time. Nothing you add is lost.</p>
+    <div class="lf-choice">
+      <button class="lf-card" data-life="goalstart"><b>Pick a goal</b><span class="muted small">AI suggests a few small daily tasks and adjusts as you go.</span></button>
+      <button class="lf-card" data-life="manualstart"><b>I'll add my own tasks</b><span class="muted small">Full control. No goal needed.</span></button>
+    </div>
+    ${ok?"":`<p class="small muted" style="margin:12px 0 0">AI-guided goals need you to be signed in and the AI server to be set up.</p>`}</div>`;
+}
+function lifeGoalsHtml(){
+  const d=LIFE.draft,full=d.goals.length>=3;
+  const has=k=>d.goals.some(g=>g.key===k);
+  return `<p><button class="link" data-life="gback">Back</button></p>
+  <div class="panel"><h2 style="margin:0 0 4px">What do you want to work on?</h2>
+    <p class="muted small" style="margin:0 0 14px">Pick up to 3. Fewer is easier to keep.</p>
+    <div class="lf-choice">${Object.entries(LIFE_GOALS).map(([k,l])=>`<button class="lf-card ${has(k)?"on":""}" data-life="gpick" data-v="${k}" aria-pressed="${has(k)}" ${full&&!has(k)?"disabled":""}><b>${l}</b></button>`).join("")}</div>
+    <label class="small muted" for="lgCustom" style="display:block;margin:16px 0 6px">Or say it in your own words</label>
+    <div class="row" style="flex-wrap:nowrap"><input class="field" id="lgCustom" data-lg="custom" maxlength="120" value="${esc(d.custom)}" placeholder="For example, be calmer at work" autocomplete="off" style="flex:1" ${full?"disabled":""}><button class="btn" data-life="gadd" ${full?"disabled":""}>Add</button></div>
+    ${d.goals.filter(g=>g.key==="custom").map(g=>`<div class="row" style="margin-top:8px"><span class="chip">${esc(g.text)}</span><button class="link small" data-life="grm" data-v="${g.id}">Remove</button></div>`).join("")}
+    ${d.err?`<p class="small" role="alert" style="color:var(--push);margin:12px 0 0">${esc(d.err)}</p>`:""}
+    <div class="row" style="margin-top:16px"><button class="btn primary" data-life="gnext">Continue</button></div></div>`;
+}
+function lifeOnboardHtml(){
+  const o=LIFE.draft.ob,tags=o.tags||[];
+  const q=LIFE_Q.map(x=>`<div style="margin-bottom:16px"><p style="margin:0 0 6px"><b>${x.q}</b></p><div class="chips">${x.o.map(([v,l])=>`<button class="chip ${o[x.k]===v?"on":""}" data-life="oset" data-k="${x.k}" data-v="${esc(v)}" aria-pressed="${o[x.k]===v}">${l}</button>`).join("")}</div></div>`).join("");
+  return `<p><button class="link" data-life="oback">Back</button></p>
+  <div class="panel"><h2 style="margin:0 0 4px">A few quick questions</h2>
+    <p class="muted small" style="margin:0 0 16px">All optional. They help the plan fit your life. Skip whatever you like.</p>
+    ${q}
+    <div style="margin-bottom:16px"><p style="margin:0 0 6px"><b>Anything we should keep in mind?</b></p><div class="chips">${LIFE_CONS.map(([k,l])=>`<button class="chip ${tags.includes(k)?"on":""}" data-life="otag" data-v="${k}" aria-pressed="${tags.includes(k)}">${l}</button>`).join("")}</div>
+      <input class="field" data-lg="note" maxlength="300" value="${esc(o.note||"")}" placeholder="Optional note, for example work 9 to 6" autocomplete="off" style="margin-top:8px;width:100%">
+      <p class="small muted" style="margin:6px 0 0">This is not medical advice. For health concerns, talk to a professional.</p></div>
+    <div class="row"><button class="btn primary" data-life="ogo">Make my plan</button><button class="btn" data-life="oskip">Skip questions</button></div></div>`;
+}
+function lifeBusyHtml(msg){
+  return `<div class="panel gen-busy" role="status" aria-live="polite"><span class="gen-spin" aria-hidden="true"></span><div><b>${msg}</b><p class="small muted" style="margin:4px 0 0">This usually takes 5 to 20 seconds.</p></div></div>
+    <ul class="lf-list" aria-hidden="true">${[0,1,2].map(()=>`<li class="lf-task lf-skel-row"><span class="lf-tick"></span><div class="lf-main"><b>&nbsp;</b><small>&nbsp;</small></div></li>`).join("")}</ul>`;
+}
+function lifePreviewHtml(){
+  const pv=LIFE.pv;
+  if(pv.busy==="all")return lifeBusyHtml("Building your plan");
+  const rows=pv.tasks.map((t,i)=>{
+    const busy=pv.busy===i;
+    return `<li class="lf-pv"><input class="field" data-lp="${i}.title" maxlength="60" value="${esc(t.title)}" aria-label="Task name">
+      <div class="row" style="margin-top:8px;align-items:center">
+        ${t.type!=="boolean"?`<input class="field" data-lp="${i}.target" inputmode="decimal" value="${esc(t.target)}" aria-label="Target"><span class="muted">${esc(t.unit||"")}</span>`:`<span class="muted">Done or not</span>`}
+        <select class="field" data-lp="${i}.slot" aria-label="Time of day" style="width:auto">${Object.entries(LIFE_SLOTS).map(([k,l])=>`<option value="${k}" ${t.slot===k?"selected":""}>${l}</option>`).join("")}</select>
+        <span class="tag" style="background:var(--muted)">${esc(LIFE_CATS[t.cat]||"Other")}</span>
+        <span class="small muted">${"●".repeat(t.diff)}${"○".repeat(3-t.diff)}</span></div>
+      ${t.why?`<p class="small muted" style="margin:6px 0 0">${esc(t.why)}</p>`:""}
+      <p class="small muted" style="margin:2px 0 0">${esc(lifeDue(t))}</p>
+      <div class="row" style="margin-top:8px"><button class="btn small" data-life="pswap" data-i="${i}" ${pv.busy!=null?"disabled":""}>${busy?"Finding another...":"Swap"}</button><button class="btn small" data-life="pdel" data-i="${i}" ${pv.busy!=null?"disabled":""}>Remove</button></div></li>`}).join("");
+  return `<div class="panel"><h2 style="margin:0 0 4px">Your plan, to review</h2>
+    <p class="muted small" style="margin:0">${esc(pv.note||"Edit anything, swap or remove tasks. Nothing starts until you confirm.")}</p>${(LIFE.settings.adjustments||[]).length?`<p class="small" style="margin:8px 0 0">Using your approved adjustments: ${esc(LIFE.settings.adjustments.join(" "))}</p>`:""}</div>
+    <ul class="lf-list">${rows||`<li class="muted">No tasks left. Regenerate, or cancel.</li>`}</ul>
+    ${pv.err?`<p class="small" role="alert" style="color:var(--push)">${esc(pv.err)}</p>`:""}
+    ${pv.tasks.length&&LIFE.settings.mode==="goal"?`<p class="small muted">Confirming replaces your current AI tasks. Tasks you added yourself stay.${esc(lifeLeft(pv.left,pv.swapLeft))}</p>`:""}
+    <div class="row"><button class="btn primary" data-life="pok" ${!pv.tasks.length||pv.busy!=null?"disabled":""}>Confirm plan</button><button class="btn" data-life="pall" ${pv.busy!=null?"disabled":""}>Regenerate all</button><button class="btn" data-life="pcancel">Cancel</button></div>`;
+}
+/* the goals and plan controls shown in My tasks */
+function lifeModeHtml(){
+  const g=LIFE.settings.goals||[],goal=lifeMode()==="goal";
+  if(!goal)return `<div class="panel"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><span><b>Manual</b><br><span class="small muted">You choose every task.</span></span><button class="btn small" data-life="mode" data-v="goal">Get AI help</button></div></div>`;
+  return `<div class="panel"><div class="sec-h"><h2>Your goals</h2><button class="link small" data-life="mode" data-v="manual">Switch to manual</button></div>
+    <div class="chips" style="margin-bottom:12px">${g.map(x=>`<span class="chip">${esc(x.text)}</span>`).join("")||`<span class="muted small">No goals yet.</span>`}</div>
+    <div class="row"><button class="btn primary" data-life="plan">${Object.values(LIFE.tasks).some(t=>t.source==="ai")?"Make a new plan":"Make my plan"}</button><button class="btn" data-life="goaledit">Change goals</button><button class="btn" data-life="oedit">Change answers</button></div></div>`;
+}
+
+function lifeHistory(){return LC.historyFor(LIFE.days,today())}
+function lifePayload(extra){
+  const s=LIFE.settings,o=s.onboarding||{};
+  const cons=[...(o.tags||[]).map(k=>LIFE_CONS_TXT[k]).filter(Boolean),o.note||""].filter(Boolean).join("; ");
+  return {goals:(s.goals||[]).map(g=>({key:g.key,text:g.text})),
+    onboarding:{level:o.level||"",minutes:o.minutes||"",timeOfDay:o.timeOfDay||"",intensity:o.intensity||"balanced",constraints:cons},
+    adjustments:(s.adjustments||[]).slice(-3),history:lifeHistory(),current:Object.values(LIFE.tasks).map(t=>({title:t.title,type:t.type})).slice(0,20),...extra};
+}
+async function lifeCall(body){
+  if(!lifeAi())return {err:"Sign in to use AI planning."};
+  let res,out=null;
+  try{
+    const token=await auth.currentUser.getIdToken();
+    res=await fetch(lifeUrl(),{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify(body)});
+    out=await res.json().catch(()=>null);
+  }catch(e){console.warn("life ai",e);return {err:navigator.onLine?"Couldn't reach the server. Try again in a minute.":"No connection. Connect to the internet to use AI."}}
+  if(!res.ok||!out||!Array.isArray(out.tasks))return {err:genError(res.status,out).replace("make a plan","make a plan, or add tasks yourself")};
+  return out;
+}
+const lifePv=t=>({...t,id:t.id||lifeId(),source:"ai"});
+async function lifeGen(){
+  if(LIFE.pv&&LIFE.pv.busy!=null)return;
+  LIFE.pane="preview";LIFE.pv={tasks:LIFE.pv?LIFE.pv.tasks:[],note:"",err:"",busy:"all",left:null};render();
+  const out=await lifeCall(lifePayload({}));
+  if(out.err){LIFE.pv=null;LIFE.pane="error";LIFE.perr=out.err;render();return}
+  LIFE.pv={tasks:out.tasks.map(lifePv),note:out.note||"",err:"",busy:null,left:out.remaining};render();window.scrollTo(0,0);
+}
+async function lifeSwap(i){
+  const pv=LIFE.pv;if(!pv||pv.busy!=null||!pv.tasks[i])return;
+  const old=pv.tasks[i];pv.busy=i;pv.err="";render();
+  const out=await lifeCall(lifePayload({replace:{title:old.title,type:old.type},keep:pv.tasks.filter((_,j)=>j!==i).map(t=>t.title)}));
+  pv.busy=null;
+  if(out.err)pv.err=out.err;
+  else{pv.tasks[i]=lifePv({...out.tasks[0],id:old.id});pv.swapLeft=out.remaining}
+  if(LIFE.pv===pv)render();
+}
+function lifeConfirm(){
+  const pv=LIFE.pv;if(!pv)return;
+  const fresh=[];
+  for(const t of pv.tasks){
+    const r=LC.validateTask({...t,source:"ai"},{id:t.id,now:Date.now()});
+    if(!r.ok){pv.err=(t.title||"A task")+": "+r.errors[0];render();return}
+    fresh.push(r.task);
+  }
+  const day=lifeToday(),old=Object.values(LIFE.tasks).filter(t=>t.source==="ai");
+  if(Object.keys(LIFE.tasks).length-old.length+fresh.length>LC.MAX_TASKS){pv.err="That's more tasks than you can keep. Remove a few of your own first.";render();return}
+  old.forEach(t=>{delete LIFE.tasks[t.id];if(day&&day.status==="open")LC.syncTaskIntoDay(day,{...t,active:false})});
+  fresh.forEach(t=>{LIFE.tasks[t.id]=t;if(day&&day.status==="open")LC.syncTaskIntoDay(day,t)});
+  lifeSaveTasks();if(day&&day.status==="open")lifeSaveDay(day);
+  if((LIFE.settings.adjustments||[]).length){LIFE.settings.adjustments=[];lifeSaveSettings()}
+  LIFE.pane=null;LIFE.pv=null;LIFE.sub="today";LIFE.msg="Plan confirmed. "+fresh.length+" tasks added.";
+}
+function lifeDraftFrom(){
+  const s=LIFE.settings;
+  return {goals:(s.goals||[]).map(g=>({...g})),custom:"",err:"",ob:{...(s.onboarding||{}),tags:[...((s.onboarding||{}).tags||[])]}};
+}
+function lifeAiAct(a,ds){
+  const d=LIFE.draft;
+  switch(a){
+    case "manualstart":LIFE.settings.mode="manual";lifeSaveSettings();LIFE.pane=null;return true;
+    case "goalstart":
+      if(!lifeAi()){LIFE.msg="Sign in to use AI-guided goals.";return true}
+      LIFE.draft=lifeDraftFrom();LIFE.pane="goals";return true;
+    case "mode":
+      if(ds.v==="manual"){LIFE.settings.mode="manual";lifeSaveSettings();return true}
+      if(!lifeAi()){LIFE.msg="Sign in to use AI help.";return true}
+      if((LIFE.settings.goals||[]).length){LIFE.settings.mode="goal";lifeSaveSettings()}
+      else{LIFE.draft=lifeDraftFrom();LIFE.pane="goals"}
+      return true;
+    case "goaledit":LIFE.draft=lifeDraftFrom();LIFE.pane="goals";return true;
+    case "oedit":LIFE.draft=lifeDraftFrom();LIFE.pane="onboard";return true;
+    case "gback":LIFE.pane=LIFE.settings.mode?null:"choose";return true;
+    case "oback":LIFE.pane="goals";return true;
+    case "gpick":{
+      d.err="";const i=d.goals.findIndex(g=>g.key===ds.v);
+      if(i>=0)d.goals.splice(i,1);else if(d.goals.length<3)d.goals.push({id:ds.v,key:ds.v,text:LIFE_GOALS[ds.v]});
+      return true}
+    case "gadd":{
+      const t=d.custom.replace(/\s+/g," ").trim().slice(0,120);
+      if(t.length<3){d.err="Type a few words about your goal.";return true}
+      if(d.goals.length<3){d.goals.push({id:"c"+lifeId(),key:"custom",text:t});d.custom="";d.err=""}
+      return true}
+    case "grm":d.goals=d.goals.filter(g=>g.id!==ds.v);return true;
+    case "gnext":
+      if(!d.goals.length){d.err="Pick at least one goal, or go back and add your own tasks.";return true}
+      LIFE.settings.goals=d.goals;LIFE.settings.mode="goal";lifeSaveSettings();
+      LIFE.pane="onboard";return true;
+    case "oset":d.ob[ds.k]=d.ob[ds.k]===ds.v?"":ds.v;return true;
+    case "otag":{const t=d.ob.tags,i=t.indexOf(ds.v);i>=0?t.splice(i,1):t.push(ds.v);return true}
+    case "ogo":case "oskip":
+      LIFE.settings.onboarding=a==="oskip"?{}:{...d.ob};lifeSaveSettings();lifeGen();return false;
+    case "plan":
+      if(!lifeAi()){LIFE.msg="Sign in to use AI planning.";return true}
+      if(!LIFE.settings.onboarding){LIFE.draft=lifeDraftFrom();LIFE.pane="onboard";return true}
+      LIFE.pv=null;lifeGen();return false;
+    case "pall":if(confirm("Make a fresh plan? Your edits here will be lost.")){LIFE.pv.tasks=[];lifeGen()}return false;
+    case "pswap":lifeSwap(+ds.i);return false;
+    case "pdel":LIFE.pv.tasks.splice(+ds.i,1);LIFE.pv.err="";return true;
+    case "pok":lifeConfirm();return false;
+    case "pcancel":LIFE.pane=null;LIFE.pv=null;return true;
+    case "perr":LIFE.pane=null;LIFE.perr="";return true;
+  }
+  return null;
+}
+/* ---------- Life Style: AI summaries ----------
+   On demand only (a button). Cached in life/sum_{type}_{date}: opening one again never calls the AI, and Regenerate is capped
+   (LC.MAX_REGEN). Works in manual mode too. Adjustments the person approves go to settings.adjustments and are sent with the next
+   plan request. Nothing here is shared with buddies. */
+const LIFE_SUM_TITLE={workout:"Workout summary",lifestyle:"Life Style summary",combined:"Day summary",weekly:"Weekly review"};
+const lifeSumUrl=()=>AI_PROXY.replace(/plan\/?$/,"life/summary/");
+function lifeWorkoutByDate(){
+  const m={};
+  Object.values(S.sessions).filter(s=>s&&s.date&&hasSets(s)).forEach(s=>{
+    const w=m[s.date]||(m[s.date]={vol:0,sets:0,list:[]});
+    w.vol+=volKg(s);w.sets+=setCount(s);w.list.push(s);
+  });
+  return m;
+}
+function lifeWorkoutDay(date,w){
+  const s=w.list[0],m=sessionMeta(s),p=getPlan(s.planId||"ppl"),d=withAdded(s.custom||(p&&p.days[sessSrc(s)-1]),s);
+  const planned=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload)+((s.extra&&s.extra[x.n])||0),0):0;
+  const c=wkClock(s);
+  return {date,title:m.title+(w.list.length>1?" +"+(w.list.length-1)+" more":""),sets:w.sets,planned,volumeKg:Math.round(w.vol),minutes:c&&!c.running?Math.round(c.ms/60000):0};
+}
+function lifeSumPayload(type,date){
+  const from=type==="weekly"?addDays(date,-6):date,work=lifeWorkoutByDate(),dates=[];
+  for(let d=from;d<=date;d=addDays(d,1))dates.push(d);
+  const o={type,from,to:date,goals:(LIFE.settings.goals||[]).map(g=>g.text)};
+  if(type!=="workout")o.life={days:dates.map(d=>LIFE.days[d]).filter(x=>x&&x.tasks.length&&x.status!=="open").map(LC.dayPayload)};
+  if(type!=="lifestyle")o.workout={days:dates.filter(d=>work[d]).map(d=>lifeWorkoutDay(d,work[d]))};
+  if(type==="combined"||type==="weekly")o.trend=LC.trendFor(LIFE.days,Object.fromEntries(Object.entries(work).map(([d,w])=>[d,{vol:w.vol,sets:w.sets}])),date);
+  return o;
+}
+async function lifeSumGen(type,date,regen){
+  const id=LC.sumId(type,date),prev=LIFE.sums[id];
+  if(LIFE.sumBusy)return;
+  if(regen&&prev&&!LC.canRegen(prev)){LIFE.sumErr[id]="You've used both regenerations for this summary.";return}
+  const o=lifeSumPayload(type,date);
+  if(!(o.life&&o.life.days.length)&&!(o.workout&&o.workout.days.length)){LIFE.sumErr[id]="Nothing to summarise yet. Finish a day or log a workout first.";return}
+  if(!lifeAi()){LIFE.sumErr[id]="Sign in to use AI summaries.";return}
+  LIFE.sumBusy=id;LIFE.sumErr[id]="";render();
+  let res,out=null;
+  try{
+    const token=await auth.currentUser.getIdToken();
+    res=await fetch(lifeSumUrl(),{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},body:JSON.stringify(o)});
+    out=await res.json().catch(()=>null);
+  }catch(e){console.warn("life summary",e);LIFE.sumBusy=null;LIFE.sumErr[id]=navigator.onLine?"Couldn't reach the server. Try again in a minute.":"No connection. Connect to the internet to make a summary.";render();return}
+  LIFE.sumBusy=null;
+  if(!res.ok||!out||!Array.isArray(out.adjustments)){LIFE.sumErr[id]=genError(res.status,out).replace("make a plan","make a summary").replace("AI plans","AI summaries");render();return}
+  const doc={type,from:o.from,to:o.to,content:{wentWell:out.wentWell||[],missed:out.missed||[],adjustments:out.adjustments,link:out.link||""},
+    createdAt:Date.now(),regen:regen&&prev?(prev.regen||0)+1:0,model:out.model||""};
+  LIFE.sums[id]=doc;LIFE.open[id]=true;lifeWrite(id,doc);
+  render();
+}
+function lifeSumAct(a,ds){
+  switch(a){
+    case "sumgen":lifeSumGen(ds.type,ds.date,false);return true;
+    case "sumregen":{const s=LIFE.sums[ds.id];if(s)lifeSumGen(s.type,s.to,true);return true}
+    case "sumopen":LIFE.open[ds.id]=true;return true;
+    case "sumhide":delete LIFE.open[ds.id];return true;
+    case "adj":{
+      const s=LIFE.sums[ds.id],t=s&&s.content.adjustments[+ds.i];
+      if(t){LIFE.settings.adjustments=LC.toggleAdjustment(LIFE.settings.adjustments||[],t);lifeSaveSettings()}
+      return true}
+  }
+  return null;
+}
+function lifeDateLabel(s){return fmtDate(s)}
+function lifeSumHtml(id){
+  const s=LIFE.sums[id];if(!s)return "";
+  const c=s.content,goal=lifeMode()==="goal",used=LIFE.settings.adjustments||[];
+  const list=(h,a)=>a.length?`<h3 class="lf-h3">${h}</h3><ul class="lf-pts">${a.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"";
+  const range=s.type==="weekly"?lifeDateLabel(s.from)+" to "+lifeDateLabel(s.to):lifeDateLabel(s.to);
+  const left=LC.MAX_REGEN-(s.regen||0);
+  return `<div class="panel lf-sumdoc"><div class="sec-h"><div><h2 style="margin:0">${LIFE_SUM_TITLE[s.type]||"Summary"}</h2><span class="small muted">${esc(range)}</span></div><button class="link small" data-life="sumhide" data-id="${id}">Hide</button></div>
+    ${list("What went well",c.wentWell)}${list("What was missed",c.missed)}
+    ${c.adjustments.length?`<h3 class="lf-h3">${s.type==="weekly"?"Adjustments for the coming days":"Adjustments for tomorrow"}</h3><ul class="lf-pts">${c.adjustments.map((x,i)=>`<li>${esc(x)}${goal?` <button class="chip small ${used.includes(x)?"on":""}" data-life="adj" data-id="${id}" data-i="${i}" aria-pressed="${used.includes(x)}">${used.includes(x)?"Using in my next plan":"Use in my next plan"}</button>`:""}</li>`).join("")}</ul>`:""}
+    ${c.link?`<h3 class="lf-h3">Workouts and daily tasks</h3><p style="margin:0">${esc(c.link)}</p>`:""}
+    <div class="row" style="margin-top:14px;justify-content:space-between"><span class="small muted">AI-generated from your own data. Not medical advice.</span>
+      <button class="btn small" data-life="sumregen" data-id="${id}" ${left<=0||LIFE.sumBusy?"disabled":""}>${left>0?"Regenerate ("+left+" left)":"No regenerations left"}</button></div>
+    ${LIFE.sumErr[id]?`<p class="small" role="alert" style="color:var(--push);margin:8px 0 0">${esc(LIFE.sumErr[id])}</p>`:""}</div>`;
+}
+/* the button (or the summary itself) for one type and date */
+function lifeSumBox(type,date,label){
+  if(!lifeAi())return "";
+  const id=LC.sumId(type,date),s=LIFE.sums[id];
+  if(LIFE.sumBusy===id)return `<div class="panel gen-busy" role="status" aria-live="polite"><span class="gen-spin" aria-hidden="true"></span><div><b>Writing your ${label}</b><p class="small muted" style="margin:4px 0 0">A few seconds.</p></div></div>`;
+  if(s&&LIFE.open[id])return lifeSumHtml(id);
+  const err=LIFE.sumErr[id]?`<p class="small" role="alert" style="color:var(--push);margin:8px 0 0">${esc(LIFE.sumErr[id])}</p>`:"";
+  return `<div class="row" style="margin:8px 0">${s?`<button class="btn" data-life="sumopen" data-id="${id}">Show ${label}</button>`
+    :`<button class="btn" data-life="sumgen" data-type="${type}" data-date="${date}" ${LIFE.sumBusy?"disabled":""}>Generate ${label}</button>`}</div>${err}`;
+}
+function lifeSumsHtml(){
+  const td=today(),all=Object.entries(LIFE.sums).sort((a,b)=>b[1].createdAt-a[1].createdAt);
+  return `<div class="panel"><h2 style="margin:0 0 6px">Weekly review</h2><p class="muted small" style="margin:0 0 12px">A look back at your last 7 days. Made only when you ask.</p>${lifeSumBox("weekly",td,"weekly review")||`<p class="muted small" style="margin:0">Sign in to use AI summaries.</p>`}</div>
+    ${all.filter(([id])=>id!==LC.sumId("weekly",td)||!LIFE.open[id]).length?`<div class="panel"><h2 style="margin:0 0 10px">Earlier summaries</h2><ul class="lf-sumlist">${all.map(([id,s])=>`<li><span><b>${LIFE_SUM_TITLE[s.type]||"Summary"}</b> <span class="muted small">${esc(s.type==="weekly"?lifeDateLabel(s.from)+" to "+lifeDateLabel(s.to):lifeDateLabel(s.to))}</span></span><button class="btn small" data-life="${LIFE.open[id]?"sumhide":"sumopen"}" data-id="${id}">${LIFE.open[id]?"Hide":"Open"}</button></li>`).join("")}</ul></div>`:""}
+    ${all.filter(([id,s])=>LIFE.open[id]&&id!==LC.sumId("weekly",td)).map(([id])=>lifeSumHtml(id)).join("")}`;
+}
+/* ---------- Life Style: progress dashboard and buddy sharing ----------
+   Numbers come from life-core.js (completion, streaks, most skipped, best time of day). Sharing is off by default and, when on,
+   puts only { streak, pct7 } in shared/{uid}.life, which accepted buddies can read. Reasons, notes, tasks and summaries never leave life/. */
+function lifeShareHtml(){
+  if(S.mode!=="db")return "";
+  const on=!!S.settings.lifeShare;
+  return `<div class="panel"><label class="bigswitch"><input type="checkbox" id="lifeShare" ${on?"checked":""}>
+    <span><b>Share my Life Style progress</b><br><span class="muted" style="font-size:14px">${on
+      ?"Buddies see your streak and how much you finished in the last 7 days. Never your tasks, reasons, notes or summaries."+(S.settings.sharing?"":" It starts once Share my progress is on (Buddies tab).")
+      :"Off. Buddies can't see any Life Style data."}</span></span></label></div>`;
+}
+function lifeBuddyHtml(sum,name){
+  const l=sum&&sum.life;
+  if(!l||typeof l.streak!=="number")return "";
+  const pct=typeof l.pct7==="number"?Math.max(0,Math.min(100,Math.round(l.pct7)))+"%":"-";
+  return `<div class="panel"><h2>Life Style</h2><div class="lf-tiles"><div class="lf-tile"><b>${Math.max(0,Math.round(l.streak))}</b><span class="small muted">day streak</span></div>
+    <div class="lf-tile"><b>${pct}</b><span class="small muted">done, last 7 days</span></div></div>
+    <p class="small muted" style="margin:10px 0 0">${esc(name||"They")} shares only their streak and completion.</p></div>`;
+}
+function lifeStatsHtml(){
+  const td=today(),days=LIFE.days;
+  const st=LC.streak(days,td),best=Math.max(LC.longestStreak(days),st),c7=LC.completion(days,td,7),c30=LC.completion(days,td,30);
+  const pc=c=>c.pct==null?"-":Math.round(c.pct*100)+"%";
+  const tile=(v,l,sub)=>`<div class="lf-tile"><b>${v}</b><span class="small muted">${l}</span>${sub?`<span class="small muted">${sub}</span>`:""}</div>`;
+  const cells=[];
+  for(let k=13;k>=0;k--){
+    const d=addDays(td,-k),x=days[d],wd=WD[dayOf(d)-1];
+    let bg="var(--line)",label="no record",op=1;
+    if(x&&x.restDay){bg="var(--pull)";op=.45;label="rest day"}
+    else if(x&&x.status==="open"){bg="var(--field)";label="in progress"}
+    else if(x&&x.tasks.length){const p=LC.dayPct(x);bg="var(--good)";op=Math.max(.15,p);label=Math.round(p*100)+"% done"}
+    cells.push(`<div class="lf-cell" title="${wd} ${fmtDate(d)}: ${label}" aria-label="${wd} ${fmtDate(d)}: ${label}"><span style="background:${bg};opacity:${op}"></span><small>${wd[0]}</small></div>`);
+  }
+  const ms=LC.mostSkipped(days,td),bs=LC.bestSlot(days,td);
+  const have=c30.days>0;
+  return `<div class="panel"><div class="lf-tiles">${tile(st,"day streak")}${tile(best,"longest streak")}${tile(pc(c7),"last 7 days",c7.days?c7.days+" day"+(c7.days===1?"":"s"):"")}${tile(pc(c30),"last 30 days",c30.days?c30.days+" day"+(c30.days===1?"":"s"):"")}</div>
+    <div class="lf-strip" role="img" aria-label="Last 14 days">${cells.join("")}</div></div>
+    <div class="panel"><h2 style="margin:0 0 10px">Patterns</h2>
+    ${have?`<p style="margin:0 0 8px"><b>Most skipped:</b> ${ms?`${esc(ms.title)}, left undone ${ms.missed} of ${ms.days} days${ms.reason?`, mostly "${esc((LIFE_REASONS[ms.reason]||"").toLowerCase())}"`:""}.`:`<span class="muted">nothing stands out yet.</span>`}</p>
+      <p style="margin:0"><b>Best time of day:</b> ${bs?`${esc(LIFE_SLOTS[bs.slot].toLowerCase())}, ${Math.round(bs.pct*100)}% of tasks done.`:`<span class="muted">needs a few more days of tasks in two different times of day.</span>`}</p>`
+      :`<p class="muted" style="margin:0">Finish a few days and your patterns will show up here. A day counts once you end it.</p>`}
+    <p class="small muted" style="margin:10px 0 0">One rest day a week keeps your streak. Missed days aren't counted against you.</p></div>
+    ${lifeShareHtml()}`;
+}
+let lifeDate=today();
+/* a new day started while the app was open: close yesterday and show today */
+function lifeDayCheck(){
+  if(lifeDate===today())return;
+  lifeDate=today();LIFE.end=null;
+  if(S.view==="life"&&!(document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)))render();
+}
+setInterval(lifeDayCheck,60000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)lifeDayCheck()});
+/* running timers: update the clocks without redrawing the page */
+setInterval(()=>{
+  if(S.view!=="life")return;
+  const now=Date.now();
+  document.querySelectorAll("[data-ltimer]").forEach(el=>{const i=lifeInst(el.dataset.ltimer);if(i&&i.run!=null)el.textContent=lifeClock(i,now)});
+},1000);
+
 const CAL_KEY="infinity-cal-v1";
 const CAL_DURS=[30,45,60,75,90];
 const CAL_KINDS={solo:"Just me",train:"My trainer",book:"Book a trainer",buddy:"A buddy",trainee:"A trainee"};
@@ -4590,6 +5233,7 @@ document.addEventListener("click",async e=>{
   if(e.target.closest("#quote")){nextQuote();return}
   const t=e.target.closest("button");if(!t||t.disabled)return;
   const ds=t.dataset;
+  if(ds.life){lifeAct(ds.life,ds);return}
   if(ds.view){if((S.view==="planEdit"||S.view==="dayEdit")&&!leaveEditor())return;leaveAct();if(BR.edit){BR.edit=null;BR.form=null;BR.msg="";BR.vmsg={};BR.vq=""}if(ds.view==="board"&&(S.view==="dash"||S.view==="buddies"))BOARD.from=S.view;S.view=ds.view;S.msg="";render();window.scrollTo(0,0);return}
   if(ds.day){S.day=+ds.day;S.date=addDays(mondayOf(S.date),S.day-1);S.swapOpen=false;render();return}
   if(ds.wk){S.date=addDays(S.date,7*+ds.wk);S.day=dayOf(S.date);render();return}
@@ -4607,6 +5251,7 @@ document.addEventListener("click",async e=>{
   if(ds.cstart&&CAL.form){CAL.form.start=ds.cstart;CAL.form.err="";render();return}
   if(ds.evact){calAct(ds.evact,ds.ev);return}
   if(ds.add){sendRequest(ds.add);return}
+  if(t.id==="lifeRetry"){LIFE.err="";render();return}
   if(t.id==="findBtn"){Object.assign(FIND,{list:[],last:null,done:false,loading:false,started:false,q:"",err:""});S.msg="";S.view="find";render();window.scrollTo(0,0);return}
   if(t.id==="findMore"){loadFind();return}
   if(ds.bm){BOARD.metric=ds.bm;render();return}
@@ -4786,6 +5431,9 @@ document.addEventListener("click",async e=>{
 document.addEventListener("keydown",e=>{if(S.view==="enter"&&(e.key==="Enter"||e.key===" ")){e.preventDefault();enterApp();return}if((e.key==="Enter"||e.key===" ")&&e.target.id==="quote"){e.preventDefault();nextQuote();return}if(e.key==="Enter"&&e.target.id==="email")addByEmail(e.target.value);if(e.key==="Enter"&&e.target.id==="offerEmail")offerByEmail(e.target.value);if(e.key==="Enter"&&e.target.id==="brandInviteEmail")inviteTrainer(e.target.value);if(e.key==="Enter"&&e.target.dataset.gen&&e.target.tagName!=="TEXTAREA")genPlan()});
 document.addEventListener("input",e=>{
   const el=e.target,ds=el.dataset;
+  if(ds.lg&&LIFE.draft){if(ds.lg==="note")LIFE.draft.ob.note=el.value;else LIFE.draft[ds.lg]=el.value;return}
+  if(ds.lp&&LIFE.pv){const [i,k]=ds.lp.split("."),t=LIFE.pv.tasks[+i];if(t)t[k]=el.value;return}
+  if(ds.lf&&LIFE.form){LIFE.form[ds.lf]=ds.lf==="date"?(LIFE.form.recur.date=el.value):el.value;LIFE.form.err="";return}
   if(ds.prof&&S.profileDraft){S.profileDraft[ds.prof]=el.value;return}
   if(ds.bf&&BR.form){BR.form[ds.bf]=el.value;return}
   if(ds.bl&&BR.form){const [i,k]=ds.bl.split(".");if(BR.form.links[+i])BR.form.links[+i][k]=el.value;return}
@@ -4821,6 +5469,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("change",async e=>{
   const el=e.target,ds=el.dataset;
+  if(ds.lf||ds.lg||ds.lp)return;
   if(ds.cf&&CAL.form){CAL.form[ds.cf]=el.value;if(ds.cf!=="title"){CAL.form.err="";render()}return}
   if(el.id==="date"&&el.value){S.date=el.value;S.day=dayOf(el.value);render()}
   else if(el.id==="range"){S.range=el.value}
@@ -4854,6 +5503,7 @@ document.addEventListener("change",async e=>{
   else if(el.id==="buddyEx"){S.buddyEx=el.value;render()}
   else if(el.id==="planSel"){if(getPlan(el.value)){usePlan(el.value);render()}}
   else if(el.id==="sharing"){S.settings.sharing=el.checked;await saveSettings();await publishNow();render()}
+  else if(el.id==="lifeShare"){S.settings.lifeShare=el.checked;await saveSettings();await publishNow();render()}
   else if(el.id==="globalBoard"){S.settings.global=el.checked;await saveSettings();await publishNow();render()}
   else if(ds.dt!=null&&S.draft){
     const d=S.draft.days[+ds.dt];const old=tinfo(d.t).label;

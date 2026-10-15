@@ -217,3 +217,15 @@ The instructions are `SYSTEM` in `proxy/workout_ai/views.py`. The same text is u
 - **Photo comments** are limited to training-relevant things (build, muscle balance, posture), without body-fat guesses or appearance judgments.
 
 After editing, reload the web app. The app doesn't need an update unless you change the reply format.
+
+## Life Style plans and summaries
+
+The **Life Style** tab asks for summaries at `.../ai/life/summary/` (same setup, `kind` `life_sum`) and for task plans at `https://yourname.pythonanywhere.com/ai/life/plan/`. It is added by the same `workout_ai` app, so after copying the new files (`views.py`, `urls.py`, `life_plan.py`, `life_prompts.py`) just **Reload** the web app. No new packages, and no migration: it reuses the `PlanRequest` table (`kind` values `life_plan` and `life_task`). The app builds the address from `AI_PROXY_URL` by swapping the trailing `plan/` for `life/plan/`.
+
+| Name | Default | What it does |
+| --- | --- | --- |
+| `AI_LIFE_PLAN_DAILY_LIMIT` | `5` | Life Style plans per user per 24 hours |
+| `AI_LIFE_TASK_DAILY_LIMIT` | `20` | "Swap" (one replacement task) per user per 24 hours |
+| `AI_LIFE_SUMMARY_DAILY_LIMIT` | `5` | Life Style summaries (workout, day, life, weekly) per user per 24 hours, including regenerations |
+
+The prompts are in `life_prompts.py`; edit them there and reload. Tests: `python3 -m unittest discover -s proxy/workout_ai -p "test_*.py"`.
