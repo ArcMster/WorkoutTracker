@@ -1,5 +1,5 @@
 /* =====================================================================
-   Firebase settings for Infinity Fitness Tracker
+   Firebase settings for ForjArc Fitness Tracker
 
    1. Copy this file and name the copy  firebase-config.js
    2. Replace the values below with your own

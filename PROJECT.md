@@ -1,4 +1,4 @@
-# Infinity Fitness Tracker: project details
+# ForjArc Fitness Tracker: project details
 
 State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v50`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
@@ -120,7 +120,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Progress
 - Home: today's workout, this week, week streak, all-time total, best lifts (Bench, Squat, Deadlift, OHP).
 - Progress tab: a chart per exercise, the session list, and report downloads.
-- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback. The share menu also gets a message (`shareGreeting(kind)`): "Hi! <name> shared their workout / workout plan / progress with you from Infinity Fitness Tracker. Install the app to track your own progress too: <app link>" ("A friend shared a ..." if there is no name). Save image saves the picture only.
+- **Share as image:** "Share my progress" (Home) and "Share workout" (Workout tab) draw a 1080px card (the workout card lists each exercise with its sets as pills, the best set filled in the day colour; stat numbers shrink to fit rather than being cut off) that opens the phone's share menu (Instagram, WhatsApp and so on), with **Save image** as a fallback. The share menu also gets a message (`shareGreeting(kind)`): "Hi! <name> shared their workout / workout plan / progress with you from ForjArc Fitness Tracker. Install the app to track your own progress too: <app link>" ("A friend shared a ..." if there is no name). Save image saves the picture only.
 - **Reports:** Excel (CSV) with one row per set, or a printable report that saves as a PDF. Ranges are the last 4 weeks, last 12 weeks or all time. Rows go oldest to newest, with exercises in the plan's scheduled order.
 
 ### Profile

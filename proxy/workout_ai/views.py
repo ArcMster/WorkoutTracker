@@ -1,4 +1,4 @@
-"""AI plan proxy for Infinity Fitness Tracker.
+"""AI plan proxy for ForjArc Fitness Tracker.
 
 The web app posts the Advanced form (body stats, goal text, days, strength, optional photo) with the
 user's Firebase ID token. This view:
