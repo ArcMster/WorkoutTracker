@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Infinity Fitness Tracker</title>
 <meta name="description" content="6-day push, pull, legs workout tracker with gym buddies">
 <meta name="theme-color" content="#1D1E21">
@@ -41,6 +41,8 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
   --push:#E3574F;--pull:#5B8CDD;--legs:#E9BE3C;--core:#4DB07A;--cardio:#38B2C2;--rest:#6C7684;--good:#4DB07A;
 }
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
+/* no pinch or double-tap zoom: panning (scroll) still works */
+html{touch-action:pan-x pan-y}
 *,*::before,*::after{box-sizing:inherit}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 var(--body);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -5227,6 +5229,9 @@ function leaveEditor(){
   if(S.draft&&!confirm("Leave without saving your changes to this "+(S.ovFor?"workout":"plan")+"?"))return false;
   S.draft=null;S.draftId=null;S.coachFor=null;S.ovFor=null;return true;
 }
+/* iOS Safari ignores user-scalable=no, so stop its pinch gesture here; also trackpad pinch (ctrl + wheel) on desktop */
+["gesturestart","gesturechange","gestureend"].forEach(t=>document.addEventListener(t,e=>e.preventDefault(),{passive:false}));
+document.addEventListener("wheel",e=>{if(e.ctrlKey)e.preventDefault()},{passive:false});
 document.addEventListener("click",async e=>{
   if(S.view==="enter"&&e.target.closest(".landing")){enterApp();return}
   {const br=e.target.closest("li[data-buddy]");if(br){S.buddyId=br.dataset.buddy;S.view="buddy";render();window.scrollTo(0,0);return}}
