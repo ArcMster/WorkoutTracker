@@ -28,6 +28,8 @@ from django.views.decorators.csrf import csrf_exempt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 
+from . import life_plan as LP
+from . import life_prompts as LPR
 from .models import PlanRequest
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,9 @@ MODEL = conf("AI_MODEL", "gemini-3.8-flash" if PROVIDER == "gemini" else "claude
 EFFORT = conf("AI_EFFORT", "medium")  # Claude only
 TIMEOUT = 170  # seconds: photos plus thinking can take a minute or two; stay under PythonAnywhere's request limit
 REQUIRE_ACTIVE = str(conf("AI_REQUIRE_ACTIVE", "1")) != "0"
+LIFE_PLAN_LIMIT = int(conf("AI_LIFE_PLAN_DAILY_LIMIT", "5"))  # Life Style plans
+LIFE_TASK_LIMIT = int(conf("AI_LIFE_TASK_DAILY_LIMIT", "20"))  # Life Style single-task swaps
+LIFE_SUM_LIMIT = int(conf("AI_LIFE_SUMMARY_DAILY_LIMIT", "5"))  # Life Style summaries
 MAX_PHOTO_CHARS = 2_000_000  # base64 characters; the app sends about 300 KB
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -714,3 +719,120 @@ def ask(request):
     record.save(update_fields=["ok"])
     verdict = out.get("verdict") if out.get("verdict") in VERDICTS else "unclear"
     return cors(JsonResponse({"answer": answer, "verdict": verdict, "remaining": max(0, limit - used - 1), "model": MODEL}), request)
+
+
+# ---------- Life Style: AI task plans ----------
+
+def life_gate(request, kind, default_limit, noun):
+    """The checks every Life Style call shares. Returns (uid, limit, used, data) or an error response."""
+    if request.method == "OPTIONS":
+        return cors(JsonResponse({}), request)
+    if request.method != "POST":
+        return fail(request, 405, "Use POST.")
+    if not API_KEY or not FIREBASE_PROJECT_ID or PROVIDER not in ("gemini", "claude"):
+        return fail(request, 503, "AI isn't set up on the server yet.")
+    try:
+        uid, token = verify_user(request)
+        if REQUIRE_ACTIVE and not is_active(uid, token):
+            return fail(request, 403, "Your account needs to be approved before you can use AI.")
+    except PermissionError as e:
+        return fail(request, 401, str(e))
+    except Exception:
+        log.exception("account check failed")
+        return fail(request, 502, "Couldn't check your account. Try again in a minute.")
+    since = timezone.now() - timedelta(days=1)
+    used = PlanRequest.objects.filter(uid=uid, kind=kind, created__gte=since, ok=True).count()
+    limit = ADMIN_DAILY_LIMIT if is_admin(uid, token) else default_limit
+    if used >= limit:
+        return fail(request, 429, f"You've used {limit} {noun} in the last 24 hours. Try again tomorrow.")
+    if len(request.body or b"") > 60_000:
+        return fail(request, 413, "That request is too large.")
+    try:
+        data = json.loads(request.body or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        return fail(request, 400, "Couldn't read the request.")
+    if not isinstance(data, dict):
+        return fail(request, 400, "Couldn't read the request.")
+    return uid, limit, used, data
+
+
+def life_ask(kind, system, text, schema, normalize):
+    """One AI call, asked again once if the reply can't be used. Returns the cleaned result or raises AIError."""
+    ask = ask_gemini if PROVIDER == "gemini" else ask_claude
+    for attempt in range(2):
+        reply = ask(None, text, system, schema, max_tokens=4000)
+        try:
+            out = normalize(json.loads(reply))
+        except (ValueError, AttributeError, TypeError):
+            out = None
+        if out:
+            return out
+        log.warning("life %s: unusable reply (attempt %s): %.300s", kind, attempt + 1, reply)
+    raise AIError(502, "The AI's plan wasn't usable. Please try again, or add tasks yourself.")
+
+
+@csrf_exempt
+def life_plan(request):
+    """A daily task plan from goals, onboarding answers and recent history, or one replacement task ("replace")."""
+    g = life_gate(request, "life_task" if _wants_single(request) else "life_plan", LIFE_TASK_LIMIT if _wants_single(request) else LIFE_PLAN_LIMIT,
+                  "single-task swaps" if _wants_single(request) else "AI plans")
+    if not isinstance(g, tuple):
+        return g
+    uid, limit, used, data = g
+    replace = data.get("replace") if isinstance(data.get("replace"), dict) else None
+    single = replace is not None
+    kind = "life_task" if single else "life_plan"
+    goals = [x for x in (data.get("goals") if isinstance(data.get("goals"), list) else []) if isinstance(x, dict) and LP.text_field(x.get("text"), 200)]
+    if not goals and not single and not isinstance(data.get("onboarding"), dict):
+        return fail(request, 400, "Pick a goal first.")
+    text = LP.describe(data, replace=replace, keep=data.get("keep") if isinstance(data.get("keep"), list) else [])
+    record = PlanRequest.objects.create(uid=uid, kind=kind)
+    try:
+        result = life_ask(kind, LPR.TASK_SYSTEM if single else LPR.PLAN_SYSTEM, text, LP.PLAN_SCHEMA,
+                          lambda r: LP.normalize_plan(r, single=single))
+    except AIError as e:
+        return fail(request, e.status, str(e))
+    except Exception:
+        log.exception("life plan failed")
+        return fail(request, 500, "Something went wrong on the server. Try again later.")
+    record.ok = True
+    record.save(update_fields=["ok"])
+    result["remaining"] = max(0, limit - used - 1)
+    result["model"] = MODEL
+    return cors(JsonResponse(result), request)
+
+
+def _wants_single(request):
+    """Peeks at the body to pick which daily limit applies, before the full checks run."""
+    try:
+        d = json.loads(request.body or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return isinstance(d, dict) and isinstance(d.get("replace"), dict)
+
+
+@csrf_exempt
+def life_summary(request):
+    """A summary of a day or week of life tasks and workouts, on demand. The app caches it, so this runs once per summary
+    unless the person asks to regenerate."""
+    g = life_gate(request, "life_sum", LIFE_SUM_LIMIT, "AI summaries")
+    if not isinstance(g, tuple):
+        return g
+    uid, limit, used, data = g
+    try:
+        text, ty = LP.describe_summary(data)
+    except ValueError as e:
+        return fail(request, 400, str(e))
+    record = PlanRequest.objects.create(uid=uid, kind="life_sum")
+    try:
+        result = life_ask("life_sum", LPR.SUMMARY_SYSTEM, text, LP.SUMMARY_SCHEMA, lambda r: LP.normalize_summary(r, ty))
+    except AIError as e:
+        return fail(request, e.status, str(e))
+    except Exception:
+        log.exception("life summary failed")
+        return fail(request, 500, "Something went wrong on the server. Try again later.")
+    record.ok = True
+    record.save(update_fields=["ok"])
+    result["remaining"] = max(0, limit - used - 1)
+    result["model"] = MODEL
+    return cors(JsonResponse(result), request)

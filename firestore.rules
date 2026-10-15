@@ -272,6 +272,16 @@ service cloud.firestore {
         && trainerToday(docId);
     }
 
+    // Life Style (daily tasks, day records, summaries). Owner only: trainers can read log/ but not this, because
+    // it holds failure reasons and notes. Documents: tasks, day_YYYY-MM-DD, later sum_* and settings.
+    match /users/{uid}/life/{docId} {
+      allow read: if isMe(uid);
+      allow write: if isMe(uid) && active()
+        && (docId in ['tasks', 'settings'] || docId.matches('(day_[0-9]{4}-[0-9]{2}-[0-9]{2}|sum_[A-Za-z0-9_-]{1,40})'))
+        && request.resource.data.size() <= 40;
+      allow delete: if isMe(uid);
+    }
+
     // Name, nickname, photo, Instagram handle, bio and whether they are a trainer. Anyone signed in can look up one profile by id.
     // Only admins can list profiles, for the admin screen's user list.
     match /profiles/{uid} {
