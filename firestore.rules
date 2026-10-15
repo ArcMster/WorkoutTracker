@@ -225,21 +225,22 @@ service cloud.firestore {
       return signedIn() && exists(p) && request.auth.uid in get(p).data.trainers;
     }
 
-    // Today's session (id "{date}_d{day}[_{plan}]"), written by a trainer: the date must match the id,
-    // the session must say who logged it, and the date must be today somewhere in the world
-    // (UTC-12 to UTC+14, so from 14 hours before that date starts in UTC to 36 hours after).
+    // A session written by a trainer (id "{date}_d{day}[_{plan}]"): the date must match the id, the session must
+    // say who wrote it, and the date must be today or a coming day, up to 90 days ahead. "Today" is checked
+    // somewhere in the world (UTC-12 to UTC+14), so the earliest date allowed starts 36 hours before now.
+    // Coming days only get a changed workout from the app; sets are logged on the day itself.
     function trainerToday(docId) {
       let sd = docId.split('_')[0];
       let p = sd.split('-');
       let start = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
       return request.resource.data.date == sd
         && request.resource.data.coach.uid == request.auth.uid
-        && request.time > start - duration.value(14, 'h')
-        && request.time < start + duration.value(36, 'h');
+        && request.time < start + duration.value(36, 'h')
+        && request.time > start - duration.value(90, 'd');
     }
 
     // Workout log. The owner has full access.
-    // A trainer they chose can read it, write plans, and log or change today's workout. Never other days, and never deletes.
+    // A trainer they chose can read it, write plans, and log or change today's workout or change a coming day's. Never past days, and never deletes.
     match /users/{uid}/log/{docId} {
       allow read: if isMe(uid) || isTrainerOf(uid);
       // Writes also need the writer's account to be active (not disabled by an admin).
