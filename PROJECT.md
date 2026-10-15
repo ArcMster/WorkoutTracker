@@ -1,6 +1,6 @@
 # Infinity Fitness Tracker: project details
 
-State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v48`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
+State as of 8 Oct 2026, after the buddy and global leaderboards, admin, exercise tutorials, AI planning and Body check on the Advanced tab, changing or swapping a day's workout, trainers as a profile attribute, trainers logging today's workout for a trainee, and a greeting message on shared images, the calendar with a workout time log and a live Training now list, and trainer brands (cache `infinity-v50`). For setup and deploy steps, see [README.md](README.md). This file describes what the app does and how the code is put together.
 
 ## Overview
 
@@ -14,7 +14,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | Fonts | Barlow, Barlow Condensed, Instrument Serif (Google Fonts) |
 | Bundled libraries | SheetJS (`lib/xlsx.min.js`), PDF.js (`lib/pdf.min.js`, `lib/pdf.worker.min.js`) for plan import |
 | AI proxy | Django app in `proxy/`, on PythonAnywhere, calling Google Gemini (or Claude). Address in `AI_PROXY_URL` in `firebase-config.js` |
-| Offline | Service worker in `sw.js`, current cache `infinity-v48` |
+| Offline | Service worker in `sw.js`, current cache `infinity-v50` |
 
 ## Files
 
@@ -152,6 +152,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 ### Editing exercises
 - **Edit exercises** (Workout screen, next to Change workout) is a separate mode so a stray touch can't move or swap anything. While it's on, the sets are hidden and each exercise is a row with a drag handle and a **Replace** button; **Done editing** leaves it. Dragging uses pointer events (touch and mouse), slides the rows it passes aside, applies the new order on release, scrolls near the screen edges, and a focused handle also moves with the up and down arrow keys. The same handle sits on each row of the plan editor and the Change workout screen, beside the existing arrow buttons (`dragItems`, `dragLayout`, `dragDrop`).
 - Like Change workout, it changes **this date only**: the first change saves the day as `session.custom` (`customize()`, which also folds in exercises added during the session), so the plan stays the same and the day still counts as the workout that was due. Replace keeps the sets and reps and takes any exercise name (suggestions from the known list); if the old exercise has logged sets, it asks first and removes them. The mode works the same for a trainer acting for a trainee, on today and coming days.
+
+### Finding a trainer
+- A member with no trainer and no brand sees **Find a trainer** on the Buddies tab (`canFindTrainer()`): **Browse trainers** lists members marked as trainers in the directory (those who show up in Find Buddies; `trnLoad`). Each row has **Ask to train me** and **Book a session**; a trainer's profile has the same two buttons.
+- **Ask to train me** creates `coachRequests/{member}_{trainer}` (pending). The trainer sees it under **Requests to train** on the Buddies tab (and gets a notification) and **Approve**s or **Decline**s. Approving only sets `status: "approved"`; the member's app then adds the trainer to their own `coaching` list (`trnSettle`, which waits until that list has loaded so it never overwrites it) and deletes the request. The member can cancel while it's pending.
+- **Book a session** (also **Book a trainer** in the Calendar's schedule form) is a one-off `train` event with a trainer who isn't the member's trainer: the rules accept a pending `train` event to anyone marked as a trainer, and `avail/{trainer}` (working hours) is readable by any signed-in member while the owner is a trainer. The member sees the trainer's hours but not their busy blocks (`slots` carry the trainee's id, so they stay trainee-only); the trainer confirms the exact time, as for any request. Nothing about the member's log is shared.
 
 ### Trainers
 - Being a trainer is an attribute: `profiles/{uid}.trainer` (and `directory/{uid}.trainer` for Find Buddies). It's chosen at sign-up (stored on the join request in `accounts/{uid}.trainer` and copied to the profile on first sign-in after approval) and switched in **Profile > I'm a trainer**. Members with no flag who already train someone are set to trainer automatically (`settleTrainer()`). Trainers get a Trainer badge on their profile, in Find Buddies and in Admin.

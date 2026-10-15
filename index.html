@@ -729,7 +729,9 @@ function avatar(p,lg){
 /* ---------- state ---------- */
 const S={view:"log",date:today(),day:dayOf(today()),planId:"ppl",sessions:{},plans:{},settings:{unit:"kg",start:null,sharing:false,activePlan:"ppl"},mode:"local",
   histEx:"Bench Press",buddyId:null,buddyEx:"Bench Press",pendingAdd:null,msg:"",msgOk:false,draft:null,draftId:null,draftErr:""};
-const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]};
+const SOC={incoming:[],outgoing:[],accepted:[],profiles:{},shared:{},unsubs:[],buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[],reqIn:[],reqOut:[],coachLoaded:false};
+/* finding a trainer: the trainers listed in the directory, and the requests I've sent them (SOC.reqOut) or got (SOC.reqIn) */
+const TRN={list:[],loading:false,loaded:false,open:false,err:"",adding:new Set()};
 const ME={nick:"",photo:"",ig:"",bio:"",custom:false,trainer:null};/* trainer: true or false from the profile, null until set */
 const FIND={list:[],last:null,done:false,loading:false,started:false,q:"",err:""};
 const TR={uid:null,name:"",plans:{},active:null,sessions:[],loading:false,sel:null,showN:20};
@@ -1219,7 +1221,8 @@ function live(sum){
 function stopSocial(){
   SOC.unsubs.forEach(u=>u());SOC.unsubs=[];
   Object.values(SOC.buddyUnsubs).forEach(u=>u());
-  Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[]});
+  Object.assign(SOC,{incoming:[],outgoing:[],accepted:[],shared:{},buddyUnsubs:{},retries:{},trainers:[],trainees:[],offersIn:[],offersOut:[],reqIn:[],reqOut:[],coachLoaded:false});
+  Object.assign(TRN,{list:[],loading:false,loaded:false,open:false,err:""});TRN.adding.clear();
   BOARD.tr={};
   stopCal();stopBrand();SUP.is=false;
   Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]});
@@ -1308,7 +1311,7 @@ function startSocial(){
   SOC.unsubs.push(onSnapshot(query(rq,where("from","==",uid)),s=>{fromMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(rq,where("to","==",uid)),s=>{toMe=s.docs.map(d=>({id:d.id,...d.data()}));recompute()},e=>console.warn(e)));
   /* who I let train me */
-  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.trainers.forEach(loadProfile);calSync();brandSync(true);softRender()},e=>console.warn(e)));
+  SOC.unsubs.push(onSnapshot(doc(fs,"coaching",uid),d=>{SOC.trainers=(d.exists()&&d.data().trainers)||[];SOC.coachLoaded=true;SOC.trainers.forEach(loadProfile);calSync();brandSync(true);trnSettle();softRender()},e=>console.warn(e)));
   /* who I train */
   SOC.unsubs.push(onSnapshot(query(collection(fs,"coaching"),where("trainers","array-contains",uid)),
     s=>{SOC.trainees=s.docs.map(d=>d.id);SOC.trainees.forEach(loadProfile);settleTrainer();softRender()},e=>console.warn(e)));
@@ -1318,7 +1321,69 @@ function startSocial(){
     s=>{SOC.offersOut=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersOut.forEach(o=>loadProfile(o.to));softRender()},e=>console.warn(e)));
   SOC.unsubs.push(onSnapshot(query(co,where("to","==",uid)),
     s=>{SOC.offersIn=s.docs.map(d=>({id:d.id,...d.data()}));SOC.offersIn.forEach(o=>loadProfile(o.from));notifyNew("co",SOC.offersIn,o=>["Offer to train you",(pname(SOC.profiles[o.from])||"A trainer")+" offered to be your trainer."]);softRender()},e=>console.warn(e)));
+  /* requests to train: ones I sent to trainers, and ones sent to me as a trainer */
+  const cr=collection(fs,"coachRequests");
+  SOC.unsubs.push(onSnapshot(query(cr,where("from","==",uid)),
+    s=>{SOC.reqOut=s.docs.map(d=>({id:d.id,...d.data()}));SOC.reqOut.forEach(r=>loadProfile(r.to));trnSettle();softRender()},e=>console.warn(e)));
+  SOC.unsubs.push(onSnapshot(query(cr,where("to","==",uid)),
+    s=>{SOC.reqIn=s.docs.map(d=>({id:d.id,...d.data()}));SOC.reqIn.forEach(r=>loadProfile(r.from));
+      notifyNew("cr",SOC.reqIn.filter(r=>r.status==="pending"),r=>["Request to train",(pname(SOC.profiles[r.from])||"Someone")+" asked you to be their trainer."]);softRender()},e=>console.warn(e)));
   startCal();
+}
+/* ---------- finding a trainer ----------
+   A member with no trainer and no brand can ask a trainer to train them (coachRequests/{member}_{trainer}); the trainer approves,
+   and the member's app then adds the trainer to their own coaching list (only they can write it). Or they can skip all that and
+   book a session with a trainer from the Calendar, without becoming their trainee. */
+function canFindTrainer(){return S.mode==="db"&&!!uid&&SOC.coachLoaded&&!SOC.trainers.length&&!BR.docs[uid]&&!BR.mem[uid]}
+async function trnLoad(){
+  if(TRN.loading||TRN.loaded||S.mode!=="db")return;
+  TRN.loading=true;TRN.err="";softRender();
+  try{
+    const snap=await getDocs(query(collection(fs,"directory"),where("trainer","==",true),limit(50)));
+    TRN.list=snap.docs.filter(d=>d.id!==uid).map(d=>({uid:d.id,...d.data()}));
+    TRN.list.forEach(x=>loadProfile(x.uid));TRN.loaded=true;
+  }catch(e){console.warn("trainers",e);TRN.err=fbError(e,"load trainers")}
+  TRN.loading=false;softRender();
+}
+async function askTrainer(t){
+  if(t===uid)return say("That's your own account.");
+  if(SOC.trainers.includes(t))return say("They're already your trainer.");
+  if(SOC.reqOut.some(r=>r.to===t))return say("Request already sent. Waiting for them to approve.");
+  try{await setDoc(doc(fs,"coachRequests",uid+"_"+t),{from:uid,to:t,status:"pending",created:serverTimestamp()});say("Request sent. You'll be told when they approve.",true)}
+  catch(e){say(fbError(e,"send the request"))}
+}
+/* a trainer approved: add them to my list (once), then tidy the request away. Waits until my list has loaded, so it's never overwritten. */
+function trnSettle(){
+  if(!SOC.coachLoaded)return;
+  SOC.reqOut.filter(r=>r.status==="approved").forEach(r=>{
+    if(SOC.trainers.includes(r.to)){deleteDoc(doc(fs,"coachRequests",r.id)).catch(()=>{});return}
+    if(TRN.adding.has(r.id))return;
+    TRN.adding.add(r.id);
+    setTrainer(r.to,true).then(ok=>{if(ok)deleteDoc(doc(fs,"coachRequests",r.id)).catch(()=>{});else TRN.adding.delete(r.id)});
+  });
+}
+function answerRequest(id,ok){
+  return (ok?updateDoc(doc(fs,"coachRequests",id),{status:"approved"}):deleteDoc(doc(fs,"coachRequests",id)))
+    .then(()=>say(ok?"Approved. They'll be added as your trainee when they open the app.":"Declined.",true)).catch(e=>say(fbError(e,"answer that request")));
+}
+function trnRows(){
+  if(TRN.loading&&!TRN.list.length)return `<p class="small muted" style="margin:8px 0 0">Loading trainers...</p>`;
+  if(TRN.err)return `<p class="msg" style="color:var(--push)">${esc(TRN.err)}</p>`;
+  if(!TRN.list.length)return `<p class="muted" style="margin:8px 0 0">No trainers are listed yet.</p>`;
+  return `<ul class="people">${TRN.list.map(x=>{const nm=x.nick||x.name||"Member",rq=SOC.reqOut.find(r=>r.to===x.uid);
+    return `<li><button class="avbtn" data-person="${x.uid}" aria-label="View profile">${avatar({name:nm,photo:x.photo})}</button>
+      <span class="nm"><button class="pbtn" data-person="${x.uid}">${esc(nm)}</button> <span class="tag plain">Trainer</span>${x.bio?`<small class="one">${esc(x.bio)}</small>`:""}</span>
+      <span class="acts">${rq?`<button class="btn small" data-trncancel="${esc(rq.id)}">Cancel request</button>`:`<button class="btn small primary" data-trnask="${x.uid}">Ask to train me</button>`}
+        <button class="btn small" data-trnbook="${x.uid}">Book a session</button></span></li>`}).join("")}</ul>`;
+}
+function trnPanel(){
+  if(!canFindTrainer())return "";
+  if(!TRN.open)return `<div class="panel"><h2>Find a trainer</h2>
+    <p class="muted" style="margin:0 0 12px;font-size:15px">Ask a trainer to train you, and they build your plans and follow your workouts. Or just book a session with one, without becoming their trainee.</p>
+    <div class="row"><button class="btn primary" id="trnOpen">Browse trainers</button></div></div>`;
+  return `<div class="panel"><div class="sec-h"><h2>Find a trainer</h2><button class="link small" id="trnClose">Close</button></div>
+    <p class="small muted" style="margin:0 0 6px"><b>Ask to train me</b> sends a request. If they approve, they become your trainer: they can change your plans and see your logged workouts, and you can remove them any time. <b>Book a session</b> is a one-off booking and gives them no access.</p>
+    ${trnRows()}</div>`;
 }
 function watchBuddy(b,recompute){
   SOC.buddyUnsubs[b]=onSnapshot(doc(fs,"shared",b),snap=>{
@@ -3132,7 +3197,7 @@ function renderPerson(){
   const u=S.personId;const p=SOC.profiles[u]||{};const nm=pname(p);
   const bud=SOC.accepted.find(a=>a.uid===u),inc=SOC.incoming.find(r=>r.from===u),out=SOC.outgoing.find(r=>r.to===u);
   const isTr=SOC.trainers.includes(u),isTe=SOC.trainees.includes(u);
-  const oIn=SOC.offersIn.find(o=>o.from===u),oOut=SOC.offersOut.find(o=>o.to===u),self=u===uid;
+  const oIn=SOC.offersIn.find(o=>o.from===u),oOut=SOC.offersOut.find(o=>o.to===u),self=u===uid,rqOut=SOC.reqOut.find(r=>r.to===u);
   if(restricted()&&!(bud||inc||out||isTr||isTe||oIn||oOut||self||(BR.active&&brandStaff(u))))
     return `<p><button class="link" data-view="buddies">Back to buddies</button></p><div class="panel"><p class="muted" style="margin:0">Other members' profiles aren't available for ${esc(BR.active.name)} members, except your buddies and trainers.</p></div>`;
   const sh=SOC.shared[u];const L=bud&&sh&&sh.sharing?live(sh):null;
@@ -3142,6 +3207,7 @@ function renderPerson(){
     +(isTe?`<button class="btn" data-trainee="${u}">Open as trainer</button>`:"")
     +(ME.trainer&&!isTe&&!self?(oOut?`<button class="btn" data-ocancel="${oOut.id}">Cancel training offer</button>`:`<button class="btn" data-offer="${u}">Offer to train</button>`):"")
     +(p.trainer&&!isTr&&!oIn&&!self?`<button class="btn" data-mktrainer="${u}">Make my trainer</button>`:"")
+    +(p.trainer&&!isTr&&!self?(rqOut?`<button class="btn" data-trncancel="${esc(rqOut.id)}">Cancel training request</button>`:`<button class="btn" data-trnask="${u}">Ask to train me</button>`)+`<button class="btn" data-trnbook="${u}">Book a session</button>`:"")
     +(inc?`<button class="btn primary" data-accept="${inc.id}">Accept</button><button class="btn" data-decline="${inc.id}">Decline</button>`:"")
     +(out?`<button class="btn" data-cancel="${out.id}">Cancel request</button>`:"")
     +(!bud&&!inc&&!out&&u!==uid?`<button class="btn primary" data-add="${u}">Send buddy request</button>`:"");
@@ -3248,6 +3314,12 @@ function renderBuddies(){
         :S.settings.global!==false
         ?"Every member can see your name, photo, weekly workouts and volume, streak and top Bench, Squat, Deadlift and OHP sets."
         :"Off. Only your buddies see your numbers."}</span></span></label></div>`}
+  ${trnPanel()}
+  ${SOC.reqIn.length?`<div class="panel"><h2>Requests to train</h2><ul class="people">
+    ${SOC.reqIn.map(r=>person(r.from,r.status==="approved"?"Approved. They'll be added when they open the app.":"Asks you to be their trainer",r.status==="approved"
+      ?`<button class="btn small" data-reqno="${r.id}">Dismiss</button>`
+      :`<button class="btn primary small" data-reqok="${r.id}">Approve</button><button class="btn small" data-reqno="${r.id}">Decline</button>`)).join("")}
+  </ul><p class="small muted">Approving makes you their trainer: you can create and change their plans and see their logged workouts.</p></div>`:""}
   <div class="panel"><h2>Add a buddy</h2>
     ${restricted()?"":`<div class="row" style="margin-bottom:14px"><button class="btn primary" id="findBtn">Find New Buddies</button></div>`}
     <p class="muted" style="font-size:14px;margin:0 0 8px">${restricted()?"Add":"Or add"} someone by their Google email.</p>
@@ -4231,7 +4303,9 @@ async function admBrand(status,u){
    Times are wall-clock "HH:MM" on a YYYY-MM-DD date, in the viewer's time zone. */
 const CAL_KEY="infinity-cal-v1";
 const CAL_DURS=[30,45,60,75,90];
-const CAL_KINDS={solo:"Just me",train:"My trainer",buddy:"A buddy",trainee:"A trainee"};
+const CAL_KINDS={solo:"Just me",train:"My trainer",book:"Book a trainer",buddy:"A buddy",trainee:"A trainee"};
+/* My trainer and Book a trainer are both a request to a trainer; Book a trainer needs no trainer relationship */
+const isTrainKind=k=>k==="train"||k==="book";
 function hm(min){return String(Math.floor(min/60)).padStart(2,"0")+":"+String(min%60).padStart(2,"0")}
 function toMin(t){const [h,m]=String(t).split(":").map(Number);return h*60+m}
 function fmtClock(t){const m=toMin(t);return new Date(2000,0,1,Math.floor(m/60),m%60).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
@@ -4306,10 +4380,16 @@ function trainerFree(t,date,start,dur){
   if((CAL.slots[t]||[]).some(x=>overlap(x,{date,start,dur})))return "busy";
   return "free";
 }
-function whoList(kind){return kind==="train"?SOC.trainers:kind==="buddy"?SOC.accepted.map(a=>a.uid):kind==="trainee"?SOC.trainees:[]}
+function calWatchAvail(t){
+  if(S.mode!=="db"||CAL.availUn[t]||SOC.trainers.includes(t))return;
+  CAL.availUn[t]=onSnapshot(doc(fs,"avail",t),d=>{CAL.avail[t]=d.exists()?d.data():null;softRender()},e=>console.warn(e));
+}
+function whoList(kind){return kind==="book"?[...new Set([...TRN.list.map(x=>x.uid),...(CAL.form&&CAL.form.kind==="book"&&CAL.form.who?[CAL.form.who]:[])])]:kind==="train"?SOC.trainers:kind==="buddy"?SOC.accepted.map(a=>a.uid):kind==="trainee"?SOC.trainees:[]}
 function plannedTitle(date){const d=dayAt(activePlan(),date);return d&&d.t!=="rest"?d.title:"Workout"}
-function calOpenForm(date){
-  CAL.form={kind:"solo",who:"",date:date||CAL.sel,start:"18:00",dur:60,title:"",err:""};CAL.msg="";render();
+function calOpenForm(date,pre){
+  CAL.form={kind:"solo",who:"",date:date||CAL.sel,start:"18:00",dur:60,title:"",err:"",...(pre||{})};CAL.msg="";
+  if(CAL.form.kind==="book"){trnLoad();if(CAL.form.who)loadProfile(CAL.form.who)}
+  render();
 }
 function calCheck(f){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(f.date))return "Pick a date.";
@@ -4319,7 +4399,7 @@ function calCheck(f){
   if(f.kind!=="solo"&&!f.who)return "Choose who it's with.";
   const mine=myBusy().find(e=>overlap(e,{date:f.date,start:f.start,dur:+f.dur}));
   if(mine)return "You already have "+mine.title+" at "+fmtClock(mine.start)+" then.";
-  if(f.kind==="train"){
+  if(isTrainKind(f.kind)){
     const r=trainerFree(f.who,f.date,f.start,+f.dur);
     if(r==="outside")return personName(f.who)+" isn't available then. Pick a time from the list.";
     if(r==="busy")return personName(f.who)+" is busy then. Pick a free time from the list.";
@@ -4341,7 +4421,7 @@ function calSave(){
   let ev,msg="Added to your calendar.";
   if(f.kind==="solo")ev={kind:"solo",members:[uid],from:uid,status:"confirmed",...base};
   else if(f.kind==="buddy"){ev={kind:"buddy",members:[uid,f.who],from:uid,to:f.who,status:"pending",...base};msg="Request sent to "+personName(f.who)+". It joins both calendars when they accept."}
-  else if(f.kind==="train"){ev={kind:"train",members:[uid,f.who],from:uid,to:f.who,trainer:f.who,status:"pending",...base};msg="Request sent to "+personName(f.who)+". It joins both calendars when they approve."}
+  else if(isTrainKind(f.kind)){ev={kind:"train",members:[uid,f.who],from:uid,to:f.who,trainer:f.who,status:"pending",...base};msg="Request sent to "+personName(f.who)+". It joins both calendars when they approve."}
   else{ev={kind:"train",members:[uid,f.who],from:uid,to:f.who,trainer:uid,status:"confirmed",...base};msg="Scheduled on your calendar and "+personName(f.who)+"'s."}
   b.set(ref,{...ev,created:serverTimestamp()});
   if(f.kind==="trainee")b.set(doc(fs,"slots",ref.id),{trainer:uid,members:[uid,f.who],date:f.date,start:f.start,dur});
@@ -4442,24 +4522,27 @@ function calChips(f){
 function calFormHtml(){
   const f=CAL.form;if(!f)return "";
   const kinds=["solo"];
-  if(S.mode==="db"){if(SOC.trainers.length)kinds.push("train");if(SOC.accepted.length)kinds.push("buddy");if(SOC.trainees.length)kinds.push("trainee")}
+  if(S.mode==="db"){if(SOC.trainers.length)kinds.push("train");kinds.push("book");if(SOC.accepted.length)kinds.push("buddy");if(SOC.trainees.length)kinds.push("trainee")}
   const who=whoList(f.kind);
   if(f.kind!=="solo"&&!who.includes(f.who))f.who=who[0]||"";
+  if(f.kind==="book"&&f.who)calWatchAvail(f.who);
   const nm=f.who?esc(personName(f.who)):"";
   const note={solo:"Goes on your calendar.",train:`Sends ${nm||"your trainer"} a request. It joins both calendars once they approve.`,
+    book:`A one-off booking: sends ${nm||"the trainer"} a request and doesn't make them your trainer. You'll see their working hours but not their other bookings, so they confirm the exact time.`,
     buddy:`Sends ${nm||"your buddy"} a request. It joins both calendars once they accept.`,trainee:`Goes straight onto your calendar and ${nm||"your trainee"}'s.`}[f.kind];
   return `<div class="panel calform"><div class="sec-h"><h2>Schedule a workout</h2></div>
     <div class="seg wide" role="group" aria-label="Who with">${kinds.map(k=>`<button data-ckind="${k}" aria-pressed="${k===f.kind}">${CAL_KINDS[k]}</button>`).join("")}</div>
-    ${f.kind!=="solo"?`<label for="cfWho">${f.kind==="train"?"Trainer":f.kind==="buddy"?"Buddy":"Trainee"}</label>
-      <select id="cfWho" data-cf="who">${who.map(u=>`<option value="${esc(u)}" ${u===f.who?"selected":""}>${esc(personName(u))}</option>`).join("")}</select>`:""}
+    ${f.kind!=="solo"?`<label for="cfWho">${isTrainKind(f.kind)?"Trainer":f.kind==="buddy"?"Buddy":"Trainee"}</label>
+      <select id="cfWho" data-cf="who">${who.map(u=>`<option value="${esc(u)}" ${u===f.who?"selected":""}>${esc(personName(u))}</option>`).join("")}</select>
+      ${f.kind==="book"&&!who.length?`<p class="small muted" style="margin:6px 0 0">${TRN.loading?"Loading trainers...":TRN.err?esc(TRN.err):"No trainers are listed yet."}</p>`:""}`:""}
     <div class="row" style="margin-top:4px"><div style="flex:1 1 150px"><label for="cfDate">Date</label><input type="date" class="field" id="cfDate" data-cf="date" min="${today()}" value="${esc(f.date)}"></div>
       <div style="flex:1 1 120px"><label for="cfDur">Length</label><select id="cfDur" data-cf="dur">${CAL_DURS.map(d=>`<option value="${d}" ${d===+f.dur?"selected":""}>${d} min</option>`).join("")}</select></div></div>
-    ${f.kind==="train"?`<label>Start time</label>${calChips(f)}`
+    ${isTrainKind(f.kind)?`<label>Start time</label>${calChips(f)}`
       :`<label for="cfStart">Start time</label><input type="time" class="field" id="cfStart" data-cf="start" step="900" value="${esc(f.start)}">`}
     <label for="cfTitle">Note (optional)</label><input class="field" id="cfTitle" data-cf="title" maxlength="60" placeholder="${esc(f.kind==="solo"?plannedTitle(f.date):f.kind==="buddy"?"Buddy workout":"Training session")}" value="${esc(f.title)}">
     <p class="small muted" style="margin:10px 0 0">${note}</p>
     ${f.err?`<p class="small" style="color:var(--push);margin:8px 0 0" role="alert">${esc(f.err)}</p>`:""}
-    <div class="row" style="margin-top:12px"><button class="btn primary" id="calSave">${f.kind==="train"||f.kind==="buddy"?"Send request":"Save"}</button><button class="btn" id="calCancel">Cancel</button></div></div>`;
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="calSave">${isTrainKind(f.kind)||f.kind==="buddy"?"Send request":"Save"}</button><button class="btn" id="calCancel">Cancel</button></div></div>`;
 }
 function calHoursHtml(){
   if(!isTrainerUser())return "";
@@ -4520,7 +4603,7 @@ document.addEventListener("click",async e=>{
   if(ds.cday){CAL.sel=ds.cday;CAL.msg="";render();return}
   if(ds.cweek){CAL.week=addDays(CAL.week||mondayOf(CAL.sel),7*+ds.cweek);CAL.sel=CAL.week;CAL.msg="";render();return}
   if(t.hasAttribute("data-ctoday")){CAL.sel=today();CAL.week=mondayOf(CAL.sel);render();return}
-  if(ds.ckind&&CAL.form){CAL.form.kind=ds.ckind;CAL.form.who="";CAL.form.err="";render();return}
+  if(ds.ckind&&CAL.form){CAL.form.kind=ds.ckind;CAL.form.who="";CAL.form.err="";if(ds.ckind==="book")trnLoad();render();return}
   if(ds.cstart&&CAL.form){CAL.form.start=ds.cstart;CAL.form.err="";render();return}
   if(ds.evact){calAct(ds.evact,ds.ev);return}
   if(ds.add){sendRequest(ds.add);return}
@@ -4556,6 +4639,11 @@ document.addEventListener("click",async e=>{
   if(ds.tday){TR.sel=ds.tday;S.msg="";S.view="tday";render();window.scrollTo(0,0);return}
   if(t.id==="tMore"){TR.showN+=20;render();return}
   if(ds.mktrainer){makeTrainer(ds.mktrainer);return}
+  if(ds.trnask){askTrainer(ds.trnask);return}
+  if(ds.trncancel){deleteDoc(doc(fs,"coachRequests",ds.trncancel)).then(()=>say("Request cancelled.",true)).catch(e=>say(fbError(e,"cancel that request")));return}
+  if(ds.trnbook){S.view="cal";calOpenForm(today(),{kind:"book",who:ds.trnbook});window.scrollTo(0,0);return}
+  if(ds.reqok){answerRequest(ds.reqok,true);return}
+  if(ds.reqno){answerRequest(ds.reqno,false);return}
   if(ds.offer){offerTrain(ds.offer);return}
   if(ds.ocancel){removeOffer(ds.ocancel,"Offer cancelled.");return}
   if(ds.odecline){removeOffer(ds.odecline,"Offer declined.");return}
@@ -4602,6 +4690,8 @@ document.addEventListener("click",async e=>{
     case "wkFinish":case "wkFinishEnd":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
     case "calNew":calOpenForm();return;
     case "calSave":calSave();return;
+    case "trnOpen":TRN.open=true;trnLoad();render();return;
+    case "trnClose":TRN.open=false;render();return;
     case "calCancel":CAL.form=null;render();return;
     case "hoursToggle":CAL.hoursOpen=!CAL.hoursOpen;CAL.hoursDraft=null;CAL.msg="";render();return;
     case "hoursSave":hoursSave();return;
