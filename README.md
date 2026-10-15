@@ -1,4 +1,4 @@
-# Infinity Fitness Tracker
+# ForjArc Fitness Tracker
 
 A workout tracker with ready-made and custom weekly plans. Sign in with Google, build your own plans, log every set, add gym buddies and compare progress on a shared dashboard. Installable as an app on phones and desktops.
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>Infinity Fitness Tracker</title>
+<title>ForjArc Fitness Tracker</title>
 <meta name="description" content="6-day push, pull, legs workout tracker with gym buddies">
 <meta name="theme-color" content="#1D1E21">
 <link rel="manifest" href="manifest.webmanifest">
@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Infinity">
+<meta name="apple-mobile-web-app-title" content="ForjArc">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -622,7 +622,7 @@ button.chip small{font-weight:400}
 </head>
 <body>
 <div class="install" id="install" role="region" aria-label="Install app">
-  <p id="install-text">Install Infinity Fitness Tracker on this device for one-tap access at the gym.</p>
+  <p id="install-text">Install ForjArc Fitness Tracker on this device for one-tap access at the gym.</p>
   <button class="go" id="install-go">Install</button>
   <button id="install-later">Not now</button>
 </div>
@@ -661,7 +661,7 @@ const {initializeApp,getAuth,onAuthStateChanged,GoogleAuthProvider,signInWithPop
 
 (function(){
 "use strict";
-const APP_NAME="Infinity Fitness Tracker";
+const APP_NAME="ForjArc Fitness Tracker";
 let auth=null,fs=null,uid=null,me={name:"",photo:"",email:""};
 if(CONFIGURED){
   const app=initializeApp(firebaseConfig);
@@ -1982,7 +1982,7 @@ function cardStart(H){
   }else{
   ctx.save();ctx.translate(PAD-10,62);ctx.scale(0.9,0.9);
   const gm=ctx.createLinearGradient(12,0,108,0);gm.addColorStop(0,CARD.push);gm.addColorStop(.5,CARD.pull);gm.addColorStop(1,CARD.legs);ctx.strokeStyle=gm;ctx.lineWidth=9;ctx.lineCap="round";ctx.stroke(new Path2D(INF_D));ctx.restore();
-  ctx.fillStyle=CARD.ink;ctx.font=cf(800,46,true);ctx.fillText("INFINITY",PAD+110,112);
+  ctx.fillStyle=CARD.ink;ctx.font=cf(800,46,true);ctx.fillText("FORJARC",PAD+110,112);
   }
   return {c,ctx};
 }
@@ -2242,7 +2242,7 @@ function renderLanding(mode){
   return `<main class="landing ${enter?"tappable":""}" ${enter?'role="button" tabindex="0" aria-label="Enter the app"':""}>
     <div class="l-top">
       ${BR.active&&BR.active.logo?`<img class="brand-hero" src="${BR.active.logo}" alt="">`:`<img class="l-logo" src="icons/icon-512.png" alt="" width="168" height="168">`}
-      <h1 class="l-title">${esc(BR.active?BR.active.name:"Infinity")}</h1>
+      <h1 class="l-title">${esc(BR.active?BR.active.name:"ForjArc")}</h1>
       <p class="l-sub">Fitness tracker</p>
     </div>
     <figure class="l-quote" ${booting||enter?"":'id="quote" role="button" tabindex="0" aria-label="Show another quote"'}>
@@ -3868,7 +3868,7 @@ function renderAdmin(){
    brands/{ownerUid}: one brand per trainer. A trainer asks for it (status pending); an admin approves it. It carries
    an app name, a logo (a small data URL) and `videos`, a map of exercise slug -> YouTube id that overrides the admin's
    default video for everyone in the brand. The owner and everyone the owner trains see the brand. If a member's
-   trainers (and the member, if they own one) add up to anything but exactly one approved brand, the plain Infinity
+   trainers (and the member, if they own one) add up to anything but exactly one approved brand, the plain ForjArc
    look is used. Trainers in the same brand count as one.
    A brand can have several trainers, but a trainer is in one brand only. The owner invites a trainer
    (brandInvites/{brand}_{trainer}); accepting writes brandMember/{trainer} {brand}. Its id is the trainer's uid, so a
@@ -3881,7 +3881,7 @@ function appName(){return BR.active?BR.active.name:APP_NAME}
 function brandMark(){
   const b=BR.active;
   return b?`<span class="brand">${b.logo?`<img class="brand-logo" src="${b.logo}" alt="">`:""}<span>${esc(b.name)}</span></span>`
-    :`<span class="brand"><img class="brand-logo" src="icons/mark.png" alt="" width="18" height="30"><span>Infinity</span></span>`;
+    :`<span class="brand"><img class="brand-logo" src="icons/mark.png" alt="" width="18" height="30"><span>ForjArc</span></span>`;
 }
 function cleanLinks(a){
   return (Array.isArray(a)?a:[]).map(x=>({label:String((x&&x.label)||"").slice(0,30),url:String((x&&x.url)||"").trim().slice(0,200)}))
@@ -3993,8 +3993,8 @@ function brandIcon(size){
 }
 function applyBrandMeta(){
   const b=BR.active,q=s=>document.querySelector(s);
-  document.title=b?b.name:"Infinity Fitness Tracker";
-  const t=q('meta[name="apple-mobile-web-app-title"]');if(t)t.content=b?b.name:"Infinity";
+  document.title=b?b.name:"ForjArc Fitness Tracker";
+  const t=q('meta[name="apple-mobile-web-app-title"]');if(t)t.content=b?b.name:"ForjArc";
   const man=q('link[rel="manifest"]'),ic=q('link[rel="icon"]'),ap=q('link[rel="apple-touch-icon"]');
   if(BR.manifestUrl){URL.revokeObjectURL(BR.manifestUrl);BR.manifestUrl=""}
   if(b&&BR.img){
@@ -4043,7 +4043,7 @@ async function saveRestrict(on){
 }
 async function deleteBrand(){
   const t=bTarget(),cur=bDoc();
-  if(!confirm(BR.edit?"Delete "+cur.name+"? Its owner, trainers and trainees go back to the Infinity logo and name. Its video links are lost.":"Delete your brand? You, your brand's other trainers and everyone you train go back to the Infinity logo and name. Your video links are lost."))return;
+  if(!confirm(BR.edit?"Delete "+cur.name+"? Its owner, trainers and trainees go back to the ForjArc logo and name. Its video links are lost.":"Delete your brand? You, your brand's other trainers and everyone you train go back to the ForjArc logo and name. Your video links are lost."))return;
   try{
     const b=writeBatch(fs);
     (await getDocs(query(collection(fs,"brandMember"),where("brand","==",t)))).docs.forEach(d=>b.delete(d.ref));
@@ -4150,7 +4150,7 @@ async function dropBrandInvite(id){try{await deleteDoc(doc(fs,"brandInvites",id)
 async function leaveBrand(t){
   const me2=t===uid&&!BR.edit;
   const who=pname(SOC.profiles[t])||"this trainer";
-  if(!confirm(me2?"Leave this brand? You and the people you train go back to the Infinity logo and name.":BR.edit?"Remove "+who+" from this brand? They and their trainees go back to the Infinity look.":"Remove "+who+" from your brand? They and their trainees go back to the Infinity look."))return;
+  if(!confirm(me2?"Leave this brand? You and the people you train go back to the ForjArc logo and name.":BR.edit?"Remove "+who+" from this brand? They and their trainees go back to the ForjArc look.":"Remove "+who+" from your brand? They and their trainees go back to the ForjArc look."))return;
   try{await deleteDoc(doc(fs,"brandMember",t))}catch(e){return brandSay(fbError(e,"change that"))}
   if(BR.edit){const cur=bDoc();admAudit("brandremove",t,cur?cur.name:"");admBrands()}
   brandSay(me2?"You left the brand.":"Removed.",true);
@@ -4212,7 +4212,7 @@ function renderBrand(){
       <span><b>Restrict access to global users</b><br><span class="muted" style="font-size:14px">${f.restrict
         ?"On. The people this brand trains don't see Find New Buddies, the global leaderboard or other members' profiles, and aren't listed there. Their buddies and trainers still work. The owner and the brand's trainers are not affected."
         :"Off. The people this brand trains can see, and be seen by, every member."}</span></span></label>
-    <p class="small muted" style="margin:0 0 14px">The logo and name replace Infinity in the header, the welcome screen, shared images and the browser tab. A phone app that is already installed keeps its old icon; people who install after signing in get the brand icon.</p>
+    <p class="small muted" style="margin:0 0 14px">The logo and name replace ForjArc in the header, the welcome screen, shared images and the browser tab. A phone app that is already installed keeps its old icon; people who install after signing in get the brand icon.</p>
     <div class="row"><button class="btn primary" id="brandSave">${cur?(!edit&&cur.status==="rejected"?"Send again":"Save"):"Request brand"}</button>${cur?`<button class="btn danger" id="brandDelete">Delete brand</button>`:""}</div>
     ${msg}</div>${link}${cur?brandTrainersPanel():""}${vids}`;
 }
@@ -4326,7 +4326,7 @@ async function admBrand(status,u){
   const b=ADM.brands.find(x=>x.id===u);if(!b)return;
   const kind={approved:b.status==="pending"?"brandapprove":"brandon",rejected:"branddecline",disabled:"brandoff"}[status];
   const ask={brandapprove:"Approve the brand "+b.name+"? Its owner and everyone they train will see its logo and name.",branddecline:"Decline the brand "+b.name+"?",
-    brandoff:"Disable the brand "+b.name+"? Its owner and trainees go back to the Infinity look.",brandon:"Enable the brand "+b.name+" again?"}[kind];
+    brandoff:"Disable the brand "+b.name+"? Its owner and trainees go back to the ForjArc look.",brandon:"Enable the brand "+b.name+" again?"}[kind];
   if(!confirm(ask))return;
   try{await updateDoc(doc(fs,"brands",u),{status,by:uid,at:serverTimestamp()})}catch(e){return say(fbError(e,"change that brand"))}
   b.status=status;

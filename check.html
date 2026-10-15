@@ -58,7 +58,7 @@ function imgSize(url){return new Promise(res=>{const i=new Image();i.onload=()=>
     const m=html.match(/<link[^>]+rel=["']manifest["'][^>]*>/i);
     if(m){linkHref=(m[0].match(/href=["']([^"']+)/i)||[])[1];add("ok","index.html links the manifest","&lt;link rel=\"manifest\" href=\""+linkHref+"\"&gt;")}
     else add("bad","index.html does not link a manifest","The index.html on your site is an old version.","Upload the latest index.html from the zip.");
-    add(html.includes("Infinity")?"ok":"warn","index.html is the Infinity app",html.includes("Infinity")?"":"The page at this address doesn't look like the app.","Make sure check.html sits in the same folder as index.html.");
+    add(html.includes("ForjArc")?"ok":"warn","index.html is the ForjArc app",html.includes("ForjArc")?"":"The page at this address doesn't look like the app.","Make sure check.html sits in the same folder as index.html.");
   }else add("bad","Couldn't load index.html",idx?("Status "+idx.status):"Network error","Put index.html at the top level of the repo.");
 
   // 3. manifest

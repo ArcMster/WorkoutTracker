@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Infinity Fitness Tracker",
-  "short_name": "Infinity",
+  "name": "ForjArc Fitness Tracker",
+  "short_name": "ForjArc",
   "description": "Workout tracker with custom plans and gym buddies",
   "start_url": "./",
   "scope": "./",
