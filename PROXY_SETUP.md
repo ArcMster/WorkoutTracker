@@ -36,7 +36,7 @@ Everything is in `proxy/` in this repo:
   - **Not the Firebase key.** The `apiKey` in `firebase-config.js` also starts with `AIza`, but it's public (it's in your website) and isn't set up for Gemini. Create a separate key in AI Studio and keep it secret.
   - If you already have a Google Cloud API key you want to use, enable the **Generative Language API** for its project in the Google Cloud console. An AI Studio key is simpler.
 - Your **Firebase project id**. It's `projectId` in `firebase-config.js` (for this app, `fitness-tracker-472ec`).
-- Your GitHub Pages address, for example `https://arcmster.github.io` (just the origin: no path, no trailing slash).
+- Your app's address, for example `https://app.forjarc.fit` (and `https://arcmster.github.io` while the old address is still in use) (just the origin: no path, no trailing slash).
 - Your Django web app on PythonAnywhere, Python 3.8 or newer. The proxy calls Gemini's REST API with `requests`, so it doesn't need Google's `google-genai` package (that one needs Python 3.10+). Only `AI_PROVIDER=claude` needs Python 3.10+, for the `anthropic` package.
 
 ## Settings
@@ -45,7 +45,7 @@ Everything is in `proxy/` in this repo:
 | --- | --- | --- | --- |
 | `GEMINI_API_KEY` | yes | `AIza...` | Your Gemini key from AI Studio. Keep it secret. (`GOOGLE_API_KEY` is accepted too.) |
 | `FIREBASE_PROJECT_ID` | yes | `fitness-tracker-472ec` | Sign-in tokens must come from this Firebase project. |
-| `AI_ALLOWED_ORIGINS` | yes | `https://arcmster.github.io` | Sites allowed to call the proxy (CORS). Comma-separated for more than one, for example add `http://localhost:8000` for testing. |
+| `AI_ALLOWED_ORIGINS` | yes | `https://app.forjarc.fit,https://arcmster.github.io` | Sites allowed to call the proxy (CORS). Comma-separated for more than one, for example add `http://localhost:8000` for testing. |
 | `AI_DAILY_LIMIT` | no | `5` | Successful AI plans per user per 24 hours. |
 | `AI_ASK_DAILY_LIMIT` | no | `10` | Successful Body check questions per user per 24 hours. Counted separately from plans. |
 | `AI_ADMIN_DAILY_LIMIT` | no | `50` | The same limit for admins (users with a document in `admins`), for both plans and Body check questions. |
@@ -137,7 +137,7 @@ Keep the API key out of `settings.py` if that file is in git. The simplest safe 
 import os
 os.environ["GEMINI_API_KEY"] = "AIza..."          # from aistudio.google.com, not the Firebase key
 os.environ["FIREBASE_PROJECT_ID"] = "fitness-tracker-472ec"
-os.environ["AI_ALLOWED_ORIGINS"] = "https://arcmster.github.io"
+os.environ["AI_ALLOWED_ORIGINS"] = "https://app.forjarc.fit,https://arcmster.github.io"
 os.environ["AI_DAILY_LIMIT"] = "5"
 ```
 

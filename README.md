@@ -26,13 +26,14 @@ A workout tracker with ready-made and custom weekly plans. Sign in with Google, 
 4. Firestore > **Rules**: paste `firestore.rules` and publish.
 5. **Project settings** > Your apps > add a **Web app** and copy its config values.
    Copy `firebase-config.example.js` to a new file named `firebase-config.js`, paste your values in, and commit it. You only do this once: app updates never include `firebase-config.js`, so replacing the other files keeps your settings.
-6. Authentication > Settings > **Authorized domains**: add `<your-username>.github.io`.
+6. Authentication > Settings > **Authorized domains**: add `<your-username>.github.io` and your custom domain (this app uses `app.forjarc.fit`).
 
 ## Deploy to GitHub Pages
 
 1. Push this folder to a repo.
 2. Settings > Pages > Deploy from branch > `main`, root folder.
 3. Open `https://<your-username>.github.io/<repo>/`.
+4. Custom domain (optional): add a `CNAME` DNS record for your subdomain (for example `app`) pointing to `<your-username>.github.io`, set it under Settings > Pages > Custom domain, then tick Enforce HTTPS. The repo's `CNAME` file holds the domain (`app.forjarc.fit`). Also add the domain to Firebase Authorized domains and to the proxy's `AI_ALLOWED_ORIGINS`.
 
 When you change `index.html`, bump `CACHE` in `sw.js` (for example `infinity-v13`) so installed apps pick up the update.
 
