@@ -618,6 +618,37 @@ button.chip small{font-weight:400}
 .lf-form .field{width:100%}.lf-skel{min-height:120px}
 .chip.small{padding:4px 10px;font-size:13px}
 @media (max-width:420px){.lf-task{flex-wrap:wrap}.lf-ctl{margin-left:44px}}
+/* Forj, the floating chat assistant. It lives outside #app so a re-render never wipes the conversation or the draft. */
+#fj-root{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:40;display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none;max-width:calc(100vw - 32px)}
+#fj-root[hidden]{display:none}
+#fj-root>*{pointer-events:auto}
+.timer.on~#fj-root{bottom:calc(88px + env(safe-area-inset-bottom,0px))}
+.fj-fab{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:999px;padding:12px 18px 12px 14px;background:var(--ink);color:var(--bg);font:800 18px/1 var(--display);letter-spacing:.02em;box-shadow:0 6px 18px rgba(0,0,0,.28);cursor:pointer}
+.fj-fab svg{width:22px;height:22px}
+.fj-fab:focus-visible,.fj-x:focus-visible,.fj-send:focus-visible,.fj-sug button:focus-visible{outline:3px solid var(--pull);outline-offset:2px}
+.fj-panel{width:min(400px,calc(100vw - 32px));height:min(600px,calc(100dvh - 120px));display:flex;flex-direction:column;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 36px rgba(0,0,0,.3);overflow:hidden}
+.fj-panel[hidden]{display:none}
+.fj-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.fj-head h2{margin:0;font:800 22px/1 var(--display);letter-spacing:.02em;flex:1}
+.fj-head small{display:block;font:500 12px/1.3 var(--body);color:var(--muted);letter-spacing:0}
+.fj-x{white-space:nowrap;border:1px solid var(--line);background:var(--field);color:var(--ink);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;cursor:pointer}
+.fj-log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.fj-m{max-width:88%;padding:9px 12px;border-radius:14px;font-size:15px;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
+.fj-m.mine{align-self:flex-end;background:var(--ink);color:var(--bg);border-bottom-right-radius:4px}
+.fj-m.bot{align-self:flex-start;background:var(--field);border:1px solid var(--line);border-bottom-left-radius:4px}
+.fj-m.thinking{color:var(--muted)}
+.fj-hello{margin:0;font-size:15px;line-height:1.45}
+.fj-note{margin:0;font-size:12px;line-height:1.4;color:var(--muted)}
+.fj-sug{display:flex;flex-wrap:wrap;gap:8px}
+.fj-sug button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600;cursor:pointer;text-align:left}
+.fj-err{margin:0;font-size:14px;font-weight:600;color:var(--push)}
+.fj-err button{margin-left:8px}
+.fj-form{display:flex;gap:8px;align-items:flex-end;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px) * 0);border-top:1px solid var(--line)}
+.fj-form textarea{flex:1;min-width:0;resize:none;max-height:110px;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:9px 12px;font:15px/1.35 var(--body)}
+.fj-send{border:0;border-radius:12px;background:var(--ink);color:var(--bg);padding:10px 14px;font-weight:700;cursor:pointer}
+.fj-send:disabled{opacity:.45;cursor:default}
+@media (max-width:520px){.fj-panel{width:calc(100vw - 32px);height:calc(100dvh - 100px)}}
+@media (prefers-reduced-motion:no-preference){.fj-panel:not([hidden]){animation:fjin .16s ease-out}@keyframes fjin{from{opacity:0;transform:translateY(8px)}}}
 </style>
 </head>
 <body>
@@ -777,7 +808,7 @@ const BOARD={metric:"workouts",period:"week",lift:"bench",lx:"week",scope:null,f
 /* admin screen: my admin status, the user list and its paging, who is admin or disabled, counts and recent actions */
 const CAL={events:[],slots:{},avail:{},live:[],week:null,sel:today(),form:null,hoursOpen:false,hoursDraft:null,msg:"",un:[],slotUn:{},availUn:{},cleaned:new Set(),livePub:false};
 const SUP={is:false};/* Super Admin: superAdmins/{uid} exists. Also counts as ADM.is */
-const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]};
+const ADM={is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",brands:[],bmem:[]};
 
 /* ---------- plans ---------- */
 function allPlans(){return [...BUILTIN,...Object.entries(S.plans).map(([id,p])=>({id,...p})).sort((a,b)=>a.name.localeCompare(b.name))]}
@@ -1260,7 +1291,7 @@ function stopSocial(){
   Object.assign(TRN,{list:[],loading:false,loaded:false,open:false,err:""});TRN.adding.clear();
   BOARD.tr={};
   stopCal();stopBrand();SUP.is=false;
-  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",pending:[],brands:[],bmem:[]});
+  Object.assign(ADM,{is:false,started:false,list:[],last:null,done:false,loading:false,q:"",f:"active",admins:new Set(),disabled:new Set(),trainers:new Set(),counts:null,log:[],err:"",vq:"",vmsg:{},newName:"",brands:[],bmem:[]});
 }
 /* Keep the last known profile on this device, so the nickname and photo show from the first frame. */
 const ME_KEY="infinity-me-";
@@ -2181,6 +2212,7 @@ const CHECK='<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-lineca
 function softRender(force){if(S.view==="cal"&&document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return;if(force||["join","dash","buddies","buddy","person","find","board","admin","cal"].includes(S.view))render()}
 function render(){
   const app=$("#app");
+  fjSync();
   if(ACT.uid&&S.view!=="log"&&S.view!=="dayEdit")leaveAct();
   document.documentElement.style.setProperty("--dc",tinfo(day().t).solid);
   const views={profile:renderProfile,trainee:renderTrainee,log:renderLog,life:renderLife,dash:renderDash,buddies:renderBuddies,buddy:renderBuddy,person:renderPerson,tday:renderTDay,find:renderFind,history:renderHistory,plans:renderPlans,planEdit:renderPlanEdit,dayEdit:renderDayEdit,planView:renderPlanView,board:renderBoard,gen:renderGen,cal:renderCal,brand:renderBrand,admin:renderAdmin};
@@ -2190,11 +2222,11 @@ function render(){
   const tab=(v,l)=>`<button data-view="${v}" aria-pressed="${on(v)}">${l}</button>`;
   document.body.classList.toggle("landing-on",S.view==="signin"||S.view==="boot"||S.view==="enter");
   if(S.view==="signin"||S.view==="boot"||S.view==="enter"){app.innerHTML=renderLanding(S.view);return}
-  if(S.view==="disabled"||S.view==="pending"||S.view==="join"){app.innerHTML=S.view==="pending"?renderPending():S.view==="join"?renderJoin():renderDisabled();return}
+  if(S.view==="disabled"||S.view==="join"){app.innerHTML=S.view==="join"?renderJoin():renderDisabled();return}
   watchToday();
   app.innerHTML=`
   <div class="top">${brandMark()}${uid?`<button class="avbtn" data-view="profile" aria-label="Your profile">${avatar({name:myName(),photo:myPhoto()})}</button>`:""}</div>
-  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("life","Life Style")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"+(ADM.pending.length?` (${ADM.pending.length})`:"")):""}</nav>
+  <nav class="tabs" aria-label="Sections">${tab("dash","Home")}${tab("log","Workout")}${tab("life","Life Style")}${tab("plans","Plans")}${tab("gen","Advanced")}${tab("cal","Calendar"+(calPending().length?` (${calPending().length})`:""))}${tab("buddies","Buddies"+badge)}${tab("history","Progress")}${ADM.is?tab("admin","Admin"):""}</nav>
   ${views[S.view]()}`;
   const at=app.querySelector('.tabs [aria-pressed="true"]');
   const tb=app.querySelector('.tabs');
@@ -2866,7 +2898,7 @@ function usePlan(id){
 /* ---------- Advanced (AI planning) ----------
    The Advanced tab sends body stats, a goal in the user's words, days per week, best lifts and an optional
    photo to an AI model (Google Gemini by default, or Claude) through the proxy in AI_PROXY (firebase-config.js),
-   with the user's Firebase ID token. The AI returns insights, a 7-day plan and, if the user added one, a diet plan in the cuisine they chose. The proxy keeps the API key, checks the account is approved,
+   with the user's Firebase ID token. The AI returns insights, a 7-day plan and, if the user added one, a diet plan in the cuisine they chose. The proxy keeps the API key, checks the account isn't disabled,
    limits requests per day and stores nothing. Setup: PROXY_SETUP.md. */
 const GEN_LIFTS=[["bench","Bench press"],["squat","Squat"],["deadlift","Deadlift"],["ohp","Overhead press"]];
 const GEN_NOTE="This is a general training plan, not medical advice. If you have an injury or a health condition, check with a professional before you start.";
@@ -3621,26 +3653,28 @@ function renderBoard(){
 }
 
 /* ---------- joining ----------
-   New people ask to join and wait for an admin. People who used the app before this
-   (they have a profile but no account record) count as active, as the rules do. */
-function statusOf(a){return a.status||(a.disabled===true?"disabled":"active")}
+   New people choose member or trainer and are active straight away; no admin approves them. Admins can still disable an account.
+   Accounts left as 'pending' from when approval existed, and people with a profile but no account record, count as active, as the rules do. */
+function statusOf(a){const s=a.status||(a.disabled===true?"disabled":"active");return s==="pending"?"active":s}
 /* the account document read at sign-in (status, and whether they signed up as a trainer) */
 let ACCT={};
 async function accountStatus(acct,prof){
   if(acct&&acct.exists())return statusOf(acct.data());
   if(!acct||!prof||prof.exists())return "active";/* couldn't check, or an existing member: the rules still decide */
-  return "join";/* someone new: the sign-up screen asks whether they're a trainer, then sends the request */
+  return "join";/* someone new: the sign-up screen asks whether they're a trainer, then creates their account */
 }
 async function sendJoin(){
   const trainer=S.joinAs==="trainer";
   if(!S.joinAs)return say("Choose one to continue.");
   try{
     const photo=(me.photo||"").length<=1000?me.photo||"":"";
-    await setDoc(doc(fs,"accounts",uid),{status:"pending",name:(me.name||"").slice(0,80),email:me.email,photo,trainer,requested:serverTimestamp(),...(S.joinBrand?{brand:S.joinBrand}:{})});
-  }catch(e){console.warn("join request",e);return say("Couldn't send your request. Check your connection and try again.")}
-  S.msg="";S.view="pending";render();
+    const data={status:"active",name:(me.name||"").slice(0,80),email:me.email,photo,trainer,requested:serverTimestamp(),...(S.joinBrand?{brand:S.joinBrand}:{})};
+    await setDoc(doc(fs,"accounts",uid),data);
+    ACCT={...data,requested:null};
+  }catch(e){console.warn("join",e);return say("Couldn't create your account. Check your connection and try again.")}
+  S.msg="";await enterAccount(false);
 }
-/* the brand behind a join link, if it is still approved; shown on the sign-up screen and saved with the request */
+/* the brand behind a join link, if it is still approved; shown on the sign-up screen and saved on the new account */
 async function loadJoinBrand(){
   S.joinBrand="";S.joinBrandName="";
   const id=stashedBrand();if(!id||id===uid)return;
@@ -3664,19 +3698,11 @@ function renderJoin(){
       ${opt("trainer","I'm a trainer","Everything above, plus you can offer to train other members: build their plans and follow their workouts.")}
     </div>
     <p class="small muted">You can change this later in your profile.</p>
-    ${S.joinBrand?`<p class="small"><b>You're joining ${esc(S.joinBrandName)}.</b> Once you're approved, its owner becomes your trainer: they can see your logged workouts and set your plans, and you can remove them any time.</p>`:""}
-    <div class="row" style="justify-content:center"><button class="btn primary" id="joinSend" ${S.joinAs?"":"disabled"}>Request to join</button><button class="btn" id="signout">Sign out</button></div>
+    ${S.joinBrand?`<p class="small"><b>You're joining ${esc(S.joinBrandName)}.</b> Its owner becomes your trainer: they can see your logged workouts and set your plans, and you can remove them any time.</p>`:""}
+    <div class="row" style="justify-content:center"><button class="btn primary" id="joinSend" ${S.joinAs?"":"disabled"}>Continue</button><button class="btn" id="signout">Sign out</button></div>
     ${msg}
     ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}</div>${FORJ}`;
 }
-function renderPending(){
-  return `<div class="top">${brandMark()}</div>
-  <div class="calm"><h1>Request sent</h1>
-    <p>Thanks for signing up. An admin needs to approve your account before you can use ${appName()}. Check back soon.</p>
-    ${me.email?`<p class="small">Signed in as ${esc(me.email)}</p>`:""}
-    <div class="row" style="justify-content:center"><button class="btn primary" id="checkAgain">Check again</button><button class="btn" id="signout">Sign out</button></div></div>${FORJ}`;
-}
-
 /* ---------- disabled account ---------- */
 function renderDisabled(){
   return `<div class="top">${brandMark()}</div>
@@ -3696,11 +3722,10 @@ function admStart(){
 async function admCounts(){
   try{
     const acc=collection(fs,"accounts");
-    const [u,a,d,dOld,pend]=await Promise.all([getCountFromServer(collection(fs,"profiles")),getDocs(collection(fs,"admins")),
-      getDocs(query(acc,where("status","==","disabled"))),getDocs(query(acc,where("disabled","==",true))),getDocs(query(acc,where("status","==","pending")))]);
+    const [u,a,d,dOld]=await Promise.all([getCountFromServer(collection(fs,"profiles")),getDocs(collection(fs,"admins")),
+      getDocs(query(acc,where("status","==","disabled"))),getDocs(query(acc,where("disabled","==",true)))]);
     ADM.admins=new Set(a.docs.map(x=>x.id));
     ADM.disabled=new Set([...d.docs,...dOld.docs].filter(x=>statusOf(x.data())==="disabled").map(x=>x.id));
-    ADM.pending=pend.docs.map(x=>({uid:x.id,...x.data()})).sort((x,y)=>(y.requested?.seconds||0)-(x.requested?.seconds||0));
     ADM.counts={users:u.data().count};
   }catch(e){console.warn("admin counts",e);ADM.err=fbError(e,"load the counts")}
   /* trainers are whoever appears in someone's coaching list; kept apart so a failure here doesn't hide the counts */
@@ -3728,7 +3753,7 @@ async function admLog(){
   }catch(e){console.warn("admin log",e)}
   softRender();
 }
-const ADM_ACTS={approve:"Approved",decline:"Declined",disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand",brandcreate:"Created the brand",brandowner:"Changed the owner of",brandedit:"Edited the brand",brandassign:"Added a trainer to the brand",brandremove:"Removed a trainer from the brand",branddelete:"Deleted the brand"};
+const ADM_ACTS={disable:"Disabled",enable:"Enabled",makeadmin:"Made admin",unadmin:"Removed admin from",video:"Set the video for",unvideo:"Removed the video from",exedit:"Updated exercise",exadd:"Added exercise",exremove:"Removed exercise",brandapprove:"Approved the brand",branddecline:"Declined the brand",brandoff:"Disabled the brand",brandon:"Enabled the brand",brandcreate:"Created the brand",brandowner:"Changed the owner of",brandedit:"Edited the brand",brandassign:"Added a trainer to the brand",brandremove:"Removed a trainer from the brand",branddelete:"Deleted the brand"};
 /* exercise names for the tutorials list: ready-made plans, my own plans and log, and any that already have a video */
 function vidNames(){
   const m=new Map();
@@ -3783,25 +3808,22 @@ function vidRows(){
 }
 async function admAct(kind,u){
   if(u===uid)return;
-  const p=ADM.list.find(x=>x.uid===u)||ADM.pending.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
-  const ask={approve:"Approve "+nm+(p.email?" ("+p.email+")":"")+"? They'll be able to use the app.",
-    decline:"Decline "+nm+"? Their account is marked Disabled and they can't use the app. You can enable it later.",
-    disable:"Disable "+nm+"? They can still sign in, but can't use the app or change any of their data until you enable them again.",
+  const p=ADM.list.find(x=>x.uid===u)||{};const nm=pname(p)||"this user";
+  const ask={disable:"Disable "+nm+"? They can still sign in, but can't use the app or change any of their data until you enable them again.",
     enable:"Enable "+nm+" again?",
     makeadmin:"Make "+nm+" an admin? They'll be able to see every user, disable accounts and change who is an admin.",
     unadmin:"Remove admin rights from "+nm+"?"}[kind];
   if(!ask||!confirm(ask))return;
   const stamp={by:uid,at:serverTimestamp()};
   try{
-    if(["disable","enable","approve","decline"].includes(kind)){
-      const off=kind==="disable"||kind==="decline";
+    if(["disable","enable"].includes(kind)){
+      const off=kind==="disable";
       await setDoc(doc(fs,"accounts",u),{status:off?"disabled":"active",disabled:off,...stamp},{merge:true});
     }
     else if(kind==="makeadmin")await setDoc(doc(fs,"admins",u),stamp);
     else await deleteDoc(doc(fs,"admins",u));
   }catch(e){say(fbError(e,"change that account"));return}
-  if(kind==="disable"||kind==="decline")ADM.disabled.add(u);if(kind==="enable")ADM.disabled.delete(u);
-  if(kind==="approve"||kind==="decline")ADM.pending=ADM.pending.filter(x=>x.uid!==u);
+  if(kind==="disable")ADM.disabled.add(u);if(kind==="enable")ADM.disabled.delete(u);
   if(kind==="makeadmin")ADM.admins.add(u);if(kind==="unadmin")ADM.admins.delete(u);
   const entry={action:kind,target:u,name:nm.slice(0,80),...stamp};
   ADM.log.unshift({...entry,at:null});ADM.log=ADM.log.slice(0,10);
@@ -3836,11 +3858,8 @@ function renderAdmin(){
   const c=ADM.counts;const n=v=>c?v:"-";
   const msg=S.msg?`<p class="msg" style="color:${S.msgOk?"var(--good)":"var(--push)"}">${esc(S.msg)}</p>`:"";
   const when=a=>a&&a.toDate?a.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):"Just now";
-  return `<header class="greet"><h1>Admin</h1><p>${SUP.is?"Super Admin. Brands, join requests, users, admins and exercises.":"User admin. Join requests, users, admins and exercises."}</p></header>
-  <section class="sec"><div class="nums3 four"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.pending.length)}</b><span>requests</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
-  ${ADM.pending.length?`<div class="panel"><h2>Requested to join</h2><ul class="people">${ADM.pending.map(r=>`<li>${avatar({name:r.name,photo:r.photo})}
-      <span class="nm"><b>${esc(r.name||"Unnamed")}</b> <span class="tag plain">Requested to join</span>${r.trainer?` <span class="tag plain">Trainer</span>`:""}<small class="one">${esc(r.email||"")}${r.requested&&r.requested.toDate?" · "+r.requested.toDate().toLocaleDateString(undefined,{day:"numeric",month:"short"}):""}</small></span><span></span>
-      <div class="adm-acts"><button class="btn small primary" data-adm="approve" data-u="${r.uid}">Approve</button><button class="btn small danger" data-adm="decline" data-u="${r.uid}">Decline</button></div></li>`).join("")}</ul></div>`:""}
+  return `<header class="greet"><h1>Admin</h1><p>${SUP.is?"Super Admin. Brands, users, admins and exercises.":"User admin. Users, admins and exercises."}</p></header>
+  <section class="sec"><div class="nums3"><div><b>${n(c&&c.users)}</b><span>users</span></div><div><b>${n(ADM.admins.size)}</b><span>admins</span></div><div><b>${n(ADM.disabled.size)}</b><span>disabled</span></div></div></section>
   ${admBrandPanel()}
   ${ADM.err?`<p class="msg" style="color:var(--push)">${esc(ADM.err)}</p>`:""}
   <div class="panel"><h2>Users</h2>
@@ -3849,7 +3868,7 @@ function renderAdmin(){
     ${msg}
     <ul class="people" id="admList">${admRows()}</ul>
     ${ADM.done?"":`<div class="row" style="margin-top:12px"><button class="btn" id="admMore" ${ADM.loading?"disabled":""}>${ADM.loading?"Loading...":"Load more"}</button></div>`}
-    <p class="small muted" style="margin:12px 0 0">Search and the filters check the users loaded so far. New people who sign in appear under Requested to join and can't use the app until an admin approves them. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
+    <p class="small muted" style="margin:12px 0 0">Search and the filters check the users loaded so far. New people can use the app as soon as they sign in. A disabled person can still sign in, but sees only a "disabled" screen and can't change any data. Admins can't see anyone's workouts.</p>
   </div>
   <div class="panel"><h2>Exercises</h2>
     <p class="small muted" style="margin:0 0 10px">Change the name everyone sees for an exercise, for example Squat to Weighted Squat, and attach a YouTube tutorial (a watch link, youtu.be link or video id). A new name shows everywhere, in every plan and report, and logged history stays connected. Clear a link and save to remove the video.</p>
@@ -4190,7 +4209,7 @@ function renderBrand(){
     <input class="field" id="bvQ" type="search" placeholder="Filter exercises" autocomplete="off" value="${esc(BR.vq)}" style="width:100%">
     <ul class="vids" id="bvList">${brandVidRows()}</ul></div>`:"";
   const link=cur&&cur.status==="approved"?`<div class="panel"><h2>Join link</h2>
-    <p class="small muted" style="margin:0 0 10px">Anyone who signs up from this link joins ${esc(cur.name)}, and ${edit?"the owner":"you"} become${edit?"s":""} their trainer. They still need an admin's approval to use the app. People already in the app are asked first.</p>
+    <p class="small muted" style="margin:0 0 10px">Anyone who signs up from this link joins ${esc(cur.name)}, and ${edit?"the owner":"you"} become${edit?"s":""} their trainer. People already in the app are asked first.</p>
     <div class="row"><button class="btn" id="brandCopyLink">Copy join link</button>${navigator.share?`<button class="btn" id="brandShareLink">Share join link</button>`:""}</div></div>`:"";
   const links=f.links.map((l,i)=>`<div class="row" style="flex-wrap:nowrap;margin-top:6px">
       <input class="field" data-bl="${i}.label" maxlength="30" placeholder="Label" aria-label="Link ${i+1} label" value="${esc(l.label)}" style="flex:1;min-width:0">
@@ -5335,7 +5354,6 @@ document.addEventListener("click",async e=>{
     case "signin":doSignIn();return;
     case "guest":S.view="dash";render();return;
     case "signout":signOut(auth);return;
-    case "checkAgain":location.reload();return;
     case "joinSend":sendJoin();return;
     case "wkFinish":case "wkFinishEnd":{const s=cur();if(s&&s.t0&&!s.t1){s.t1=Date.now();s.updated=Date.now();scheduleSave(curId());render()}return}
     case "calNew":calOpenForm();return;
@@ -5651,6 +5669,138 @@ function tick(){
 $("#tplus").onclick=()=>{audioOn();clearTimeout(tNote);tNote=setTimeout(()=>{if(Date.now()>=tEnd-300)tick()},Math.max(0,tEnd-Date.now())+30400);tEnd=Math.max(tEnd,Date.now())+30000;tLen+=30;clearInterval(tInt);tick();tInt=setInterval(tick,250)};
 $("#tstop").onclick=()=>{clearInterval(tInt);clearTimeout(tNote);$("#timer").classList.remove("on")};
 
+/* ---------- Forj, the floating chat assistant ----------
+   A button on every signed-in screen opens a small chat. The app sends the last few messages plus a snapshot of the
+   person's own activity (forjContext) to the proxy's forj/ address with their Firebase token; the proxy checks the
+   account, limits messages per day, asks the AI and returns plain text. Nothing is stored on the server and the chat
+   itself lives only in this tab (sessionStorage). While a trainer is logging a trainee's workout S holds the trainee's log,
+   so none of it is sent. The widget sits outside #app and has its own listeners, so render() never touches it. */
+const FJ={open:false,msgs:[],busy:false,err:"",uid:null,root:null};
+const FJ_KEY="forj-chat-";
+const FJ_ASK=["How was my week?","What should I train today?","How do I swap a workout day?","How do I get my bench up?"];
+const fjUrl=()=>AI_PROXY.replace(/plan\/?$/,"forj/");
+function fjShown(){return !!(uid&&lifeAi()&&!["signin","boot","enter","join","disabled"].includes(S.view))}
+function fjSave(){try{sessionStorage.setItem(FJ_KEY+FJ.uid,JSON.stringify(FJ.msgs.slice(-20)))}catch(e){}}
+function fjLoad(){try{const v=JSON.parse(sessionStorage.getItem(FJ_KEY+FJ.uid)||"[]");FJ.msgs=Array.isArray(v)?v.filter(m=>m&&typeof m.text==="string"&&(m.role==="me"||m.role==="forj")).slice(-20):[]}catch(e){FJ.msgs=[]}}
+function fjSync(){
+  const show=fjShown();
+  if(!show){if(FJ.root)FJ.root.hidden=true;if(!uid&&FJ.uid){FJ.uid=null;FJ.msgs=[];FJ.open=false;FJ.busy=false;FJ.err=""}return}
+  if(!FJ.root){
+    FJ.root=document.createElement("div");FJ.root.id="fj-root";document.body.appendChild(FJ.root);
+    ["click","input","keydown"].forEach(t=>FJ.root.addEventListener(t,e=>{e.stopPropagation();fjEvent(t,e)}));
+    FJ.root.innerHTML=`<section class="fj-panel" id="fjPanel" role="dialog" aria-label="Chat with Forj" hidden>
+      <div class="fj-head"><div><h2>Forj</h2><small>Ask about the app, or anything on your mind.</small></div>
+        <button class="fj-x" data-fj="new" type="button">New chat</button><button class="fj-x" data-fj="close" type="button" aria-label="Close chat">Close</button></div>
+      <div class="fj-log" id="fjLog" role="log" aria-live="polite"></div>
+      <form class="fj-form" id="fjForm"><textarea id="fjIn" rows="1" maxlength="1000" placeholder="Ask Forj..." aria-label="Message to Forj" enterkeyhint="send"></textarea>
+        <button class="fj-send" id="fjSend" type="submit">Send</button></form></section>
+      <button class="fj-fab" data-fj="toggle" type="button" aria-expanded="false" aria-controls="fjPanel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12Z"/></svg>Forj</button>`;
+  }
+  FJ.root.hidden=false;
+  if(FJ.uid!==uid){FJ.uid=uid;FJ.open=false;FJ.busy=false;FJ.err="";fjLoad();fjDraw()}
+}
+function fjDraw(){
+  if(!FJ.root)return;
+  const log=FJ.root.querySelector("#fjLog"),panel=FJ.root.querySelector("#fjPanel"),fab=FJ.root.querySelector(".fj-fab");
+  panel.hidden=!FJ.open;fab.setAttribute("aria-expanded",FJ.open);fab.hidden=FJ.open&&window.innerWidth<=520;
+  const first=firstName();
+  const head=!FJ.msgs.length?`<p class="fj-hello">Hi${first?" "+esc(first):""}, I'm Forj. Ask me how anything in ${appName()} works, or about your training, your week or whatever's on your mind. I'll use your own activity in the app when it helps.</p>
+    <div class="fj-sug">${FJ_ASK.map(q=>`<button type="button" data-fj="ask" data-q="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+    <p class="fj-note">Forj sends a summary of your activity and these messages to an AI service to answer. Messages aren't stored. It's general guidance, not medical advice.</p>`:"";
+  log.innerHTML=head+FJ.msgs.map(m=>`<div class="fj-m ${m.role==="me"?"mine":"bot"}">${esc(m.text)}</div>`).join("")
+    +(FJ.busy?`<div class="fj-m bot thinking">Forj is thinking...</div>`:"")
+    +(FJ.err?`<p class="fj-err" role="alert">${esc(FJ.err)}<button class="btn small" type="button" data-fj="retry">Try again</button></p>`:"");
+  log.scrollTop=log.scrollHeight;
+  FJ.root.querySelector("#fjSend").disabled=FJ.busy;
+}
+function fjToggle(open){
+  FJ.open=open;fjDraw();
+  if(open){const t=FJ.root.querySelector("#fjIn");setTimeout(()=>t.focus(),30)}
+  else{const f=FJ.root.querySelector(".fj-fab");f.hidden=false;f.focus()}
+}
+function fjEvent(type,e){
+  if(type==="click"){
+    const b=e.target.closest("[data-fj]");if(!b)return;
+    const a=b.dataset.fj;
+    if(a==="toggle")fjToggle(!FJ.open);
+    else if(a==="close")fjToggle(false);
+    else if(a==="new"){if(FJ.busy)return;FJ.msgs=[];FJ.err="";fjSave();fjDraw()}
+    else if(a==="ask")fjSend(b.dataset.q);
+    else if(a==="retry")fjAsk();
+  }else if(type==="keydown"){
+    if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.target.id==="fjIn"){e.preventDefault();fjSubmit()}
+  }else if(type==="input"&&e.target.id==="fjIn"){
+    const t=e.target;t.style.height="auto";t.style.height=Math.min(t.scrollHeight,110)+"px";
+  }
+}
+function fjSubmit(){
+  const t=FJ.root.querySelector("#fjIn"),v=t.value.trim();
+  if(!v||FJ.busy)return;
+  t.value="";t.style.height="auto";fjSend(v);
+}
+document.addEventListener("submit",e=>{if(e.target.id==="fjForm"){e.preventDefault();fjSubmit()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&FJ.open&&FJ.root&&!FJ.root.hidden){e.preventDefault();fjToggle(false)}});
+function fjSend(text){
+  text=String(text||"").trim().slice(0,1000);
+  if(!text||FJ.busy)return;
+  FJ.msgs.push({role:"me",text});FJ.err="";fjSave();fjAsk();
+}
+function fjError(status,body){
+  if(body&&body.error)return body.error;
+  if(status===401)return "Your sign-in has expired. Reload the app and try again.";
+  if(status===429)return "You've reached today's limit for Forj. Try again tomorrow.";
+  return "Forj couldn't answer right now. Try again in a minute.";
+}
+async function fjAsk(){
+  if(FJ.busy||!FJ.msgs.length||FJ.msgs[FJ.msgs.length-1].role!=="me")return;
+  if(!lifeAi()){FJ.err="Sign in to chat with Forj.";fjDraw();return}
+  const mine=FJ.uid;
+  FJ.busy=true;FJ.err="";fjDraw();
+  let res,out=null;
+  try{
+    /* the Life Style data loads on demand; don't hold the chat up for it */
+    if(S.mode==="db"&&!ACT.uid)await Promise.race([lifeEnsure().catch(()=>{}),new Promise(r=>setTimeout(r,2500))]);
+    const token=await auth.currentUser.getIdToken();
+    res=await fetch(fjUrl(),{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+      body:JSON.stringify({messages:FJ.msgs.slice(-10).map(m=>({role:m.role==="me"?"user":"forj",text:m.text})),context:forjContext()})});
+    out=await res.json().catch(()=>null);
+  }catch(e){
+    console.warn("forj",e);
+    if(FJ.uid!==mine)return;
+    FJ.busy=false;FJ.err=navigator.onLine?"Couldn't reach the server. Try again in a minute.":"No connection. Connect to the internet to chat with Forj.";fjDraw();return;
+  }
+  if(FJ.uid!==mine)return;/* signed out or switched account while waiting */
+  FJ.busy=false;
+  if(!res.ok||!out||typeof out.reply!=="string"||!out.reply){FJ.err=fjError(res.status,out);fjDraw();return}
+  FJ.msgs.push({role:"forj",text:out.reply});fjSave();fjDraw();
+}
+/* What Forj may know about the person: their own plan, recent workouts, best lifts, Life Style tasks and how many buddies and
+   trainers they have (counts only, never other people's names or data). Weights are in their unit. */
+function forjContext(){
+  const unit=S.settings.unit==="lb"?"lb":"kg",k=unit==="lb"?2.20462:1,r=x=>Math.round(x*k*10)/10;
+  const o={app:appName(),today:today(),weekday:WD_LONG[dayOf(today())-1],unit,name:firstName(),openTab:S.view,isTrainer:ME.trainer===true};
+  if(ACT.uid){o.note="The person is logging a workout for a trainee right now, so their own activity isn't included.";return o}
+  const list=Object.values(S.sessions).filter(s=>s&&s.date&&hasSets(s)).sort((a,b)=>a.date<b.date?-1:1);
+  const t=tally(list),p=activePlan();
+  o.plan={name:p.name,week:p.days.map((d,i)=>({day:WD_LONG[i],workout:d.t==="rest"?"Rest":d.title,exercises:d.t==="rest"?[]:d.ex.map(x=>x.n+" "+target(x))}))};
+  o.thisWeek={workoutsLogged:t.weekDays.length,volume:r(t.volumeWeek),streakWeeks:t.streak};
+  o.totals={workouts:t.total,thisMonth:t.monthWorkouts,lastWorkout:t.lastDate};
+  o.recentWorkouts=list.slice(-10).reverse().map(s=>{
+    const best=Object.entries(s.entries||{}).map(([n,a])=>{const f=filled(a);let top=null;f.forEach(x=>{const kg=toKg(x.w,s.unit||"kg")||0;if(!top||kg>top.kg||(kg===top.kg&&x.r>top.r))top={kg,r:x.r}});return top?{n,top}:null}).filter(Boolean);
+    return {date:s.date,title:sessionMeta(s).title,sets:setCount(s),volume:r(volKg(s)),topSets:best.slice(0,6).map(b=>dn(b.n)+" "+r(b.top.kg)+" x "+b.top.r)};
+  });
+  const lifts=computeSummary().lifts.map(l=>({n:l.n,pr:l.pr,last:l.h[l.h.length-1].d,tops:l.h.slice(-5).map(x=>r(x.w))}));
+  const key=KEY_LIFTS.map(x=>x[0]),pick=[...lifts.filter(l=>key.includes(l.n)),...lifts.filter(l=>!key.includes(l.n)).sort((a,b)=>a.last<b.last?1:-1).slice(0,8)];
+  o.bestLifts=pick.map(l=>({lift:dn(l.n),best:r(l.pr.w)+" x "+l.pr.r,on:l.pr.d,lastDone:l.last,recentTopWeights:l.tops}));
+  if(LIFE.loaded){
+    const td=LIFE.days[today()],last7=[];
+    for(let i=0;i<7;i++){const d=LIFE.days[addDays(today(),-i)];if(d&&d.tasks.length){const pc=LC.dayPct(d);last7.push({date:d.date,done:pc==null?null:Math.round(pc*100)+"%",status:d.status,rest:!!d.restDay})}}
+    o.lifeStyle={mode:lifeMode(),goals:(LIFE.settings.goals||[]).map(g=>g.text).slice(0,3),today:td&&td.tasks.length?LC.dayPayload(td).tasks:[],last7Days:last7};
+  }
+  o.social={buddies:SOC.accepted.length,trainers:SOC.trainers.length,trainees:SOC.trainees.length,sharingProgress:!!S.settings.sharing};
+  return o;
+}
+
 /* ---------- install as an app ---------- */
 const standalone=()=>matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
@@ -5682,6 +5832,21 @@ function stashedBrand(){try{return localStorage.getItem(JB_KEY)||""}catch(e){ret
   if(/^[A-Za-z0-9]{6,128}$/.test(b)){try{localStorage.setItem(JB_KEY,b)}catch(e){}}
   if(params.has("brand")){params.delete("brand");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
 function clearAddParam(){if(params.has("add")){params.delete("add");history.replaceState(null,"",location.pathname+(params.toString()?"?"+params:""))}}
+/* everything after the account is known to be active: load the log, start syncing and open the app */
+async function enterAccount(hadMe){
+  try{await initStore()}catch(e){S.mode="local"}
+  if(S.mode==="db"){
+    /* First sign-in on this device: wait briefly for the nickname rather than flash the Google name. */
+    const prof=loadMyProfile();
+    if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
+    if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
+    startSocial();brandSync();brandLinkBoot();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
+    if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
+  }
+  if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
+  else S.view="enter";
+  render();
+}
 if(CONFIGURED){
   /* show the last signed-in person's brand on the first screen, before sign-in has been checked */
   try{restoreBrand(localStorage.getItem("infinity-lastuid")||"")}catch(e){}
@@ -5702,19 +5867,8 @@ if(CONFIGURED){
     ACCT=acct&&acct.exists()?acct.data():{};
     const st=await accountStatus(acct,prof);
     if(st==="join"){await loadJoinBrand()}
-    if(st==="disabled"||st==="pending"||st==="join"){S.view=st;render();return}
-    try{await initStore()}catch(e){S.mode="local"}
-    if(S.mode==="db"){
-      /* First sign-in on this device: wait briefly for the nickname rather than flash the Google name. */
-      const prof=loadMyProfile();
-      if(!hadMe)await Promise.race([prof,new Promise(r=>setTimeout(r,2500))]);
-      if(me.email)setDoc(doc(fs,"emails",me.email.toLowerCase()),{uid}).catch(()=>{});
-      startSocial();brandSync();brandLinkBoot();loadVids();if(ADM.is)admCounts();prof.then(()=>{publishNow();syncDirectory()});
-      if(addParam&&addParam!==uid){S.pendingAdd=addParam;loadProfile(addParam);S.afterEnter="buddies"}
-    }
-    if(S.justSignedIn){S.justSignedIn=false;S.view=S.afterEnter||"dash";S.afterEnter=null}
-    else S.view="enter";
-    render();
+    if(st==="disabled"||st==="join"){S.view=st;render();return}
+    await enterAccount(hadMe);
   });
 }else{
   initStore().then(()=>{S.view="enter";render()});

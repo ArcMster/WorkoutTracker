@@ -2,7 +2,7 @@
 
 The web app posts the Advanced form (body stats, goal text, days, strength, optional photo) with the
 user's Firebase ID token. This view:
-  1. checks the token and that the account is approved (same rule as firestore.rules isActive()),
+  1. checks the token and that the account isn't disabled (same rule as firestore.rules isActive()),
   2. enforces a daily limit per user (higher for admins),
   3. asks the AI (Google Gemini by default, or Claude) for insights, a 7-day plan and, if asked, a diet plan as JSON,
   4. tidies the plan into the shape the app stores and returns it.
@@ -28,6 +28,8 @@ from django.views.decorators.csrf import csrf_exempt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 
+from . import forj_chat as FC
+from . import forj_prompts as FPR
 from . import life_plan as LP
 from . import life_prompts as LPR
 from .models import PlanRequest
@@ -53,6 +55,7 @@ REQUIRE_ACTIVE = str(conf("AI_REQUIRE_ACTIVE", "1")) != "0"
 LIFE_PLAN_LIMIT = int(conf("AI_LIFE_PLAN_DAILY_LIMIT", "5"))  # Life Style plans
 LIFE_TASK_LIMIT = int(conf("AI_LIFE_TASK_DAILY_LIMIT", "20"))  # Life Style single-task swaps
 LIFE_SUM_LIMIT = int(conf("AI_LIFE_SUMMARY_DAILY_LIMIT", "5"))  # Life Style summaries
+FORJ_LIMIT = int(conf("AI_FORJ_DAILY_LIMIT", "40"))  # Forj chat messages
 MAX_PHOTO_CHARS = 2_000_000  # base64 characters; the app sends about 300 KB
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -125,8 +128,8 @@ def is_active(uid, token):
         status = f.get("status", {}).get("stringValue")
         if status is None:
             status = "disabled" if f.get("disabled", {}).get("booleanValue") else "active"
-        return status == "active"
-    if r.status_code == 404:  # joined before approval existed: active if they have a profile
+        return status in ("active", "pending")  # "pending" is left over from when new people needed approval
+    if r.status_code == 404:  # joined before accounts existed: active if they have a profile
         return firestore_get(f"profiles/{uid}", token).status_code == 200
     raise RuntimeError(f"Firestore returned {r.status_code}")
 
@@ -558,7 +561,7 @@ def plan(request):
     try:
         uid, token = verify_user(request)
         if REQUIRE_ACTIVE and not is_active(uid, token):
-            return fail(request, 403, "Your account needs to be approved before you can use AI planning.")
+            return fail(request, 403, "Your account is disabled, so AI planning isn't available.")
     except PermissionError as e:
         return fail(request, 401, str(e))
     except Exception:
@@ -666,7 +669,7 @@ def ask(request):
     try:
         uid, token = verify_user(request)
         if REQUIRE_ACTIVE and not is_active(uid, token):
-            return fail(request, 403, "Your account needs to be approved before you can use AI.")
+            return fail(request, 403, "Your account is disabled, so AI isn't available.")
     except PermissionError as e:
         return fail(request, 401, str(e))
     except Exception:
@@ -734,7 +737,7 @@ def life_gate(request, kind, default_limit, noun):
     try:
         uid, token = verify_user(request)
         if REQUIRE_ACTIVE and not is_active(uid, token):
-            return fail(request, 403, "Your account needs to be approved before you can use AI.")
+            return fail(request, 403, "Your account is disabled, so AI isn't available.")
     except PermissionError as e:
         return fail(request, 401, str(e))
     except Exception:
@@ -836,3 +839,43 @@ def life_summary(request):
     result["remaining"] = max(0, limit - used - 1)
     result["model"] = MODEL
     return cors(JsonResponse(result), request)
+
+
+# ---------- Forj: the in-app chat assistant ----------
+
+@csrf_exempt
+def forj(request):
+    """One Forj reply. The app sends the last few messages and a snapshot of the person's own activity; nothing is stored
+    here except a row that counts the message toward the daily limit."""
+    g = life_gate(request, "forj", FORJ_LIMIT, "Forj messages")
+    if not isinstance(g, tuple):
+        return g
+    uid, limit, used, data = g
+    try:
+        messages = FC.clean_messages(data.get("messages"))
+    except ValueError as e:
+        return fail(request, 400, str(e))
+    text = FC.describe(messages, data.get("context"))
+    record = PlanRequest.objects.create(uid=uid, kind="forj")
+    ask = ask_gemini if PROVIDER == "gemini" else ask_claude
+    reply = ""
+    try:
+        for attempt in range(2):
+            raw = ask(None, text, FPR.SYSTEM, FC.REPLY_SCHEMA, max_tokens=3000)
+            try:
+                reply = FC.normalize(json.loads(raw))
+            except (ValueError, AttributeError, TypeError):
+                reply = None
+            if reply:
+                break
+            log.warning("forj: unusable reply (attempt %s): %.300s", attempt + 1, raw)
+        if not reply:
+            raise AIError(502, "Forj couldn't answer that. Try asking it another way.")
+    except AIError as e:
+        return fail(request, e.status, str(e))
+    except Exception:
+        log.exception("forj failed")
+        return fail(request, 500, "Something went wrong on the server. Try again later.")
+    record.ok = True
+    record.save(update_fields=["ok"])
+    return cors(JsonResponse({"reply": reply, "remaining": max(0, limit - used - 1), "model": MODEL}), request)

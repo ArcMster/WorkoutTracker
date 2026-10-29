@@ -16,23 +16,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // User admins: presence of admins/{uid} makes that user an admin (approve and disable accounts, exercise
+    // User admins: presence of admins/{uid} makes that user an admin (disable and enable accounts, exercise
     // tutorials, make admins). A Super Admin counts as one too.
     function isAdmin() {
       return signedIn() && (exists(/databases/$(database)/documents/admins/$(request.auth.uid)) || isSuper());
     }
-    // Account status: 'pending' (requested to join), 'active' or 'disabled'.
-    // Older account documents only carry disabled: true or false.
+    // Account status: 'active' or 'disabled'. Older account documents may carry 'pending' (from when new people
+    // needed approval; it now counts as active) or only disabled: true or false.
     function acctStatus(d) {
       return d.get('status', d.get('disabled', false) == true ? 'disabled' : 'active');
     }
-    // Active means an admin approved the account (or never disabled it). People who used the app
-    // before join approval have no account document but do have a profile, so they stay active.
-    // Anyone new has neither until they ask to join, and stays blocked until an admin approves them.
+    // Active means an admin never disabled the account. People who used the app before accounts existed
+    // have no account document but do have a profile, so they stay active. Anyone new has neither until
+    // they create their account on the sign-up screen, which is active straight away.
     function isActive(uid) {
       let p = /databases/$(database)/documents/accounts/$(uid);
       return exists(p)
-        ? acctStatus(get(p).data) == 'active'
+        ? acctStatus(get(p).data) in ['active', 'pending']
         : exists(/databases/$(database)/documents/profiles/$(uid));
     }
     // The signed-in user writing is not disabled. Added to every write of a user's own data.
@@ -52,18 +52,19 @@ service cloud.firestore {
     // Account status. The owner can read their own; admins can read all.
     match /accounts/{uid} {
       allow read: if isMe(uid) || isAdmin();
-      // A new user asks to join: only the pending state, with what an admin needs to recognise them,
-      // and whether they signed up as a trainer.
+      // A new user creates their own account, active straight away, with what an admin needs to recognise them
+      // and whether they signed up as a trainer. It can only be created once (a second write is an update), so a
+      // disabled person can't make themselves active again.
       allow create: if isMe(uid)
         && request.resource.data.keys().hasOnly(['status', 'name', 'email', 'photo', 'requested', 'trainer', 'brand'])
         && (!('trainer' in request.resource.data) || request.resource.data.trainer is bool)
         && (!('brand' in request.resource.data) || (request.resource.data.brand is string && request.resource.data.brand.size() <= 128))
-        && request.resource.data.status == 'pending'
+        && request.resource.data.status == 'active'
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.photo is string && request.resource.data.photo.size() <= 1000
         && request.resource.data.requested == request.time;
-      // Admins approve, decline (disable) or enable accounts, never their own.
+      // Admins disable or enable accounts, never their own.
       allow create, update: if isAdmin() && uid != request.auth.uid
         && request.resource.data.keys().hasOnly(['status', 'disabled', 'by', 'at', 'name', 'email', 'photo', 'requested', 'trainer', 'brand'])
         && request.resource.data.status in ['active', 'disabled']
