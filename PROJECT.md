@@ -29,7 +29,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 | `check.html` | Browser page that checks whether the app can be installed |
 | `icons/` | App icons (192, 512, maskable 512, Apple touch) |
 | `lib/` | Bundled Excel and PDF readers |
-| `proxy/` | Django app (`workout_ai`) for the AI proxy: `plan/`, `ask/` and `health/` endpoints, plus a model that counts requests for the daily limits. Runs on PythonAnywhere, not on GitHub Pages. Setup in `PROXY_SETUP.md` |
+| `proxy/` | Django app (`workout_ai`) for the AI proxy: `plan/`, `ask/`, `life/plan/`, `life/summary/`, `forj/` and `health/` endpoints, plus a model that counts requests for the daily limits. Runs on PythonAnywhere, not on GitHub Pages. Setup in `PROXY_SETUP.md` |
 | `PROJECT.md`, `README.md`, `PROXY_SETUP.md` | This file, setup and deploy steps, and proxy setup |
 
 **Release rule:** whenever `index.html` changes, bump `CACHE` in `sw.js` so installed apps update.
@@ -40,7 +40,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - A brand can have several trainers; a trainer is in only one. The owner invites trainers by Google email (`brandInvites`); accepting writes `brandMember/{trainerUid}`, whose id enforces one brand per trainer. A trainer who owns a brand can't join another. Either side can end it, and only the owner edits the brand and its videos. Trainers in the same brand count as one brand for their trainees.
 - **Super Admin** (`superAdmins/{uid}`, made by hand in the console; also counts as a user admin) is the only role that touches brands, in the Brands panel of the Admin tab: approve, decline, disable, delete, create a brand for a trainer (approved straight away), change the owner, **Edit** any brand (same form as the owner's, via `BR.edit`) and add or remove its trainers directly. Other admins are *user admins*: accounts, tutorials and exercises, no brands. The owner still requests a brand, edits it live and invites trainers.
 - A brand also has `details` (300 characters) and up to 5 `links` (label + https address), shown as an About panel to its members (Settings, and the member's Your brand page), and `restrict` (see below).
-- **Join link** `?brand={ownerUid}`: kept on the device until sign-in. A new person's sign-up stores it on the join request (`accounts/{uid}.brand`); once an admin approves them, `brandLinkBoot()` adds the owner to their `coaching` trainers (once, tracked per device), which is how the brand reaches them. Someone already in the app is asked first, and trainers from another brand are removed; a trainer who owns or belongs to a brand can't join another as a member. The owner or a Super Admin copies the link from the brand page.
+- **Join link** `?brand={ownerUid}`: kept on the device until sign-in. A new person's sign-up stores it on their account (`accounts/{uid}.brand`); on their first load, `brandLinkBoot()` adds the owner to their `coaching` trainers (once, tracked per device), which is how the brand reaches them. Someone already in the app is asked first, and trainers from another brand are removed; a trainer who owns or belongs to a brand can't join another as a member. The owner or a Super Admin copies the link from the brand page.
 - **Restrict access to global users** (owner's switch, saved at once): the people the brand trains (not the owner or its trainers) lose Find New Buddies, the Global leaderboard scope and non-buddy profiles, and their directory and board cards are deleted. Buddies, trainers and email or invite-link buddy requests still work. Enforced by the app only (`restricted()`): the rules can't look up a person's brand, so someone calling Firestore directly isn't blocked. Cards are only published once the brand is known (`BR.settled`). The brand id is the owner's uid, so a new owner means moving the document (logo, videos, status and trainers go with it) in three steps; the rules check state before each batch. The new owner must be a trainer in no brand.
 - A trainer opens Profile > Your brand and requests a brand: an app name (40 characters) and a logo. It is stored in `brands/{ownerUid}` (one per trainer) with status `pending`. A Super Admin approves, declines or disables it from the Brands panel on the Admin tab; the owner then edits the name, logo and video links live.
 - The owner and everyone the owner trains see the logo and name in place of Infinity: header, welcome screen, shared images, share text, reports and the tab title. If a member's trainers (plus their own brand, if they own one) don't add up to exactly one approved brand, the plain Infinity look is used. `brandPick` decides; `appName()` and `brandMark()` render it.
@@ -66,6 +66,12 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - **Buddy sharing** (off by default): **Share my Life Style progress** (Buddies tab and Progress tab; flag `settings.lifeShare` in `log/settings`). When on, and Share my progress is on, `publishNow()` adds `life: { streak, pct7, at }` to `shared/{uid}` (`shareData()`), which accepted buddies see on the buddy page. Turning either off rewrites the document without it. Reasons, notes, tasks and summaries are never shared. Not on the leaderboards.
 - The Life Style screen notices a new day while open (every minute and when the app comes back to the front), closes yesterday and shows today.
 
+### Forj (chat assistant)
+- A floating button (`#fj-root`, appended to `body`, outside `#app`, so `render()` never wipes the chat or the draft) on every signed-in screen except sign-in, welcome, join and disabled; hidden for guests. `render()` calls `fjSync()`; the widget has its own listeners and stops events reaching the app's global handlers. Code: the "Forj" section of `index.html` (state `FJ`, `fjSend`, `fjAsk`, `forjContext`). CSS classes are `fj-*`; don't reuse `.forj` (that is the footer brand).
+- Each message POSTs to `forj/` (derived from `AI_PROXY_URL` like the Life Style addresses) with the last 10 messages and `forjContext()`: today, unit, active plan with exercises, this week and streak, last 10 workouts with top sets, best lifts with recent top weights, Life Style goals and today's tasks (if loaded; loading is capped at 2.5 s), and buddy, trainer and trainee counts only. While a trainer logs a trainee's workout (`ACT.uid`), `S` holds the trainee's log, so only a note is sent.
+- Proxy (`forj` view in `views.py`): `life_gate` (token, active account, daily limit `AI_FORJ_DAILY_LIMIT`, default 40; admins `AI_ADMIN_DAILY_LIMIT`; `kind` `forj`), then `forj_chat.clean_messages` / `describe` / `normalize` and the prompt in `forj_prompts.py`. The activity snapshot and conversation go to the model inside `<user_data>` and `<conversation>` blocks that the prompt says are data, never instructions. Replies are plain text. Nothing is stored apart from the counting row.
+- The chat is kept in `sessionStorage` per user (`forj-chat-{uid}`) and cleared by **New chat**. The system prompt carries a guide to the app; when a feature changes, update `forj_prompts.py` too. Tests: `proxy/workout_ai/test_forj_chat.py`.
+
 ### Exercise catalogue (renames and new exercises)
 - **Admin > Exercises** lists every exercise with a "name shown" field, a YouTube field and Save. Renaming (Squat to Weighted Squat) changes what everyone sees, everywhere: Workout screen, plan views, plan editor and its suggestions, Progress chart picker, reports (CSV and PDF), share images, buddy lifts, trainer views and the Advanced tab.
 - The data never changes: plans and logged sets keep the original name, so history, charts and "last time" stay connected across the rename. `dn(name)` gives the display name; `canon(name)` maps a display name typed in the plan editor back to the original on save. A combined entry ("Barbell or Dumbbell Curl") is rebuilt from its options when one is renamed ("EZ-Bar Curl or Dumbbell Curl").
@@ -79,11 +85,11 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - Videos are keyed by `slug(exercise name)`, the same helper used for file names, so "Pull-ups / Lat Pulldown" always maps to `pull-ups-lat-pulldown` and a video follows the exercise across plans, like history does.
 - Loaded once per sign-in into the `VIDS` map. Guests (no Firebase) see no Watch buttons.
 
-### Joining (approval)
-- Accounts have a status in `accounts/{uid}.status`: **pending** (Requested to Join), **active** or **disabled**. Older documents with only `disabled: true/false` still read correctly.
-- Anyone who signs in for the first time sees a sign-up screen (view `join`) asking **I'm training for myself** or **I'm a trainer**. **Request to join** creates a pending request (name, email, Google photo, `trainer`) and shows a "Request sent" screen with **Check again** and **Sign out**. Nothing else loads and the rules refuse all their writes.
-- People who used the app before approval existed have a profile but no account document; the app and the rules treat them as active, so nobody already using it is locked out. Anyone without a profile who signs in (someone who never opened a version with profiles) will show up as a request.
-- Admins see **Requested to join** at the top of the Admin tab (with a Trainer tag for people who signed up as trainers) (and a count on the tab) with **Approve** (to active) and **Decline** (to disabled). Disabled accounts can be enabled again later.
+### Joining
+- Accounts have a status in `accounts/{uid}.status`: **active** or **disabled**. A leftover **pending** (from when new people needed approval) and older documents with only `disabled: true/false` still read correctly; `pending` counts as active (`statusOf`, `isActive()`, the proxy's `is_active`).
+- Anyone who signs in for the first time sees a sign-up screen (view `join`) asking **I'm training for myself** or **I'm a trainer**. **Continue** creates their account (`status: "active"`, name, email, Google photo, `trainer`, and `brand` from a join link) and `sendJoin()` goes straight into the app through `enterAccount()`, the same path every sign-in takes. There is no request, waiting screen or admin approval.
+- The rules let a user create their own account document once, as `active`; a second write is an update, which only admins can do, so a disabled person can't reactivate themselves. Admins can still **Disable** and **Enable** accounts.
+- People who used the app before accounts existed have a profile but no account document; the app and the rules treat them as active.
 
 ### Admin
 - **Admin** tab in the top menu, shown only when `admins/{myUid}` exists.
@@ -178,7 +184,7 @@ A workout tracker you can install as an app (a PWA). You sign in with Google, fo
 - **Book a session** (also **Book a trainer** in the Calendar's schedule form) is a one-off `train` event with a trainer who isn't the member's trainer: the rules accept a pending `train` event to anyone marked as a trainer, and `avail/{trainer}` (working hours) is readable by any signed-in member while the owner is a trainer. The member sees the trainer's hours but not their busy blocks (`slots` carry the trainee's id, so they stay trainee-only); the trainer confirms the exact time, as for any request. Nothing about the member's log is shared.
 
 ### Trainers
-- Being a trainer is an attribute: `profiles/{uid}.trainer` (and `directory/{uid}.trainer` for Find Buddies). It's chosen at sign-up (stored on the join request in `accounts/{uid}.trainer` and copied to the profile on first sign-in after approval) and switched in **Profile > I'm a trainer**. Members with no flag who already train someone are set to trainer automatically (`settleTrainer()`). Trainers get a Trainer badge on their profile, in Find Buddies and in Admin.
+- Being a trainer is an attribute: `profiles/{uid}.trainer` (and `directory/{uid}.trainer` for Find Buddies). It's chosen at sign-up (stored on the account in `accounts/{uid}.trainer` and copied to the profile on first sign-in) and switched in **Profile > I'm a trainer**. Members with no flag who already train someone are set to trainer automatically (`settleTrainer()`). Trainers get a Trainer badge on their profile, in Find Buddies and in Admin.
 - A trainer can **Offer to train** any member, from the person's profile or by Google email on the Buddies tab. The offer is `coachOffers/{trainer}_{member}`; the member sees it under **Trainer offers** on the Buddies tab (and in the tab count) and **Accept** adds the trainer to their `coaching` list and deletes the offer. Either side can cancel or decline.
 - Members can add a trainer themselves: **Make my trainer** on a trainer's profile, or **Make trainer** on a buddy marked as a trainer. Buddies who aren't trainers no longer get that option. You can have up to 10 trainers.
 - A trainer can **Stop training** someone from the trainer page, which removes only themselves from that member's `coaching` list.
@@ -214,7 +220,7 @@ coaching/{uid}                      { trainers: [uid, ...] }, max 10
 coachOffers/{trainerUid}_{memberUid} { from, to, created }: a trainer's offer to train someone
 admins/{uid}                        { by, at }: presence means user admin
 superAdmins/{uid}                   presence means Super Admin; console only, no client writes
-accounts/{uid}                      { status: pending | active | disabled, disabled, name, email, photo, trainer, requested, by, at }
+accounts/{uid}                      { status: active | disabled (legacy: pending = active), disabled, name, email, photo, trainer, requested, by, at }
 audit/{id}                          { action, target, name, by, at }: admin actions, create only
 exercises/{slug}                    { name, display?, youtube?, added?, updatedBy, updatedAt }: exercise catalogue: rename, tutorial video, admin-added
 board/{uid}                         global leaderboard card: { name, photo (small thumbnail), total, lp_<lift>,
@@ -249,11 +255,11 @@ Weights are stored in the unit they were logged in (`session.unit`) and converte
 | `board/{uid}` | Any signed-in user; lists capped at 50 | Owner while active, at most 24 fields, name and photo size limits; owner can always delete |
 | `admins/{uid}` | Any signed-in user | Admins; nobody can delete their own |
 | `superAdmins/{uid}` | The person themself and Super Admins | Nobody (console only) |
-| `accounts/{uid}` | Owner and admins | Owner creates only a pending request; admins set active or disabled, never for themselves |
+| `accounts/{uid}` | Owner and admins | Owner creates it once, as active; admins set active or disabled, never for themselves |
 | `audit/{id}` | Admins | Admins create; no changes or deletes |
 | `exercises/{slug}` | Any signed-in user | Admins; display name up to 80 characters, video id must be 11 valid characters |
 
-Every write of a user's own data (log, profile, directory, email, requests, coaching, shared) also needs `active()`: the writer's account status is active, or they have no account document but do have a profile (members from before join approval). `isAdmin()` checks that `admins/{auth.uid}` exists.
+Every write of a user's own data (log, profile, directory, email, requests, coaching, shared) also needs `active()`: the writer's account status is active, or they have no account document but do have a profile (members from before accounts existed). `isAdmin()` checks that `admins/{auth.uid}` exists.
 
 ## Code structure (`index.html`)
 
@@ -279,7 +285,7 @@ The whole script is one ES module inside `<script type="module">`.
   - your profile: `profile`
   - people: `buddy` (a buddy's progress), `person` (a profile), `find`, `board` (leaderboard)
   - trainer screens: `trainee`, `tday` (a trainee's single workout)
-  - `admin` (admins only), `join` (sign-up choice), `pending` and `disabled` (the only screens a new or disabled account sees)
+  - `admin` (admins only), `join` (sign-up choice) and `disabled` (the only screens a new or disabled account sees)
 - **Events:** single document-level `click`, `input`, `change` and `keydown` handlers dispatch on element ids and `data-*` attributes.
 - **Sync:** `writeDoc` / `scheduleSave` write to Firestore with offline persistence. Guest mode stores everything in `localStorage` (`ppl-log-v1`).
 - **Live data:** `onSnapshot` listeners (started by `startCal()`) for my `events` (`members array-contains`), my own `avail`, the `live` list (`until > now`, 50 at most), and for each of my trainers their `slots` (by trainer; no composite index) and `avail` (`calSync()`); plus requests, coaching, each buddy's `shared` document, and today's sessions of the log on screen (`watchToday()`).

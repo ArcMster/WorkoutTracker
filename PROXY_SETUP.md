@@ -10,7 +10,7 @@ App (GitHub Pages) ──POST + Firebase sign-in token──▶ Django on Python
 What the proxy does on every request:
 
 1. **Checks who is asking.** It verifies the Firebase ID token the app sends (Google's public keys, no service account needed).
-2. **Checks the account is approved.** It applies the same rule as `isActive()` in `firestore.rules`, reading `accounts/{uid}` (or `profiles/{uid}` for older members) from Firestore with the user's own token. Pending and disabled accounts get a 403.
+2. **Checks the account isn't disabled.** It applies the same rule as `isActive()` in `firestore.rules`, reading `accounts/{uid}` (or `profiles/{uid}` for older members) from Firestore with the user's own token. Disabled accounts get a 403. (Accounts left as `pending` from the old approval flow count as active.)
 3. **Applies a daily limit** per user (default 5 successful plans per 24 hours). This keeps you inside Gemini's free-tier quota and stops one person using it all.
 4. **Calls Gemini** (`gemini-3.8-flash`) with a JSON schema, so the reply is always JSON in the expected shape.
 5. **Tidies the reply** into the app's plan format: exactly 7 days from Monday, known day types and units, and sets and reps in range.
@@ -50,7 +50,7 @@ Everything is in `proxy/` in this repo:
 | `AI_ASK_DAILY_LIMIT` | no | `10` | Successful Body check questions per user per 24 hours. Counted separately from plans. |
 | `AI_ADMIN_DAILY_LIMIT` | no | `50` | The same limit for admins (users with a document in `admins`), for both plans and Body check questions. |
 | `AI_MODEL` | no | `gemini-3.8-flash` | The model. `gemini-3.5-flash-lite` is cheaper and faster, and less thorough. |
-| `AI_REQUIRE_ACTIVE` | no | `1` | Set `0` to skip the approved-account check. Not recommended. |
+| `AI_REQUIRE_ACTIVE` | no | `1` | Set `0` to skip the disabled-account check. Not recommended. |
 | `AI_PROVIDER` | no | `gemini` | `gemini` (default) or `claude`. For `claude`, also install `anthropic` and set `ANTHROPIC_API_KEY`. `AI_MODEL` then defaults to `claude-opus-5`, and `AI_EFFORT` (`low`, `medium`, `high`) applies. |
 
 The proxy reads each one from Django `settings` first, then from environment variables.
@@ -199,7 +199,7 @@ Error replies are JSON with an `error` message, and the app shows that text to t
 | Status | Meaning |
 | --- | --- |
 | 401 | No token, or it expired or belongs to another Firebase project |
-| 403 | The account is pending or disabled |
+| 403 | The account is disabled |
 | 429 | The user reached the daily limit (`AI_DAILY_LIMIT` for plans, `AI_ASK_DAILY_LIMIT` for Body check, or `AI_ADMIN_DAILY_LIMIT` for admins) |
 | 413 | The photo is too large |
 | 400 | The AI couldn't read the request or photo |
@@ -229,3 +229,13 @@ The **Life Style** tab asks for summaries at `.../ai/life/summary/` (same setup,
 | `AI_LIFE_SUMMARY_DAILY_LIMIT` | `5` | Life Style summaries (workout, day, life, weekly) per user per 24 hours, including regenerations |
 
 The prompts are in `life_prompts.py`; edit them there and reload. Tests: `python3 -m unittest discover -s proxy/workout_ai -p "test_*.py"`.
+
+## Forj (chat assistant)
+
+The floating **Forj** chat posts to `https://yourname.pythonanywhere.com/ai/forj/` (the app swaps the trailing `plan/` of `AI_PROXY_URL` for `forj/`). It is part of the same `workout_ai` app: copy the new files (`views.py`, `urls.py`, `forj_chat.py`, `forj_prompts.py`) and **Reload** the web app. No new packages and no migration (`PlanRequest`, `kind` `forj`).
+
+| Name | Default | What it does |
+| --- | --- | --- |
+| `AI_FORJ_DAILY_LIMIT` | `40` | Forj messages per user per 24 hours (admins use `AI_ADMIN_DAILY_LIMIT`) |
+
+The request carries the last 10 messages and a snapshot of the person's own activity from the app; nothing is stored here except the row that counts the message. The prompt, with its guide to the app, is in `forj_prompts.py`; edit it there and reload.

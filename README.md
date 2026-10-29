@@ -97,12 +97,23 @@ The **Advanced** tab in the top menu makes a plan with AI: Google Gemini by defa
 - Asks for body weight, height, **your goal in your own words** (what you want, your equipment, anything to work around), days per week (2 to 6), Beginner or your best lifts, an optional **photo** and an optional **diet plan** in Kerala, South Indian or North Indian food.
 - The AI returns **insights** (a summary, what the photo shows that matters for training, strengths, what to focus on, what to be careful with) and a **7-day plan**, plus, if you added one, a **diet plan** (daily calorie, protein, carb and fat targets, meals with a few options each and estimated calories and macros for every option, and tips). Where it can, it uses exercise names you already have, so your history carries over.
 - Review it, **Save to my plans**, **Download PDF** (with the insights and the diet plan), or, in an installed iPhone app, **Save as image**. Nothing is saved until you tap Save.
-- It needs you signed in and approved. It goes through your own proxy server, which keeps the Gemini API key, checks the account and limits plans per person per day. The photo is scaled down to 1024 px and sent for that plan only. Neither the app nor the proxy stores it, but on Gemini's free tier Google may use what's sent to improve its products (the tab says so).
+- It needs you signed in (and not disabled). It goes through your own proxy server, which keeps the Gemini API key, checks the account and limits plans per person per day. The photo is scaled down to 1024 px and sent for that plan only. Neither the app nor the proxy stores it, but on Gemini's free tier Google may use what's sent to improve its products (the tab says so).
 - Without a diet plan it gives training suggestions only. It's a general plan, not medical or dietitian advice.
 
-**Body check.** The Advanced tab has two sub-tabs, **Plan** and **Body check**. In Body check you add a photo of a body part or your physique and type a question (for example "my left bicep looks shorter than my right, is this normal?"). The AI replies in plain text with a tag: **Looks normal**, **Can be improved** (with corrective steps), **Hard to tell from this photo** or **Worth a check-up**. **Ask another question** starts again. A photo is required. It goes to the proxy's `ask/` address (derived from `AI_PROXY_URL`), needs a signed-in, approved account, and has its own daily limit (default 10 per person, `AI_ASK_DAILY_LIMIT`; admins use `AI_ADMIN_DAILY_LIMIT`), separate from the plan limit. The photo is handled like the plan photo: not stored, and the same Gemini free-tier note applies. It's general guidance, not medical advice.
+**Body check.** The Advanced tab has two sub-tabs, **Plan** and **Body check**. In Body check you add a photo of a body part or your physique and type a question (for example "my left bicep looks shorter than my right, is this normal?"). The AI replies in plain text with a tag: **Looks normal**, **Can be improved** (with corrective steps), **Hard to tell from this photo** or **Worth a check-up**. **Ask another question** starts again. A photo is required. It goes to the proxy's `ask/` address (derived from `AI_PROXY_URL`), needs a signed-in account that isn't disabled, and has its own daily limit (default 10 per person, `AI_ASK_DAILY_LIMIT`; admins use `AI_ADMIN_DAILY_LIMIT`), separate from the plan limit. The photo is handled like the plan photo: not stored, and the same Gemini free-tier note applies. It's general guidance, not medical advice.
 
 **Setup:** the proxy is a small Django app in `proxy/`. [PROXY_SETUP.md](PROXY_SETUP.md) walks through installing it on PythonAnywhere, its settings, and setting `AI_PROXY_URL` in `firebase-config.js`. After updating the proxy, run `python manage.py migrate workout_ai` (a new `kind` field separates plan and body-check usage) and reload the web app.
+
+## Forj (chat assistant)
+
+A floating **Forj** button sits at the bottom right of every screen once you're signed in (not on the sign-in or welcome screens, and not for guests). It opens a small chat where you can ask how anything in the app works, or any general question about training, recovery, habits or life. Forj answers with reference to your own activity: your active plan, recent workouts, best lifts, week and streak, Life Style tasks and goals, and how many buddies and trainers you have (counts only, never other people's names or data).
+
+- Try: "How was my week?", "What should I train today?", "How do I swap a workout day?", "Why has my bench stalled?"
+- The chat lives in the open tab only (`sessionStorage`); **New chat** clears it. Enter sends, Shift+Enter adds a line, Esc closes.
+- Each message sends the last 10 messages and an activity snapshot to the proxy's `forj/` address, which asks the AI (Gemini by default) and returns plain text. Nothing is stored on the server except a row counting the message toward the daily limit (default 40 per person, `AI_FORJ_DAILY_LIMIT`; admins use `AI_ADMIN_DAILY_LIMIT`). The Gemini free-tier note applies, as for the other AI features, and the chat panel says so.
+- While a trainer is logging a trainee's workout, none of the trainee's data is sent.
+- Forj is a general guide, not a doctor: it won't diagnose or give medical advice. Its prompt, including what it knows about the app, is in `proxy/workout_ai/forj_prompts.py`; keep that guide in step when the app changes.
+- After copying `views.py`, `urls.py`, `forj_chat.py` and `forj_prompts.py` to PythonAnywhere, **Reload** the web app. No migration (it reuses `PlanRequest`, `kind` `forj`).
 
 ## Admin
 
@@ -110,7 +121,7 @@ Admins get an **Admin** tab in the top menu. It's hidden completely for everyone
 
 Admins can't read anyone's workout log. Only trainers someone chose can do that.
 
-**Joining needs approval.** Anyone can open the app link and sign in with Google, but a new person only gets a "Request sent" screen until an admin approves them. Requests appear at the top of the Admin tab (with a count on the tab): **Approve** makes the account active, **Decline** marks it disabled. People who were already using the app before this change stay active.
+**Joining.** Anyone can open the app link and sign in with Google. A new person picks **I'm training for myself** or **I'm a trainer** and is in straight away; there is no request or approval step. An admin can still **Disable** an account later. People who were waiting under the old approval flow (status `pending`) now count as active.
 
 **What "disabled" means.** A browser app can't disable a Firebase Authentication account (that needs the Admin SDK on a server). So disabling is an app-level flag, `accounts/{uid}.disabled`, enforced by the security rules. The person can still sign in with Google, but the app shows only a "This account has been disabled" screen, loads nothing, and the rules refuse every write of their data. It doesn't delete anything, and **Enable** restores the account as it was. The rules don't block reads, so a disabled person with their own tools could still read what they could read before.
 
@@ -160,7 +171,7 @@ profiles/{uid}                     name, nickname, photo, Instagram, bio
 directory/{uid}                    public card for Find New Buddies
 emails/{email}                     uid, for add-by-email
 admins/{uid}                       { by, at }: presence means admin
-accounts/{uid}                     { status, name, email, photo, requested, by, at }: pending, active or disabled
+accounts/{uid}                     { status, name, email, photo, requested, by, at }: active or disabled (older documents may say pending, which counts as active)
 audit/{id}                         { action, target, name, by, at }: admin actions
 exercises/{slug}                   { name, display, youtube, added, updatedBy, updatedAt }: renames, tutorial videos, added exercises
 requests/{fromUid}_{toUid}         buddy request: pending or accepted
