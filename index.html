@@ -2513,7 +2513,7 @@ function renderPlans(){
     <div class="row"><button class="btn primary" id="newPlan">Create a new plan</button>
       <button class="btn" id="importBtn">Import from PDF or Excel</button></div>
     <input type="file" id="importFile" accept=".pdf,.xlsx,.xls,.csv,application/pdf" hidden>
-    <p class="small muted" style="margin:12px 0 0">A file works best with one line per exercise, like "Bench Press 4 x 6-8", under a day heading such as "Monday: Push". Spreadsheets can use Day, Exercise, Sets and Reps columns.</p>
+    <p class="small muted" style="margin:12px 0 0">A file works best with one line per exercise, like "Bench Press 4 x 6-8", under a day heading such as "Monday: Push". Spreadsheets can use Day, Exercise, Sets and Reps columns.${AI_PROXY?" If the file can't be read that way, AI reads it for you (when you're signed in), scanned PDFs included.":""}</p>
     ${msg}</div>
   <div class="panel"><h2>Your plans</h2>
     ${mine.length?`<ul class="plans">${mine.map(row).join("")}</ul>`:`<p class="muted" style="margin:0">No plans of your own yet. Create one above, or duplicate a ready-made plan below.</p>`}</div>
@@ -2653,20 +2653,34 @@ function splitCsv(line){
   }
   out.push(cur.trim());return out;
 }
+/* The last file read, kept in memory so AI can have a go when the built-in reader gets it wrong. Nothing leaves the
+   device unless AI is used: then the text read from the file goes to the proxy's import/ address (or, for a scanned
+   PDF with no text, the PDF itself), and the result opens in the editor to check, like any other import. */
+let IMP=null;
+const IMPORT_PDF_MAX=1_500_000;/* bytes; matches the proxy's MAX_FILE_CHARS */
+const importUrl=()=>AI_PROXY.replace(/plan\/?$/,"import/");
+function toB64(buf){
+  const a=new Uint8Array(buf);let s="";
+  for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode.apply(null,a.subarray(i,i+0x8000));
+  return btoa(s);
+}
 async function importFile(file){
   const nm=(file.name||"plan").replace(/\.[^.]+$/,"");
+  if(IMP&&IMP.busy){say("AI is still reading "+IMP.name+". Try again when it's done.");return}
   say("Reading "+file.name+"...",true);
+  let parsed,text="",pdf=null;
   try{
-    let parsed;
     if(/\.pdf$/i.test(file.name)){
       await loadScript("./lib/pdf.min.js");
       const lib=window.pdfjsLib;
       lib.GlobalWorkerOptions.workerSrc="./lib/pdf.worker.min.js";
       const buf=await file.arrayBuffer();
-      const pdf=await lib.getDocument({data:buf}).promise;
+      /* PDF.js hands the buffer to its worker, so keep a copy in case AI needs the file itself */
+      const copy=buf.byteLength<=IMPORT_PDF_MAX?buf.slice(0):null;
+      const doc=await lib.getDocument({data:buf}).promise;
       const lines=[];
-      for(let i=1;i<=pdf.numPages;i++){
-        const page=await pdf.getPage(i);const tc=await page.getTextContent();
+      for(let i=1;i<=doc.numPages;i++){
+        const page=await doc.getPage(i);const tc=await page.getTextContent();
         const rows={};
         tc.items.forEach(it=>{
           const y=Math.round(it.transform[5]);
@@ -2676,31 +2690,88 @@ async function importFile(file){
           .forEach(y=>lines.push(rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ")));
       }
       parsed=parseLines(lines);
+      text=lines.map(l=>l.replace(/\s+/g," ").trim()).filter(Boolean).join("\n");
+      /* little or no text means a scan or a picture of the plan: only the file itself can be read */
+      if(text.replace(/\s/g,"").length<40&&copy)pdf=toB64(copy);
     }else if(/\.csv$/i.test(file.name)){
-      const text=await file.text();
-      const rows=text.split(/\r?\n/).filter(l=>l.trim()).map(splitCsv);
+      const t=await file.text();
+      const rows=t.split(/\r?\n/).filter(l=>l.trim()).map(splitCsv);
       parsed=parseSheet(rows);
+      text=rows.map(r=>r.filter(c=>c!=="").join(" | ")).filter(Boolean).join("\n");
     }else{
       await loadScript("./lib/xlsx.min.js");
       const wb=window.XLSX.read(await file.arrayBuffer(),{type:"array"});
-      const rows=[];
+      const rows=[],out=[];
       wb.SheetNames.forEach(sn=>{
+        out.push("Sheet: "+sn);
         window.XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,blankrows:false,defval:""})
-          .forEach(r=>rows.push(r.map(c=>String(c==null?"":c).trim())));
+          .forEach(r=>{const row=r.map(c=>String(c==null?"":c).trim());rows.push(row);const l=row.filter(c=>c!=="").join(" | ");if(l)out.push(l)});
       });
       parsed=parseSheet(rows);
+      text=out.join("\n");
     }
-    const workouts=parsed.days.filter(d=>d.ex&&d.ex.length);
-    if(!workouts.length){say("Couldn't find any exercises in that file. It needs lines like \"Bench Press 4 x 6-8\", or columns for Day, Exercise, Sets and Reps.");return}
-    const total=workouts.reduce((a,d)=>a+d.ex.length,0);
-    openEditor(toPlan(parsed,nm));
-    S.draftNote="Imported "+workouts.length+" workout day"+(workouts.length===1?"":"s")+" and "+total+" exercises from "+file.name+". Check everything below, then save."
-      +(parsed.warn.length?" "+parsed.warn.length+" line"+(parsed.warn.length===1?"":"s")+" couldn't be read and were skipped.":"");
-    render();
   }catch(err){
     console.warn(err);
     say(/\.pdf$/i.test(file.name)?"Couldn't read that PDF. Check your connection, or export the plan as Excel or CSV and try again.":"Couldn't read that file. Excel (.xlsx), CSV and PDF are supported.");
+    return;
   }
+  IMP={name:file.name,base:nm,text:text.slice(0,30000),pdf,busy:false,err:""};
+  const scanned=/\.pdf$/i.test(file.name)&&text.replace(/\s/g,"").length<40;
+  const workouts=parsed.days.filter(d=>d.ex&&d.ex.length);
+  if(!workouts.length){
+    if(lifeAi()&&(text.trim().length>=10||pdf))return importAi();
+    if(scanned&&!pdf&&lifeAi()){say("That PDF looks like a scan, and it's too large for AI to read. Try a smaller file, or just the pages with the plan.");return}
+    say((scanned?"That PDF looks like a scan, so there's no text to read.":"Couldn't find any exercises in that file. It needs lines like \"Bench Press 4 x 6-8\", or columns for Day, Exercise, Sets and Reps.")
+      +(AI_PROXY&&!lifeAi()?" Sign in and AI can read it for you.":""));
+    return;
+  }
+  const total=workouts.reduce((a,d)=>a+d.ex.length,0);
+  openEditor(toPlan(parsed,nm));
+  S.draftImport=true;
+  S.draftNote="Imported "+workouts.length+" workout day"+(workouts.length===1?"":"s")+" and "+total+" exercises from "+file.name+". Check everything below, then save."
+    +(parsed.warn.length?" "+parsed.warn.length+" line"+(parsed.warn.length===1?"":"s")+" couldn't be read and were skipped.":"");
+  render();
+}
+/* AI reads the last imported file. Runs by itself when the built-in reader finds nothing, or from the editor's button. */
+async function importAi(){
+  const I=IMP;
+  if(!I||I.busy)return;
+  if(!lifeAi()){say("Sign in to let AI read your file.");return}
+  const fromEditor=S.view==="planEdit";
+  I.busy=true;I.err="";
+  if(fromEditor)render();
+  else say("The built-in reader couldn't follow "+I.name+", so AI is reading it. This can take up to a minute.",true);
+  const fail=t=>{
+    I.busy=false;
+    if(S.view==="planEdit"&&S.draftImport){I.err=t;render()}
+    else if(S.view==="plans")say(t);
+  };
+  let res,out=null;
+  try{
+    const token=await auth.currentUser.getIdToken();
+    res=await fetch(importUrl(),{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
+      body:JSON.stringify({name:I.name,text:I.text,file:I.pdf?{type:"application/pdf",data:I.pdf}:null,exercises:knownNames().slice(0,250)})});
+    out=await res.json().catch(()=>null);
+  }catch(e){
+    console.warn("ai import",e);
+    fail(navigator.onLine?"Couldn't reach the AI server. Try again in a minute.":"No connection. Connect to the internet to let AI read the file.");return;
+  }
+  if(IMP!==I)return;/* another file was picked while waiting */
+  if(!res.ok||!out||!out.plan||!Array.isArray(out.plan.days)||out.plan.days.length!==7){
+    fail(out&&out.error?out.error:res.status===429?"You've reached today's limit for AI imports. Try again tomorrow."
+      :res.status===401?"Your sign-in has expired. Reload the app and try again.":"The AI couldn't read that file. Try again in a minute.");
+    return;
+  }
+  I.busy=false;
+  /* don't reopen an editor they left, or replace a different plan they started editing while they waited */
+  if(fromEditor?!(S.view==="planEdit"&&S.draftImport):(S.view==="planEdit"&&!S.draftImport))return;
+  const plan={name:out.plan.name||I.base,days:out.plan.days.map(d=>d.t==="rest"||!Array.isArray(d.ex)||!d.ex.length?REST(d.focus):
+    {t:TYPES[d.t]?d.t:"other",title:d.title||tinfo(TYPES[d.t]?d.t:"other").label,focus:d.focus||"",note:d.note||"",ex:d.ex.map(x=>X(x.n,x.s,x.lo,x.hi,x.u))})};
+  const w=+out.workouts||0,n=+out.exercises||0;
+  openEditor(plan);
+  S.draftNote="AI read "+w+" workout day"+(w===1?"":"s")+" and "+n+" exercise"+(n===1?"":"s")+" from "+I.name+". Check everything below, then save."
+    +(out.notes?" "+out.notes:"");
+  S.msg="";IMP=null;render();
 }
 
 /* plan view (read-only) */
@@ -2741,7 +2812,7 @@ function renderPlanView(){
 
 /* plan editor */
 function blankPlan(){return {name:"",days:WD.map(()=>REST())}}
-function openEditor(plan,id,coachFor){S.draft=clone({name:plan.name,days:plan.days});S.draftId=id||null;S.coachFor=coachFor||null;S.draftErr="";S.draftNote="";S.view="planEdit";render();window.scrollTo(0,0)}
+function openEditor(plan,id,coachFor){S.draft=clone({name:plan.name,days:plan.days});S.draftId=id||null;S.coachFor=coachFor||null;S.draftErr="";S.draftNote="";S.draftImport=false;S.view="planEdit";render();window.scrollTo(0,0)}
 const typeOpts=(t,noRest)=>Object.entries(TYPES).filter(([k])=>!(noRest&&k==="rest")).map(([k,v])=>`<option value="${k}" ${k===t?"selected":""}>${v.label}</option>`).join("");
 const unitOpts=u=>UNITS.map(([k,l])=>`<option value="${k}" ${k===(u||"")?"selected":""}>${l}</option>`).join("");
 /* one day of the editor: used for each weekday of a plan, and for changing a single date's workout */
@@ -2805,7 +2876,9 @@ function renderPlanEdit(){
   }).join("");
   return `
   <p><button class="link" id="cancelPlan">Back to plans without saving</button></p>
-  ${S.draftNote?`<div class="panel"><p class="msg" style="margin:0;color:var(--good)">${esc(S.draftNote)}</p></div>`:""}
+  ${S.draftNote?`<div class="panel"><p class="msg" style="margin:0;color:var(--good)">${esc(S.draftNote)}</p>${S.draftImport&&IMP&&lifeAi()?`
+    <div class="row" style="margin-top:12px"><button class="btn small" id="importAi"${IMP.busy?" disabled":""}>${IMP.busy?"AI is reading the file...":"Not right? Read it with AI"}</button></div>
+    ${IMP.err?`<p class="msg" style="margin:8px 0 0;color:var(--push)">${esc(IMP.err)}</p>`:IMP.busy?`<p class="small muted" style="margin:8px 0 0">This can take up to a minute. Anything you change here will be replaced.</p>`:""}`:""}</div>`:""}
   ${S.coachFor?`<div class="panel"><p class="msg" style="margin:0">You're editing a plan for ${esc(TR.name)}.</p></div>`:""}
   <div class="panel"><h2>${S.draftId?"Edit plan":"New plan"}</h2>
     <label class="stack"><span>Plan name</span><input class="field" data-pf="name" value="${esc(D.name)}" placeholder="e.g. Summer cut, 5 days"></label></div>
@@ -5416,6 +5489,7 @@ document.addEventListener("click",async e=>{
     case "csv-me":case "pdf-me":case "csv-t":case "pdf-t":exportRun(t.id.slice(4)||"",t.id.startsWith("csv"));return;
     case "csv-day":case "pdf-day":exportDay(t.id==="csv-day");return;
     case "importBtn":$("#importFile").click();return;
+    case "importAi":importAi();return;
     case "actToday":openAct(TR.uid);return;
     case "actDone":{const tid=ACT.uid;leaveAct();if(tid)openTrainee(tid);else{S.view="buddies";render()}window.scrollTo(0,0);return}
     case "newTraineePlan":openEditor(blankPlan(),null,TR.uid);return;

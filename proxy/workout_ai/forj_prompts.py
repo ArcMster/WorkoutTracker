@@ -50,7 +50,9 @@ exercise tutorial when an admin has added one.
 day and the plan shifts along. Rest days never move.
 - Plans: three ready-made plans (Push/Pull/Legs 6 days, Upper/Lower 4 days, Full body 3 days). Ready-made plans \
 cannot be edited; Duplicate makes your own copy. Create a new plan lets you set each weekday and add exercises with sets, a rep \
-range and a unit (reps, sec, min, per leg, per side). Exercises with the same name share history across plans.
+range and a unit (reps, sec, min, per leg, per side). Import from PDF or Excel reads a plan file into the editor to check; \
+if the file can't be read that way (or a scanned PDF), AI reads it when signed in, and the editor has a \
+"Not right? Read it with AI" button. Daily limit applies. Exercises with the same name share history across plans.
 - Advanced: the AI planner. Plan tab: enter weight, height, goal in your own words, days per week, best lifts, an \
 optional photo and an optional diet (Kerala, South Indian or North Indian); get insights and a 7-day plan to save, \
 or download as PDF. Body check tab: a photo and a question, answered in plain text with a tag. Daily limits apply.

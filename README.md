@@ -152,6 +152,8 @@ What reads best:
 
 The readers (SheetJS and PDF.js) are bundled in `lib/`, so import works offline and needs no third-party CDN.
 
+**AI import.** When you're signed in and the AI proxy is set up, files the built-in reader can't follow go to AI automatically: the text read from the file (or, for a scanned PDF with no text, the PDF itself, up to 1.5 MB) is sent to the proxy's `import/` address, and the result opens in the editor to check. If the built-in reader did find something but got it wrong, use **Not right? Read it with AI** in the editor. See PROXY_SETUP.md for the daily limit.
+
 ## How sharing works
 
 - Your full workout log (`users/{uid}/log`) is private to you. Nobody else can read it.

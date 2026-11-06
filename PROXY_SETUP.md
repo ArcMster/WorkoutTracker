@@ -239,3 +239,13 @@ The floating **Forj** chat posts to `https://yourname.pythonanywhere.com/ai/forj
 | `AI_FORJ_DAILY_LIMIT` | `40` | Forj messages per user per 24 hours (admins use `AI_ADMIN_DAILY_LIMIT`) |
 
 The request carries the last 10 messages and a snapshot of the person's own activity from the app; nothing is stored here except the row that counts the message. The prompt, with its guide to the app, is in `forj_prompts.py`; edit it there and reload.
+
+## AI plan import
+
+**Plans > Import from PDF or Excel** falls back to AI when the app's own reader can't follow a file, and the editor has a **Not right? Read it with AI** button. The app posts to `https://yourname.pythonanywhere.com/ai/import/` (it swaps the trailing `plan/` of `AI_PROXY_URL` for `import/`). Copy the new and changed files (`views.py`, `urls.py`, `plan_import.py`) and **Reload** the web app. No new packages and no migration (`PlanRequest`, `kind` `import`).
+
+| Name | Default | What it does |
+| --- | --- | --- |
+| `AI_IMPORT_DAILY_LIMIT` | `10` | Files read by AI per user per 24 hours (admins use `AI_ADMIN_DAILY_LIMIT`). A file with no plan in it doesn't count. |
+
+The request carries the text the app read from the file (up to 30,000 characters). For a scanned PDF with no text it carries the PDF itself, up to 1.5 MB; Gemini and Claude both read PDFs. That fits under Django's default `DATA_UPLOAD_MAX_MEMORY_SIZE` (2.5 MB), so leave that setting alone or keep it at least that large. Nothing is stored. The prompt is in `plan_import.py`.
