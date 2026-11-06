@@ -32,6 +32,7 @@ from . import forj_chat as FC
 from . import forj_prompts as FPR
 from . import life_plan as LP
 from . import life_prompts as LPR
+from . import plan_import as PI
 from .models import PlanRequest
 
 log = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ LIFE_PLAN_LIMIT = int(conf("AI_LIFE_PLAN_DAILY_LIMIT", "5"))  # Life Style plans
 LIFE_TASK_LIMIT = int(conf("AI_LIFE_TASK_DAILY_LIMIT", "20"))  # Life Style single-task swaps
 LIFE_SUM_LIMIT = int(conf("AI_LIFE_SUMMARY_DAILY_LIMIT", "5"))  # Life Style summaries
 FORJ_LIMIT = int(conf("AI_FORJ_DAILY_LIMIT", "40"))  # Forj chat messages
+IMPORT_LIMIT = int(conf("AI_IMPORT_DAILY_LIMIT", "10"))  # plan files read by AI
 MAX_PHOTO_CHARS = 2_000_000  # base64 characters; the app sends about 300 KB
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -497,9 +499,9 @@ def ask_claude(photo, text, system, schema, max_tokens=16000):
     if _client is None:
         _client = anthropic.Anthropic(api_key=API_KEY, timeout=float(TIMEOUT), max_retries=1)
     content = []
-    if photo:
-        content.append({"type": "image", "source": {"type": "base64", "media_type": photo[0],
-                                                     "data": base64.b64encode(photo[1]).decode()}})
+    if photo:  # an image, or a PDF for plan import
+        content.append({"type": "document" if photo[0] == "application/pdf" else "image",
+                        "source": {"type": "base64", "media_type": photo[0], "data": base64.b64encode(photo[1]).decode()}})
     content.append({"type": "text", "text": text})
     try:
         response = _client.beta.messages.create(
@@ -726,7 +728,7 @@ def ask(request):
 
 # ---------- Life Style: AI task plans ----------
 
-def life_gate(request, kind, default_limit, noun):
+def life_gate(request, kind, default_limit, noun, max_body=60_000):
     """The checks every Life Style call shares. Returns (uid, limit, used, data) or an error response."""
     if request.method == "OPTIONS":
         return cors(JsonResponse({}), request)
@@ -748,7 +750,11 @@ def life_gate(request, kind, default_limit, noun):
     limit = ADMIN_DAILY_LIMIT if is_admin(uid, token) else default_limit
     if used >= limit:
         return fail(request, 429, f"You've used {limit} {noun} in the last 24 hours. Try again tomorrow.")
-    if len(request.body or b"") > 60_000:
+    try:
+        too_big = len(request.body or b"") > max_body
+    except RequestDataTooBig:  # over Django's DATA_UPLOAD_MAX_MEMORY_SIZE
+        too_big = True
+    if too_big:
         return fail(request, 413, "That request is too large.")
     try:
         data = json.loads(request.body or b"{}")
@@ -879,3 +885,48 @@ def forj(request):
     record.ok = True
     record.save(update_fields=["ok"])
     return cors(JsonResponse({"reply": reply, "remaining": max(0, limit - used - 1), "model": MODEL}), request)
+
+
+# ---------- plan import: a PDF or spreadsheet the app's own reader couldn't follow ----------
+
+@csrf_exempt
+def import_plan(request):
+    """The app sends the text it read from the file (and the PDF itself when it is a scan with no text); the AI copies the
+    plan into the app's shape. The app opens it in the plan editor for the person to check, so nothing is saved here."""
+    g = life_gate(request, "import", IMPORT_LIMIT, "AI file imports", max_body=PI.MAX_FILE_CHARS + PI.MAX_TEXT * 4 + 20_000)
+    if not isinstance(g, tuple):
+        return g
+    uid, limit, used, data = g
+    try:
+        doc = PI.read_file(data.get("file"))
+        text = PI.describe(data)
+    except ValueError as e:
+        return fail(request, 413 if "large" in str(e) else 400, str(e))
+    record = PlanRequest.objects.create(uid=uid, kind="import")
+    ask = ask_gemini if PROVIDER == "gemini" else ask_claude
+    out = None
+    try:
+        for attempt in range(2):
+            raw = ask(doc, text, PI.SYSTEM, PI.SCHEMA)
+            try:
+                out = PI.normalize(json.loads(raw))
+            except (ValueError, AttributeError, TypeError):
+                out = None
+            if out:
+                break
+            log.warning("import: unusable reply (attempt %s): %.300s", attempt + 1, raw)
+        if not out:
+            raise AIError(502, "The AI couldn't read a plan from that file. Try again, or build the plan yourself.")
+    except AIError as e:
+        return fail(request, e.status, str(e))
+    except Exception:
+        log.exception("plan import failed")
+        return fail(request, 500, "Something went wrong on the server. Try again later.")
+    if not out["plan"]:  # read fine, but there was no plan in it: don't count it against the limit
+        record.delete()
+        return fail(request, 422, out["notes"] or "The AI couldn't find a workout plan in that file.")
+    record.ok = True
+    record.save(update_fields=["ok"])
+    out["remaining"] = max(0, limit - used - 1)
+    out["model"] = MODEL
+    return cors(JsonResponse(out), request)
