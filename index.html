@@ -101,7 +101,10 @@ button{cursor:pointer}
 .sets input:focus{border-color:var(--dc);outline:none}
 .sets input::placeholder{color:var(--muted);opacity:.55}
 .sets td.ok{width:52px}
-.setbtns{margin-top:8px}
+.setbtns{margin-top:8px;align-items:center}
+.setpm{min-width:44px;min-height:40px;font-size:20px;line-height:1}
+.setpm:disabled{opacity:.4}
+.edbtns{display:flex;flex-direction:column;gap:6px}
 .done{width:44px;height:44px;border-radius:50%;border:2px solid var(--line);background:none;display:grid;place-items:center}
 .done svg{width:20px;height:20px;stroke:var(--muted);opacity:.5}
 .done[aria-pressed="true"]{background:var(--dc);border-color:var(--dc)}
@@ -768,6 +771,8 @@ function fromKg(w){return w==null?null:(S.settings.unit==="lb"?Math.round(w/0.45
 function step(){return S.settings.unit==="kg"?2.5:5}
 function roundTo(x,s){return Math.round(x/s)*s}
 function setsFor(ex,deload){return deload?Math.max(1,Math.round(ex.s*0.6)):ex.s}
+/* sets shown for an exercise in a session: the plan's sets plus or minus what was added or removed with the +/- buttons, never fewer than 1 */
+function setsIn(ex,s,deload){return Math.max(1,setsFor(ex,deload)+((s&&s.extra&&s.extra[ex.n])||0))}
 function reps(ex){return !ex.lo?"":ex.lo===ex.hi?String(ex.lo):ex.lo+"-"+ex.hi}
 function target(ex,n){const r=reps(ex);return (n??ex.s)+(r?" x "+r:" sets")+(r&&ex.u?" "+ex.u:"")}
 function repLabel(ex){return ex.u==="sec"?"Sec":ex.u==="min"?"Min":"Reps"}
@@ -1160,7 +1165,7 @@ function nowTraining(){
   if(!s)return null;
   const p=getPlan(s.planId||"ppl"),m=sessionMeta(s);
   const d=withAdded(s.custom||(p&&p.days[sessSrc(s)-1]),s);
-  const done=setCount(s),of=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload)+((s.extra&&s.extra[x.n])||0),0):0;
+  const done=setCount(s),of=d&&d.ex?d.ex.reduce((a,x)=>a+setsIn(x,s,s.deload),0):0;
   const ex=s.lastEx&&filled(s.entries[s.lastEx]).length?s.lastEx:Object.keys(s.entries||{}).filter(n=>filled(s.entries[n]).length).pop()||"";
   return {d:s.date,at:s.updated||Date.now(),t:m.t,title:m.title,src:s.custom?0:sessSrc(s),plan:p?p.name:"",custom:!!s.custom,ex,done,of};
 }
@@ -2354,7 +2359,7 @@ function renderLog(){
   }else{
     body=d.ex.map((ex,i)=>{
       const last=lastFor(ex.n);const h=hintFor(ex,last);
-      const extra=(s&&s.extra&&s.extra[ex.n])||0;const n=setsFor(ex,deload)+extra;const entry=(s&&s.entries[ex.n])||[];const u=S.settings.unit;
+      const n=setsIn(ex,s,deload);const entry=(s&&s.entries[ex.n])||[];const u=S.settings.unit;
       const rows=Array.from({length:n},(_,k)=>{
         const e=entry[k]||{};const l=last&&last.sets[k];
         const w=e.w!=null?conv(e.w,s.unit||u,u):"";
@@ -2374,8 +2379,9 @@ function renderLog(){
         ${last?`<p class="last">Last time, ${fmtDate(last.date)}: ${last.sets.map(x=>fmtSet(x,last.unit)).join(", ")}</p>`:`<p class="last">First time logging this one.${ex.hi?" Pick a weight you can do for "+ex.hi+" clean "+(ex.u==="sec"?"seconds":ex.u==="min"?"minutes":"reps")+".":""}</p>`}
         ${h?`<p class="hint ${h.up?"up":""}">${esc(h.t)}</p>`:""}
         <table class="sets"><thead><tr><th></th><th>Weight (${u})</th><th>${repLabel(ex)}</th><th></th><th></th></tr></thead><tbody>${rows}</tbody></table>
-        ${lock?"":`<div class="row setbtns"><button class="btn small" data-addset="${i}">Add set</button>
-          ${extra&&!filled(entry.slice(n-1,n)).length&&!(entry[n-1]&&(entry[n-1].w!=null||entry[n-1].done))?`<button class="btn small" data-rmset="${i}">Remove last set</button>`:""}</div>`}
+        ${lock?"":`<div class="row setbtns"><button class="btn small setpm" data-rmset="${i}" aria-label="Remove the last set of ${esc(dn(ex.n))}" ${n<=1?"disabled":""}>&minus;</button>
+          <span class="small muted">${n} set${n===1?"":"s"}</span>
+          <button class="btn small setpm" data-addset="${i}" aria-label="Add a set to ${esc(dn(ex.n))}">+</button></div>`}
       </section>`;
     }).join("");
   }
@@ -2415,18 +2421,19 @@ function renderLog(){
 function editHtml(d,s,deload){
   const E=S.edit;
   const rows=d.ex.map((x,i)=>{
-    const n=setsFor(x,deload)+((s&&s.extra&&s.extra[x.n])||0),logged=s&&s.entries?filled(s.entries[x.n]).length:0;
+    const n=setsIn(x,s,deload),logged=s&&s.entries?filled(s.entries[x.n]).length:0;
     return `<li class="edrow" data-dragitem>
       <button class="icon grip" aria-label="Move ${esc(dn(x.n))}. Drag it, or use the up and down arrow keys.">${GRIP}</button>
       <div class="nm"><b>${esc(dn(x.n))}</b><small>${esc(target(x,n))}${logged?` · ${logged} set${logged===1?"":"s"} logged`:""}</small></div>
-      <button class="btn small" data-replace="${i}" aria-expanded="${E.rep===i}">Replace</button>
+      <div class="edbtns"><button class="btn small" data-replace="${i}" aria-expanded="${E.rep===i}">Replace</button>
+        ${d.ex.length>1?`<button class="btn small" data-rmtoday="${i}" aria-label="Remove ${esc(dn(x.n))} from this workout">Remove</button>`:""}</div>
       ${E.rep===i?`<div class="repbox"><label class="small muted" for="repName">Replace ${esc(dn(x.n))} with</label>
         <div class="row"><input class="field" id="repName" list="exnames" data-rf="name" value="${esc(E.name)}" placeholder="Exercise name" maxlength="60" style="flex:1;min-width:160px">
           <button class="btn small primary" id="repApply">Replace</button><button class="btn small" id="repCancel">Cancel</button></div>
         <p class="small muted" style="margin:6px 0 0">Keeps the sets and reps.${logged?` The ${logged} set${logged===1?"":"s"} logged for ${esc(dn(x.n))} will be removed.`:""}</p>
         ${E.err?`<p class="msg" style="color:var(--push);margin:6px 0 0">${esc(E.err)}</p>`:""}</div>`:""}
     </li>`}).join("");
-  return `${exNamesList()}<div class="panel"><p class="small muted" style="margin:0 0 6px">Drag the handle to reorder, or tap Replace to swap an exercise. Only ${esc(fmtDate(S.date))} changes${ACT.uid?" for "+esc(ACT.name):""}. ${ACT.uid?"Their":"Your"} plan stays the same. Tap Done editing when you finish.</p>
+  return `${exNamesList()}<div class="panel"><p class="small muted" style="margin:0 0 6px">Drag the handle to reorder, tap Replace to swap an exercise, or Remove to drop it. Only ${esc(fmtDate(S.date))} changes${ACT.uid?" for "+esc(ACT.name):""}. ${ACT.uid?"Their":"Your"} plan stays the same. Tap Done editing when you finish.</p>
     <ul class="edlist" data-dragkind="log">${rows}</ul></div>`;
 }
 /* this date's workout as an editable copy saved on the session (also folds in exercises added during the session) */
@@ -2439,6 +2446,18 @@ function reorderEx(from,to){
   const s=customize(),a=s.custom.ex;
   if(from===to||!a[from]||to<0||to>=a.length)return;
   a.splice(to,0,a.splice(from,1)[0]);
+  s.updated=Date.now();scheduleSave(curId());render();
+}
+function removeToday(i){
+  const d=day(),x=d.ex[i];
+  if(!x||d.ex.length<2)return;
+  const s0=cur(),logged=s0&&s0.entries?filled(s0.entries[x.n]).length:0;
+  if(!confirm("Remove "+dn(x.n)+" from "+fmtDate(S.date)+"'s workout?"+(logged?" The "+logged+" set"+(logged===1?"":"s")+" logged for it will be removed.":"")+" Your plan stays the same."))return;
+  const s=customize();
+  s.custom.ex.splice(i,1);
+  if(s.entries)delete s.entries[x.n];
+  if(s.extra)delete s.extra[x.n];
+  if(S.edit)S.edit.rep=null;
   s.updated=Date.now();scheduleSave(curId());render();
 }
 function applyReplace(){
@@ -4900,7 +4919,7 @@ function lifeWorkoutByDate(){
 }
 function lifeWorkoutDay(date,w){
   const s=w.list[0],m=sessionMeta(s),p=getPlan(s.planId||"ppl"),d=withAdded(s.custom||(p&&p.days[sessSrc(s)-1]),s);
-  const planned=d&&d.ex?d.ex.reduce((a,x)=>a+setsFor(x,s.deload)+((s.extra&&s.extra[x.n])||0),0):0;
+  const planned=d&&d.ex?d.ex.reduce((a,x)=>a+setsIn(x,s,s.deload),0):0;
   const c=wkClock(s);
   return {date,title:m.title+(w.list.length>1?" +"+(w.list.length-1)+" more":""),sets:w.sets,planned,volumeKg:Math.round(w.vol),minutes:c&&!c.running?Math.round(c.ms/60000):0};
 }
@@ -5411,12 +5430,21 @@ document.addEventListener("click",async e=>{
     if(S.planId===ds.del)S.planId=S.settings.activePlan;
     schedulePublish();S.msg="Plan deleted.";S.msgOk=true;render();return}
   if(ds.swap){swapDays(S.date,ds.swap);S.swapOpen=false;render();return}
+  if(ds.rmtoday!=null){removeToday(+ds.rmtoday);return}
   if(ds.addset!=null||ds.rmset!=null){
     const ex=day().ex[+(ds.addset??ds.rmset)];if(!ex)return;
+    const s0=cur(),dl=s0?!!s0.deload:!!(weekInfo()&&weekInfo().cycle===6),n0=setsIn(ex,s0,dl);
+    if(ds.rmset!=null){
+      if(n0<=1)return;
+      const e=s0&&s0.entries&&s0.entries[ex.n]&&s0.entries[ex.n][n0-1];
+      if(e&&(e.r!=null||e.w!=null||e.done)&&!confirm("Remove set "+n0+" of "+dn(ex.n)+"? What you logged for it will be removed."))return;
+    }
     const s=ensure(),ex2=s.extra||(s.extra={});
-    ex2[ex.n]=Math.max(0,(ex2[ex.n]||0)+(ds.addset!=null?1:-1));
+    if(!s0)s.deload=dl;/* a new session keeps the deload state shown on screen */
+    /* extra can go below zero: that removes planned sets for this day only */
+    ex2[ex.n]=n0+(ds.addset!=null?1:-1)-setsFor(ex,s.deload);
     if(!ex2[ex.n])delete ex2[ex.n];
-    if(ds.rmset!=null){const a=s.entries[ex.n],n=setsFor(ex,s.deload)+(ex2[ex.n]||0);if(a&&a.length>n)a.length=n}
+    if(ds.rmset!=null){const a=s.entries&&s.entries[ex.n],n=setsIn(ex,s,s.deload);if(a&&a.length>n)a.length=n}
     s.updated=Date.now();scheduleSave(curId());
     const y=window.scrollY;render();window.scrollTo(0,y);return}
   if(ds.addex!=null){const d=S.draft.days[+ds.addex];d.ex.push(X("",3,8,12));render();
